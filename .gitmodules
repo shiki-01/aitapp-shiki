@@ -1,0 +1,3 @@
+[submodule "vendor/aitapp"]
+	path = vendor/aitapp
+	url = https://github.com/ROTO0504/aitapp.git
