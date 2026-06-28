@@ -1,0 +1,20 @@
+name = "aitapp-worker"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+
+# Workers KV: ユーザー状態を 1 ユーザー 1 key で保持する。
+# `wrangler kv namespace create USER_KV` で作成し、出力された id を埋める。
+kv_namespaces = [
+  { binding = "USER_KV", id = "REPLACE_WITH_KV_ID", preview_id = "REPLACE_WITH_PREVIEW_KV_ID" }
+]
+
+[vars]
+# フロント(SvelteKit)のオリジン。CORS / Origin チェックに使用する。
+# 本番では Pages のオリジンに、ローカルでは Vite dev server に合わせる。
+APP_ORIGIN = "http://localhost:5173"
+# /api/schedule の reload ループ回数（subrequest 上限のため Dart の 25 から縮小）。
+SCHEDULE_WEEKS = "8"
+
+# シークレットは vars に書かず wrangler secret で投入する:
+#   wrangler secret put CRED_KEY        # credential 暗号化鍵（AES-GCM）
+#   wrangler secret put SESSION_SECRET  # session cookie 署名鍵（HMAC-SHA256）

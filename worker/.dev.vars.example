@@ -1,0 +1,4 @@
+# .dev.vars のサンプル。コピーしてランダム値を入れる。
+# 生成例: node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
+CRED_KEY=
+SESSION_SECRET=
