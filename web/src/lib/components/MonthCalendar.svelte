@@ -32,6 +32,23 @@
     return list;
   })();
 
+  // 初回マウント時に今日を含む月までスクロールする（デフォルトは過去ではなく当月）。
+  let scrollEl: HTMLDivElement | undefined = $state();
+  let monthEls: (HTMLElement | undefined)[] = $state([]);
+  let scrolled = false;
+  const todayIdx = baseMonths.findIndex(
+    (m) => m.year === today.getFullYear() && m.month0 === today.getMonth(),
+  );
+
+  $effect(() => {
+    if (scrolled) return;
+    const el = monthEls[todayIdx];
+    if (scrollEl && el) {
+      scrollEl.scrollTop = el.offsetTop - scrollEl.offsetTop;
+      scrolled = true;
+    }
+  });
+
   function isCurrentMonth(d: Date, month0: number): boolean {
     return d.getMonth() === month0;
   }
@@ -52,9 +69,9 @@
     {/each}
   </div>
 
-  <div class="scroll">
-    {#each baseMonths as m (m.year + '-' + m.month0)}
-      <section class="month">
+  <div class="scroll" bind:this={scrollEl}>
+    {#each baseMonths as m, mi (m.year + '-' + m.month0)}
+      <section class="month" bind:this={monthEls[mi]}>
         <h3 class="month-title">{fmtMonthTitle(m.year, m.month0)}</h3>
         <div class="grid">
           {#each monthGrid(m.year, m.month0) as d (dateKey(d) + '@' + m.month0)}

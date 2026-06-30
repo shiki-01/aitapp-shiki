@@ -6,8 +6,9 @@
     dateKey,
     sameDay,
     WEEKDAY_LABELS,
+    type Period,
   } from '$lib/date';
-  import { events, memos } from '$lib/stores/local.svelte';
+  import { events, memos, classMemos } from '$lib/stores/local.svelte';
   import MonthCalendar from '$lib/components/MonthCalendar.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
@@ -18,9 +19,16 @@
   let timetable = $state<TimetableEntry[]>([]);
   let ttError = $state('');
 
-  // 予定追加シート
+  // 予定追加シート（他の予定）
   let sheetOpen = $state(false);
   let form = $state({ title: '', start: '', end: '', note: '' });
+
+  // 授業メモ編集シート（その日のその時限）
+  let memoSheetOpen = $state(false);
+  let memoTarget = $state<{ period: Period; entry?: TimetableEntry } | null>(
+    null,
+  );
+  let memoDraft = $state('');
 
   // 時間割を一度だけ取得（曜日×時限）。worker 未起動でも握りつぶす。
   $effect(() => {
@@ -46,13 +54,14 @@
     return timetable.find((e) => e.day === dayKey && e.period === period);
   }
 
-  // 当日の時間割に存在する時限のみ表示。
-  const dayClasses = $derived(
-    dayKey
-      ? PERIODS.map((p) => ({ period: p, entry: classAt(p.period) })).filter(
-          (r) => r.entry,
-        )
-      : [],
+  // 1〜6限は常に同じ表示。授業がなくても枠を確保する。
+  // メモは曜日スロットではなく選択日（selKey）に紐づく。
+  const dayRows = $derived(
+    PERIODS.map((p) => ({
+      period: p,
+      entry: classAt(p.period),
+      memo: classMemos.get(selKey, p.period),
+    })),
   );
 
   const dayEvents = $derived(events.forDate(selKey));
@@ -79,6 +88,20 @@
     sheetOpen = false;
   }
 
+  // 授業自体は編集不可。その日のその時限に対するメモのみ編集する。
+  function openClassMemo(period: Period, entry?: TimetableEntry) {
+    memoTarget = { period, entry };
+    memoDraft = classMemos.get(selKey, period.period)?.body ?? '';
+    memoSheetOpen = true;
+  }
+
+  function saveClassMemo() {
+    if (memoTarget) {
+      classMemos.set(selKey, memoTarget.period.period, memoDraft);
+    }
+    memoSheetOpen = false;
+  }
+
   const selLabel = $derived(
     `${selected.getMonth() + 1}月${selected.getDate()}日 (${WEEKDAY_LABELS[selected.getDay()]})`,
   );
@@ -96,64 +119,72 @@
   <div class="lower">
     <div class="day-head">
       <span class="day-label" class:today={sameDay(selected, new Date())}>{selLabel}</span>
-      <button class="add" onclick={() => openAdd()}>
-        <Icon name="plus" size={16} color="#fff" /> 予定を追加
-      </button>
     </div>
 
-    {#if dayClasses.length === 0 && dayEvents.length === 0}
-      <p class="empty">
-        この日の予定はありません。
-        {#if ttError}<br /><span class="sub">時間割は取得できませんでした。</span>{/if}
-      </p>
+    {#if ttError}
+      <p class="empty"><span class="sub">時間割は取得できませんでした。</span></p>
     {/if}
 
+    <!-- 1〜6限: 授業の有無に関わらず常に同じ表示。授業は編集不可、メモのみ可。 -->
     <div class="rows">
-      {#each dayClasses as row (row.period)}
-        <div class="row">
+      {#each dayRows as row (row.period.period)}
+        <div class="row" class:vacant={!row.entry}>
           <div class="time">
             <span>{row.period.start}</span><span>~</span><span>{row.period.end}</span>
           </div>
           <div class="content">
-            <div class="topline">
-              {#if row.entry?.classRoom}<span class="tag">{row.entry.classRoom}</span>{/if}
-              <span class="title">{row.entry?.title}</span>
-            </div>
-            {#if row.entry?.teacher}<span class="teacher">{row.entry.teacher}</span>{/if}
+            {#if row.entry}
+              <div class="topline">
+                {#if row.entry.classRoom}<span class="tag">{row.entry.classRoom}</span>{/if}
+                <span class="title">{row.entry.title}</span>
+              </div>
+              {#if row.entry.teacher}<span class="teacher">{row.entry.teacher}</span>{/if}
+            {:else}
+              <span class="title vacant-label">{row.period.period}限（授業なし）</span>
+            {/if}
+            {#if row.memo}<span class="memo-note">{row.memo.body}</span>{/if}
           </div>
           <button
             class="edit"
-            aria-label="この時限に予定を追加"
-            onclick={() =>
-              openAdd({
-                start: row.period.start,
-                end: row.period.end,
-                title: row.entry?.title ?? '',
-              })}
+            aria-label="この時限にメモを追加"
+            onclick={() => openClassMemo(row.period, row.entry)}
           >
             <Icon name="edit" size={20} color="var(--primary)" />
           </button>
         </div>
       {/each}
-
-      {#each dayEvents as ev (ev.id)}
-        <div class="row custom">
-          <div class="time alt">
-            {#if ev.start}<span>{ev.start}</span>{/if}
-            {#if ev.start && ev.end}<span>~</span>{/if}
-            {#if ev.end}<span>{ev.end}</span>{/if}
-            {#if !ev.start && !ev.end}<span>終日</span>{/if}
-          </div>
-          <div class="content">
-            <span class="title">{ev.title}</span>
-            {#if ev.note}<span class="teacher">{ev.note}</span>{/if}
-          </div>
-          <button class="edit" aria-label="削除" onclick={() => events.remove(ev.id)}>
-            <Icon name="close" size={18} color="var(--muted)" />
-          </button>
-        </div>
-      {/each}
     </div>
+
+    <!-- 他の予定: 1〜6限とは別に表示する。 -->
+    <div class="section-head">
+      <span class="section-title">他の予定</span>
+      <button class="add" onclick={() => openAdd()}>
+        <Icon name="plus" size={16} color="#fff" /> 予定を追加
+      </button>
+    </div>
+    {#if dayEvents.length === 0}
+      <p class="empty"><span class="sub">この日の他の予定はありません。</span></p>
+    {:else}
+      <div class="rows">
+        {#each dayEvents as ev (ev.id)}
+          <div class="row custom">
+            <div class="time alt">
+              {#if ev.start}<span>{ev.start}</span>{/if}
+              {#if ev.start && ev.end}<span>~</span>{/if}
+              {#if ev.end}<span>{ev.end}</span>{/if}
+              {#if !ev.start && !ev.end}<span>終日</span>{/if}
+            </div>
+            <div class="content">
+              <span class="title">{ev.title}</span>
+              {#if ev.note}<span class="teacher">{ev.note}</span>{/if}
+            </div>
+            <button class="edit" aria-label="削除" onclick={() => events.remove(ev.id)}>
+              <Icon name="close" size={18} color="var(--muted)" />
+            </button>
+          </div>
+        {/each}
+      </div>
+    {/if}
 
     <!-- メモプレビュー -->
     <div class="memo-card">
@@ -195,6 +226,25 @@
       <textarea rows="2" bind:value={form.note}></textarea>
     </label>
     <button class="save" onclick={saveEvent} disabled={!form.title.trim()}>追加する</button>
+  </div>
+</Sheet>
+
+<Sheet
+  bind:open={memoSheetOpen}
+  title="{memoTarget?.period.period}限 のメモ（{selLabel}）"
+>
+  <div class="form">
+    {#if memoTarget?.entry}
+      <div class="memo-class">
+        {#if memoTarget.entry.classRoom}<span class="tag">{memoTarget.entry.classRoom}</span>{/if}
+        <span class="title">{memoTarget.entry.title}</span>
+      </div>
+    {/if}
+    <label>
+      <span>メモ</span>
+      <textarea rows="4" bind:value={memoDraft} placeholder="この授業の持ち物・連絡事項など"></textarea>
+    </label>
+    <button class="save" onclick={saveClassMemo}>保存する</button>
   </div>
 </Sheet>
 
@@ -266,6 +316,39 @@
   .row.custom {
     background: #fff;
     border: 1px solid var(--border);
+  }
+  .row.vacant {
+    background: var(--card);
+    border: 1px dashed var(--border);
+  }
+  .row.vacant .time {
+    background: var(--border);
+    color: var(--muted);
+  }
+  .vacant-label {
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .memo-note {
+    font-size: 0.72rem;
+    color: var(--primary);
+    white-space: pre-wrap;
+  }
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 18px 0 10px;
+  }
+  .section-title {
+    font-weight: 700;
+    color: var(--navy);
+    font-size: 0.9rem;
+  }
+  .memo-class {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
   .time {
     flex: 0 0 64px;

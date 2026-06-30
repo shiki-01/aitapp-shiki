@@ -329,6 +329,19 @@ const ROMAN_PERIOD: Record<string, number> = {
 };
 
 /**
+ * 上流の時間割セルは `<div class="kamokuDetailLink" ...>` を閉じタグ無しで出力する。
+ * ブラウザ(universal_html)は `</td>` で自動補完するが node-html-parser は補完せず、
+ * 後続の全行を最初の div 内にネストしてしまい `tbody > tr` が崩れて 0 件になる。
+ * 各セル内で直後の `</td>` の前に `</div>` を補って正しく閉じる。
+ */
+function closeKamokuDivs(html: string): string {
+  return html.replace(
+    /(<div class="kamokuDetailLink"[\s\S]*?)(<\/td>)/g,
+    '$1</div>$2',
+  );
+}
+
+/**
  * 生 HTML から、keyword を class に含む <table> を、ネストした table を含めて
  * balanced に切り出す。全体パースが壊れるページ向けの局所抽出。
  */
@@ -364,6 +377,8 @@ function extractBalancedTable(html: string, keyword: string): string | null {
  * 時限 th を辿って (day, period) を確定する堅牢方式にする。
  */
 export function parseClassTimeTable(html: string): TimetableEntry[] {
+  // 上流の閉じ忘れ div を補正してからパースする（補正前は時間割が 0 件になる）。
+  html = closeKamokuDivs(html);
   const root = parseHtml(html);
   // 実ページは node-html-parser を壊す要素を含み、全体パースでは jikanwari テーブルが
   // 落ちることがある。その場合は生 HTML から（ネスト table を含め balanced に）

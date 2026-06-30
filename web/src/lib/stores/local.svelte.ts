@@ -4,6 +4,7 @@
 
 const MEMO_KEY = 'aitapp.memos.v1';
 const EVENT_KEY = 'aitapp.events.v1';
+const CLASS_MEMO_KEY = 'aitapp.classMemos.v1';
 
 export interface Memo {
   id: string;
@@ -103,3 +104,41 @@ class EventStore {
 }
 
 export const events = new EventStore();
+
+// ---- 授業メモ（日付×時限ごと） ----
+// 時間割の各こまは編集不可だが、その日のその時限に対してメモを残せる。
+// 週次のスロットではなく具体的な日付に紐づく（その日依存）。
+
+export interface ClassMemo {
+  date: string; // YYYY-MM-DD
+  period: number;
+  body: string;
+  updatedAt: number;
+}
+
+class ClassMemoStore {
+  items = $state<ClassMemo[]>(load<ClassMemo>(CLASS_MEMO_KEY));
+
+  get(date: string, period: number): ClassMemo | undefined {
+    return this.items.find((m) => m.date === date && m.period === period);
+  }
+
+  // 本文が空なら該当メモを削除、そうでなければ追加/更新する。
+  set(date: string, period: number, body: string): void {
+    const trimmed = body.trim();
+    const existing = this.items.find(
+      (m) => m.date === date && m.period === period,
+    );
+    if (!trimmed) {
+      if (existing) this.items = this.items.filter((m) => m !== existing);
+    } else if (existing) {
+      existing.body = trimmed;
+      existing.updatedAt = Date.now();
+    } else {
+      this.items.push({ date, period, body: trimmed, updatedAt: Date.now() });
+    }
+    persist(CLASS_MEMO_KEY, this.items);
+  }
+}
+
+export const classMemos = new ClassMemoStore();
