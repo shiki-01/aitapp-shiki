@@ -125,6 +125,8 @@
   .month {
     scroll-snap-align: start;
     padding: 2px 8px 10px;
+    display: flex;
+    flex-direction: column;
   }
   .month-title {
     margin: 6px 0 8px;

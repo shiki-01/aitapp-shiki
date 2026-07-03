@@ -250,8 +250,8 @@
 
 <style>
   .page {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     height: 100%;
     min-height: 0;
   }
