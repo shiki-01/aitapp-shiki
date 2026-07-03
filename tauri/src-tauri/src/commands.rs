@@ -48,6 +48,37 @@ pub async fn logout(app: AppHandle, state: State<'_, SessionState>) -> Result<()
     Ok(())
 }
 
+// 保存済みcredentialで再ログインし、session state(メモリ+keyring)を更新した上で
+// 新しいsession cookieを返す。restore_session / api_request / download_file の
+// 「失効していたら保存済みcredentialで無言再ログイン」を共通化したもの。
+async fn relogin_with_credential(
+    state: &State<'_, SessionState>,
+    client: &UpstreamClient,
+    uid: &str,
+) -> Result<String, String> {
+    let cred = keychain::load_credential(uid).ok_or_else(unauthorized_json)?;
+    let outcome = client
+        .login(&cred.id, &cred.password)
+        .await
+        .map_err(|_| unauthorized_json())?;
+    keychain::save_session(uid, &outcome.session_cookie)?;
+    *state.0.lock().unwrap() = Some(CurrentSession {
+        uid: uid.to_string(),
+        cookie: outcome.session_cookie.clone(),
+    });
+    Ok(outcome.session_cookie)
+}
+
+fn current_uid(app: &AppHandle, state: &State<'_, SessionState>) -> Option<String> {
+    state
+        .0
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|s| s.uid.clone())
+        .or_else(|| last_uid::load(app))
+}
+
 // ---- 起動時に呼ぶ。保存済みsession cookieを検証し、失効していれば保存済み
 //      credentialで無言再ログインする。どちらも無ければ未ログイン扱い。 ----
 #[tauri::command]
@@ -70,15 +101,8 @@ pub async fn restore_session(
         }
     }
 
-    if let Some(cred) = keychain::load_credential(&uid) {
-        if let Ok(outcome) = client.login(&cred.id, &cred.password).await {
-            keychain::save_session(&uid, &outcome.session_cookie)?;
-            *state.0.lock().unwrap() = Some(CurrentSession {
-                uid: uid.clone(),
-                cookie: outcome.session_cookie,
-            });
-            return Ok(Some(uid));
-        }
+    if relogin_with_credential(&state, &client, &uid).await.is_ok() {
+        return Ok(Some(uid));
     }
     Ok(None)
 }
@@ -99,32 +123,19 @@ pub async fn api_request(
     match client.request(&path, &method, body.clone(), &cookie).await {
         Ok(v) => Ok(v),
         Err(e) if is_unauthorized(&e) => {
-            let uid = {
-                let guard = state.0.lock().unwrap();
-                guard.as_ref().map(|s| s.uid.clone())
-            }
-            .or_else(|| last_uid::load(&app))
-            .ok_or(e.clone())?;
-            let cred = keychain::load_credential(&uid).ok_or(e.clone())?;
-            let outcome = client
-                .login(&cred.id, &cred.password)
+            let uid = current_uid(&app, &state).ok_or(e.clone())?;
+            let cookie = relogin_with_credential(&state, &client, &uid)
                 .await
                 .map_err(|_| e.clone())?;
-            keychain::save_session(&uid, &outcome.session_cookie)?;
-            *state.0.lock().unwrap() = Some(CurrentSession {
-                uid,
-                cookie: outcome.session_cookie.clone(),
-            });
-            client
-                .request(&path, &method, body, &outcome.session_cookie)
-                .await
+            client.request(&path, &method, body, &cookie).await
         }
         Err(e) => Err(e),
     }
 }
 
 // ---- /api/file/:id 相当。バイト列を一時ファイルへ書き出し、パスだけ返す。
-//      呼び出し元(フロント)はtauri-plugin-openerでOS既定アプリに開かせる。 ----
+//      呼び出し元(フロント)はtauri-plugin-openerでOS既定アプリに開かせる。
+//      api_requestと同じく、401なら1回だけ再ログインしてリトライする。 ----
 #[tauri::command]
 pub async fn download_file(
     app: AppHandle,
@@ -136,7 +147,17 @@ pub async fn download_file(
 
     let client = UpstreamClient::new();
     let cookie = current_cookie(&app, &state)?;
-    let outcome = client.download(&path, &cookie).await?;
+    let outcome = match client.download(&path, &cookie).await {
+        Ok(o) => o,
+        Err(e) if is_unauthorized(&e) => {
+            let uid = current_uid(&app, &state).ok_or(e.clone())?;
+            let cookie = relogin_with_credential(&state, &client, &uid)
+                .await
+                .map_err(|_| e.clone())?;
+            client.download(&path, &cookie).await?
+        }
+        Err(e) => return Err(e),
+    };
 
     let name = filename
         .or_else(|| {
