@@ -4,9 +4,15 @@
   "version": "1.0.0",
   "identifier": "com.aitapp.desktop",
   "build": {
-    "beforeDevCommand": "cd ../../web && bun run dev:desktop",
+    "beforeDevCommand": {
+      "script": "bun run dev:desktop",
+      "cwd": "../../web"
+    },
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "cd ../../web && bun run build:desktop",
+    "beforeBuildCommand": {
+      "script": "bun run build:desktop",
+      "cwd": "../../web"
+    },
     "frontendDist": "../../web/build"
   },
   "app": {
@@ -27,6 +33,12 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.png"]
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
   }
 }
