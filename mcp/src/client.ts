@@ -1,0 +1,130 @@
+// worker/ の REST API を叩く薄いクライアント。
+// スクレイピング・CSRF・再ログインのロジックは worker 側に置いたまま持たない。
+// ここでは「session cookie を保持し、401なら1回だけ再ログインしてリトライする」
+// という transport 層の責務だけを持つ（直列化・keep-alive・自動復旧はしない）。
+
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { Config } from './config';
+import { loadCachedCookie, saveCachedCookie } from './session';
+import { SESSION_COOKIE_NAME } from './constants';
+
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+function extractSessionCookie(res: Response): string | undefined {
+  const headers = res.headers as Headers & { getSetCookie?: () => string[] };
+  const values = headers.getSetCookie ? headers.getSetCookie() : [];
+  const raw = values.find((v) => v.startsWith(`${SESSION_COOKIE_NAME}=`)) ?? res.headers.get('set-cookie');
+  if (!raw) return undefined;
+  const pair = raw.split(';', 1)[0];
+  return pair?.startsWith(`${SESSION_COOKIE_NAME}=`) ? pair : undefined;
+}
+
+export class WorkerClient {
+  private cookie: string | undefined;
+  private loginInFlight: Promise<void> | undefined;
+
+  constructor(private readonly config: Config) {}
+
+  private async login(): Promise<void> {
+    const res = await fetch(`${this.config.workerUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: this.config.appOrigin,
+      },
+      body: JSON.stringify({ id: this.config.portalId, password: this.config.portalPassword }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+      throw new ApiError(res.status, body.message ?? body.error ?? `login failed: HTTP ${res.status}`, body.error);
+    }
+    const cookie = extractSessionCookie(res);
+    if (!cookie) throw new ApiError(res.status, 'login succeeded but no session cookie was returned');
+    this.cookie = cookie;
+    await saveCachedCookie(this.config.portalId, cookie);
+  }
+
+  /** ログイン処理を多重起動しないための直列化（同一プロセス内のみ）。 */
+  private async ensureLogin(): Promise<void> {
+    if (this.cookie) return;
+    const cached = await loadCachedCookie(this.config.portalId);
+    if (cached) {
+      this.cookie = cached;
+      return;
+    }
+    if (!this.loginInFlight) this.loginInFlight = this.login().finally(() => (this.loginInFlight = undefined));
+    await this.loginInFlight;
+  }
+
+  private async rawRequest(path: string, init: RequestInit = {}): Promise<Response> {
+    await this.ensureLogin();
+    return fetch(`${this.config.workerUrl}${path}`, {
+      ...init,
+      headers: { ...(init.headers ?? {}), Cookie: this.cookie ?? '' },
+    });
+  }
+
+  /**
+   * JSON API 呼び出し。401（session無効/失効）を検知したら1回だけ再ログインして
+   * リトライし、それでも失敗したらエラーをそのまま呼び出し元に返す。
+   */
+  async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    let res = await this.rawRequest(path, init);
+    if (res.status === 401) {
+      this.cookie = undefined;
+      this.loginInFlight = undefined;
+      await this.login();
+      res = await this.rawRequest(path, init);
+    }
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+      throw new ApiError(res.status, body.message ?? body.error ?? `HTTP ${res.status}`, body.error);
+    }
+    return (await res.json()) as T;
+  }
+
+  private fileId(relativePath: string): string {
+    return Buffer.from(relativePath, 'utf8')
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  }
+
+  /**
+   * LCAM連絡の添付ファイルをローカル一時ディレクトリへ保存し、パスを返す。
+   * `relativePath` は get_notice_detail が返す `files` の値をそのまま渡す。
+   */
+  async downloadAttachment(
+    relativePath: string,
+    suggestedName: string,
+  ): Promise<{ path: string; contentType: string | null }> {
+    const id = this.fileId(relativePath);
+    let res = await this.rawRequest(`/api/file/${id}`);
+    if (res.status === 401) {
+      this.cookie = undefined;
+      this.loginInFlight = undefined;
+      await this.login();
+      res = await this.rawRequest(`/api/file/${id}`);
+    }
+    if (!res.ok) {
+      throw new ApiError(res.status, `attachment download failed: HTTP ${res.status}`);
+    }
+    const dir = await mkdtemp(join(tmpdir(), 'aitapp-mcp-'));
+    const safeName = suggestedName.replace(/[\\/:*?"<>|]/g, '_') || 'attachment';
+    const path = join(dir, safeName);
+    const buf = Buffer.from(await res.arrayBuffer());
+    await writeFile(path, buf);
+    return { path, contentType: res.headers.get('content-type') };
+  }
+}
