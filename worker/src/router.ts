@@ -68,7 +68,15 @@ function checkOrigin(c: { req: { header: (n: string) => string | undefined }; en
 // ---- 認証ミドルウェア（auth 配下以外の /api を保護） ----
 app.use('/api/*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
-  if (path === '/api/auth/login' || path === '/api/auth/logout') {
+  // /api/auth/me は signed cookie の検証のみで完結させる。KV の state 読み取りに
+  // 依存すると、ログイン直後(write直後のread)は Workers KV の結果整合性
+  // （伝播遅延・negative cache）により state がまだ見えず、ログイン成功直後に
+  // 未ログイン扱いで /login へ差し戻されてしまう。
+  if (
+    path === '/api/auth/login' ||
+    path === '/api/auth/logout' ||
+    path === '/api/auth/me'
+  ) {
     return next();
   }
   if (c.req.method === 'OPTIONS') return next();
@@ -137,8 +145,15 @@ app.post('/api/auth/logout', (c) => {
 });
 
 // ---- GET /api/auth/me ----
-app.get('/api/auth/me', (c) => {
-  return c.json({ userId: c.get('userId') });
+// KV の state には依存せず、signed session cookie の検証のみで応答する
+// （ミドルウェアの対象外にしてあるため、ここで自前検証する）。
+app.get('/api/auth/me', async (c) => {
+  const token = readSessionCookie(c.req.header('Cookie'));
+  const payload = await verifySession(c.env.SESSION_SECRET, token);
+  if (!payload) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  return c.json({ userId: payload.uid });
 });
 
 // ---- GET /api/notices?type=common|class&count=10 ----
