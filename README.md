@@ -13,6 +13,7 @@ Workers をサーバーサイド proxy（BFF）として挟み、ログインを
 ```
 worker/   Cloudflare Workers + Hono + TypeScript（BFF / 上流 proxy）
 web/      SvelteKit（Svelte 5）SPA（Cloudflare Pages 配信）
+mcp/      ローカル実行のMCPサーバー（Claude Code等から worker/ をツールとして呼ぶ）
 vendor/aitapp  移植元 Dart 実装（git submodule）
 ```
 
@@ -109,6 +110,20 @@ Pages のビルド設定例:
 | Build command | `bun install && bun run build` |
 | Build output directory | `build` |
 | Environment variable | `VITE_API_BASE = https://<worker-origin>` |
+
+## セットアップ（mcp）
+
+Claude Code等のMCPクライアントから `worker/` のAPIをツールとして使うための、
+ローカル実行専用サーバー。詳細は [`mcp/README.md`](mcp/README.md) を参照。
+
+```sh
+cd mcp
+bun install
+```
+
+`worker/` を先に起動（`bunx wrangler dev` またはデプロイ済みURL）した上で、
+Claude Codeの `.mcp.json` に登録して使う。認証情報・上流ロジックは全て
+`worker/` 側に委譲し、`mcp/` はセッションcookieを保持するだけの薄いクライアント。
 
 ## 公開 API（BFF）
 

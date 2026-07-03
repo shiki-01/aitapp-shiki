@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "aitapp": {
+      "command": "bun",
+      "args": ["run", "mcp/src/index.ts"],
+      "env": {
+        "AITAPP_WORKER_URL": "http://localhost:8787",
+        "AITAPP_APP_ORIGIN": "http://localhost:5173",
+        "AITAPP_ID": "your-portal-id",
+        "AITAPP_PASSWORD": "your-portal-password"
+      }
+    }
+  }
+}
