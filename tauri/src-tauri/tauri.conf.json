@@ -4,6 +4,8 @@
   "version": "1.0.0",
   "identifier": "com.aitapp.desktop",
   "build": {
+    "beforeDevCommand": "cd ../../web && bun run dev:desktop",
+    "devUrl": "http://localhost:5173",
     "beforeBuildCommand": "cd ../../web && bun run build:desktop",
     "frontendDist": "../../web/build"
   },

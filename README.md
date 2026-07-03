@@ -139,7 +139,12 @@ cargo tauri build
 
 `tauri.conf.json` の `beforeBuildCommand` が `web/` を `bun run build:desktop`
 （`VITE_PLATFORM=desktop`）でビルドし、その成果物 (`web/build`) をそのままフロントとして
-バンドルする。開発時は `cargo tauri dev`。
+バンドルする。
+
+開発時は `cargo tauri dev`。`beforeDevCommand`（`web/` で `bun run dev:desktop`、内部は
+`vite dev --mode desktop`）が起動する Vite dev server (`http://localhost:5173`、
+`devUrl` で指定) にwebviewが接続するため、`web/` の変更はHMRでTauriウィンドウに
+即時反映される（ビルドし直す必要はない）。
 
 ### PC版のフロント差分
 
