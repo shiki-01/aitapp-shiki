@@ -87,22 +87,42 @@ pub async fn restore_session(
     state: State<'_, SessionState>,
 ) -> Result<Option<String>, String> {
     let Some(uid) = last_uid::load(&app) else {
+        eprintln!("[restore_session] last_uid missing");
         return Ok(None);
     };
+    eprintln!("[restore_session] uid={}", uid);
     let client = UpstreamClient::new();
 
-    if let Some(cookie) = keychain::load_session(&uid) {
-        if client.me(&cookie).await.is_ok() {
-            *state.0.lock().unwrap() = Some(CurrentSession {
-                uid: uid.clone(),
-                cookie,
-            });
-            return Ok(Some(uid));
+    match keychain::load_session(&uid) {
+        Some(cookie) => {
+            eprintln!("[restore_session] keychain session found, len={}", cookie.len());
+            match client.me(&cookie).await {
+                Ok(_) => {
+                    eprintln!("[restore_session] client.me() ok");
+                    *state.0.lock().unwrap() = Some(CurrentSession {
+                        uid: uid.clone(),
+                        cookie,
+                    });
+                    return Ok(Some(uid));
+                }
+                Err(e) => {
+                    eprintln!("[restore_session] client.me() failed: {}", e);
+                }
+            }
+        }
+        None => {
+            eprintln!("[restore_session] keychain session missing");
         }
     }
 
-    if relogin_with_credential(&state, &client, &uid).await.is_ok() {
-        return Ok(Some(uid));
+    match relogin_with_credential(&state, &client, &uid).await {
+        Ok(_) => {
+            eprintln!("[restore_session] relogin_with_credential ok");
+            return Ok(Some(uid));
+        }
+        Err(e) => {
+            eprintln!("[restore_session] relogin_with_credential failed: {}", e);
+        }
     }
     Ok(None)
 }
