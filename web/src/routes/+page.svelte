@@ -71,8 +71,7 @@
 
 <style>
   .shell.desktop {
-    display: grid;
-    grid-template-columns: 220px 1fr;
+    display: flex;
     align-items: stretch;
   }
   main {
@@ -81,6 +80,8 @@
   }
   .shell.desktop main {
     padding: 24px 32px;
+    margin-left: 220px;
+    width: 100%;
   }
   /* カレンダー: 画面を縦に使い切り、内部でスクロールさせる。 */
   main.full {

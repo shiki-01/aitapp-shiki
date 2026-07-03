@@ -144,7 +144,27 @@ cargo tauri build
 開発時は `cargo tauri dev`。`beforeDevCommand`（`web/` で `bun run dev:desktop`、内部は
 `vite dev --mode desktop`）が起動する Vite dev server (`http://localhost:5173`、
 `devUrl` で指定) にwebviewが接続するため、`web/` の変更はHMRでTauriウィンドウに
-即時反映される（ビルドし直す必要はない）。
+即時反映される（ビルドし直す必要はない。`web/` で手動で `bun run dev` 等を別途
+実行する必要はなく、むしろポート競合で失敗するので実行しない）。
+`tauri.conf.json` を変更した場合は `cargo tauri dev` 自体の再起動が必要。
+
+#### macOS: 開発中のKeychain許可プロンプトを抑える
+
+macOSのデバッグビルドはRustコードを変更してビルドし直す度にad-hoc署名
+(バイナリのハッシュ値が識別子になるため毎回変わる)がリンカにより自動付与され、
+Keychainが「常に許可」を保持できず`restore_session`のキーチェーン読み取りの度に
+許可プロンプトが出る。安定した自己署名の証明書で署名し直すことで回避できる。
+
+1. `Keychain Access.app` → メニュー「証明書アシスタント → 証明書を作成...」
+   - 名前: `aitapp-desktop-dev`
+   - 識別情報の種類: 自己署名ルート / 証明書の種類: コード署名
+2. 作成した証明書をダブルクリック → 信頼 → コード署名を「常に信頼」に変更
+3. `cargo tauri dev` と並行して別ターミナルで以下を起動しておくと、Rustの
+   再ビルドを検知して自動的に再署名される:
+   ```sh
+   tauri/scripts/watch-codesign.sh
+   ```
+   証明書名を変えた場合は `AITAPP_CODESIGN_IDENTITY=<証明書名>` を付けて実行する。
 
 ### PC版のフロント差分
 

@@ -12,6 +12,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
+    "@master/normal.css": "^3.3.1",
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-opener": "^2.5.0"
   },

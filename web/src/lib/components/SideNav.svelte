@@ -29,6 +29,11 @@
 
 <style>
   .side-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 220px;
+    height: 100%;
     display: flex;
     flex-direction: column;
     gap: 4px;

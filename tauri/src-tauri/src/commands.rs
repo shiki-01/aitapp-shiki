@@ -16,10 +16,24 @@ pub async fn login(
     password: String,
 ) -> Result<Value, String> {
     let client = UpstreamClient::new();
-    let outcome = client.login(&id, &password).await?;
-    keychain::save_credential(&id, &password)?;
-    keychain::save_session(&id, &outcome.session_cookie)?;
-    last_uid::save(&app, &id)?;
+    let outcome = client.login(&id, &password).await.map_err(|e| {
+        eprintln!("[login] client.login failed: {}", e);
+        e
+    })?;
+    eprintln!("[login] client.login ok");
+    keychain::save_credential(&id, &password).map_err(|e| {
+        eprintln!("[login] keychain::save_credential failed: {}", e);
+        e
+    })?;
+    keychain::save_session(&id, &outcome.session_cookie).map_err(|e| {
+        eprintln!("[login] keychain::save_session failed: {}", e);
+        e
+    })?;
+    last_uid::save(&app, &id).map_err(|e| {
+        eprintln!("[login] last_uid::save failed: {}", e);
+        e
+    })?;
+    eprintln!("[login] all steps ok, uid={}", id);
     *state.0.lock().unwrap() = Some(CurrentSession {
         uid: id,
         cookie: outcome.session_cookie,

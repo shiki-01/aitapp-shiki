@@ -5,6 +5,7 @@
     "": {
       "name": "aitapp-web",
       "dependencies": {
+        "@master/normal.css": "^3.3.1",
         "@tauri-apps/api": "^2.9.0",
         "@tauri-apps/plugin-opener": "^2.5.0",
       },
@@ -75,6 +76,8 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@master/normal.css": ["@master/normal.css@3.3.1", "", {}, "sha512-Eu86+6OHCUkOGp9JSSRnwXa0vv+TkchrHK15QbOUeCF3Un6yn868TVtRYc6tmTQTXKo15ITCpHBzV7tkkmVVAg=="],
 
     "@polka/url": ["@polka/url@1.0.0-next.29", "", {}, "sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww=="],
 
