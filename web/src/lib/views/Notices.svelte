@@ -1,7 +1,16 @@
 <script lang="ts">
   import { api, ApiError, type Notice, type NoticeDetail } from '$lib/api';
+  import { isDesktop } from '$lib/platform';
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
+
+  // desktop版はブラウザの<a target=_blank>が使えない(Workerと別サイト扱いの
+  // ためcookieが送れない)ので、一時ファイルへ保存しOS既定アプリで開く。
+  function openAttachment(e: MouseEvent, path: string) {
+    if (!isDesktop) return;
+    e.preventDefault();
+    void api.openFile(path);
+  }
 
   const STEP = 10;
 
@@ -159,7 +168,16 @@
       <h4>添付ファイル</h4>
       <ul class="links">
         {#each Object.entries(detail.files) as [name, path]}
-          <li><a href={api.fileUrl(path)} target="_blank" rel="noreferrer">{name}</a></li>
+          <li>
+            <a
+              href={isDesktop ? '#' : api.fileUrl(path)}
+              target="_blank"
+              rel="noreferrer"
+              onclick={(e) => openAttachment(e, path)}
+            >
+              {name}
+            </a>
+          </li>
         {/each}
       </ul>
     {/if}

@@ -6,8 +6,13 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "build:desktop": "vite build --mode desktop",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.9.0",
+    "@tauri-apps/plugin-opener": "^2.5.0"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.5",

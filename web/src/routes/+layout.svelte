@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { isDesktop } from '$lib/platform';
   let { children } = $props();
 </script>
 
-<div class="app-shell">
+<div class="app-shell" class:desktop={isDesktop}>
   {@render children()}
 </div>
 
@@ -75,5 +76,12 @@
     .app-shell {
       box-shadow: var(--shadow);
     }
+  }
+  /* desktop(Tauri)版: サイドナビ+広いコンテンツ幅を使う。
+     ウィンドウ幅ではなくビルド時の isDesktop フラグで切り替える
+     (Tauriウィンドウを狭めてもモバイル用レイアウトにはしない)。 */
+  .app-shell.desktop {
+    max-width: none;
+    box-shadow: none;
   }
 </style>

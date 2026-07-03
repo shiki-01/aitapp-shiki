@@ -12,7 +12,8 @@ Workers をサーバーサイド proxy（BFF）として挟み、ログインを
 
 ```
 worker/   Cloudflare Workers + Hono + TypeScript（BFF / 上流 proxy）
-web/      SvelteKit（Svelte 5）SPA（Cloudflare Pages 配信）
+web/      SvelteKit（Svelte 5）SPA（Cloudflare Pages 配信 / Tauriのフロントとしても共用）
+tauri/    PC版デスクトップアプリ（Tauri + Rust。web/のビルド成果物を表示する）
 vendor/aitapp  移植元 Dart 実装（git submodule）
 ```
 
@@ -109,6 +110,44 @@ Pages のビルド設定例:
 | Build command | `bun install && bun run build` |
 | Build output directory | `build` |
 | Environment variable | `VITE_API_BASE = https://<worker-origin>` |
+
+## セットアップ（PC版デスクトップアプリ / tauri）
+
+PC版はWorkerへ`永続ログイン`する。ブラウザ版とは異なり、Rust backend（`tauri/src-tauri`）
+がWorkerへ直接HTTPで通信し、session cookieが失効した際は保存済みcredentialで
+ユーザーに再入力させず自動的に再ログインする。愛工大ID/パスワードはOSキーチェーン
+（Windows Credential Manager / macOS Keychain / Linux Secret Service）に暗号化保存され、
+webview(JS)側には一切渡らない。
+
+### 必要環境
+
+- [Rust](https://www.rust-lang.org/) / [Tauri CLI](https://tauri.app/)（`cargo install tauri-cli --version "^2"` などで導入）
+- Linux開発時: `libgtk-3-dev` `libwebkit2gtk-4.1-dev` `libayatana-appindicator3-dev` `librsvg2-dev`
+- Linuxでの永続ログインには Secret Service（gnome-keyring / kwalletd 等）が起動している環境が必要。
+  無い環境ではcredential保存に失敗する（Windows/macOSを優先対応とし、この制約はスコープ外の代替実装を作らない）。
+
+### ビルド
+
+```sh
+cd tauri/src-tauri
+# 本番Workerへ向ける場合は環境変数でビルド時に埋め込む（未設定時は localhost 開発値）
+AITAPP_WORKER_BASE_URL=https://<worker-origin> \
+AITAPP_APP_ORIGIN=https://<pages-origin> \
+cargo tauri build
+```
+
+`tauri.conf.json` の `beforeBuildCommand` が `web/` を `bun run build:desktop`
+（`VITE_PLATFORM=desktop`）でビルドし、その成果物 (`web/build`) をそのままフロントとして
+バンドルする。開発時は `cargo tauri dev`。
+
+### PC版のフロント差分
+
+`web/src/lib/platform.ts` の `isDesktop`（ビルド時フラグ）で、ブラウザ版と以下を切り替える。
+
+- ナビゲーション: モバイル用 `BottomNav` → PC用 `SideNav`
+- API経路: browser版は `fetch`（cookie送信）、desktop版は Tauri `invoke` 経由で Rust backend が中継
+  （TauriのwebviewはWorkerと別サイト扱いになり `SameSite=Strict` cookieが送れないため）
+- 添付ファイル: browser版は `<a target=_blank>`、desktop版は一時ファイルに保存しOS既定アプリで開く
 
 ## 公開 API（BFF）
 
