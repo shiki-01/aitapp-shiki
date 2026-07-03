@@ -2,7 +2,9 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { api, ApiError } from '$lib/api';
+  import { isDesktop } from '$lib/platform';
   import BottomNav, { type Tab } from '$lib/components/BottomNav.svelte';
+  import SideNav from '$lib/components/SideNav.svelte';
   import Home from '$lib/views/Home.svelte';
   import Notices from '$lib/views/Notices.svelte';
   import Calendar from '$lib/views/Calendar.svelte';
@@ -41,29 +43,44 @@
 {#if checking}
   <div class="center"><p class="muted">読み込み中…</p></div>
 {:else}
-  <!-- カレンダーはビュー内で縦スクロール領域を持つため main をフル高にする。
-       それ以外は通常スクロール。 -->
-  <main class:full={tab === 'calendar'}>
-    {#if tab === 'home'}
-      <Home {userId} onNavigate={navigate} />
-    {:else if tab === 'notices'}
-      <Notices />
-    {:else if tab === 'calendar'}
-      <Calendar onMore={() => (tab = 'more')} />
-    {:else if tab === 'assignments'}
-      <Assignments />
-    {:else if tab === 'more'}
-      <More {userId} onLogout={logout} />
+  <div class="shell" class:desktop={isDesktop}>
+    {#if isDesktop}
+      <SideNav bind:tab />
     {/if}
-  </main>
+    <!-- カレンダーはビュー内で縦スクロール領域を持つため main をフル高にする。
+         それ以外は通常スクロール。 -->
+    <main class:full={tab === 'calendar'}>
+      {#if tab === 'home'}
+        <Home {userId} onNavigate={navigate} />
+      {:else if tab === 'notices'}
+        <Notices />
+      {:else if tab === 'calendar'}
+        <Calendar onMore={() => (tab = 'more')} />
+      {:else if tab === 'assignments'}
+        <Assignments />
+      {:else if tab === 'more'}
+        <More {userId} onLogout={logout} />
+      {/if}
+    </main>
 
-  <BottomNav bind:tab />
+    {#if !isDesktop}
+      <BottomNav bind:tab />
+    {/if}
+  </div>
 {/if}
 
 <style>
+  .shell.desktop {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    align-items: stretch;
+  }
   main {
     padding: 18px 16px calc(var(--nav-h) + 12px);
     min-height: 100dvh;
+  }
+  .shell.desktop main {
+    padding: 24px 32px;
   }
   /* カレンダー: 画面を縦に使い切り、内部でスクロールさせる。 */
   main.full {
