@@ -9,6 +9,8 @@ import { registerNoticeTools } from './tools/notices';
 import { registerTimetableTools } from './tools/timetable';
 import { registerAssignmentTools } from './tools/assignments';
 import { registerSyllabusTools } from './tools/syllabus';
+import { registerPerformanceTools } from './tools/performance';
+import { registerEnqueteTools } from './tools/enquetes';
 
 const config = loadConfig(process.env);
 const client = new WorkerClient(config);
@@ -19,5 +21,7 @@ registerNoticeTools(server, client);
 registerTimetableTools(server, client);
 registerAssignmentTools(server, client);
 registerSyllabusTools(server, client);
+registerPerformanceTools(server, client);
+registerEnqueteTools(server, client);
 
 await server.connect(new StdioServerTransport());

@@ -3,9 +3,9 @@
 
 import type { LcamCookies, Credential } from '../../types';
 import { parseHtml } from '../../html/parser';
-import { extractStrutsToken } from './csrf';
+import { extractStrutsToken, extractStrutsTokenByForm } from './csrf';
 import { looksLikeLoginPage } from './detect';
-import { LcamExpiredError, UpstreamError } from '../errors';
+import { LcamExpiredError, UpstreamError, ValidationError } from '../errors';
 import {
   getStrutsTokenBody,
   getNoticeBody,
@@ -18,6 +18,14 @@ import {
   initLogin,
   reload,
   getScheduleNext,
+  getPerformanceBody,
+  getEnqueteBody,
+  getEnqueteDetailBody,
+  getEnqueteAnswerFormBody,
+  postEnqueteTempSave,
+  postEnqueteConfirm,
+  postEnqueteFinalize,
+  type EnqueteType,
 } from './access';
 import {
   parseUnivNotice,
@@ -26,11 +34,18 @@ import {
   parseClassNoticeDetail,
   parseClassTimeTable,
   parseSchedule,
+  parsePerformance,
+  parseEnqueteList,
+  parseEnqueteAnswerForm,
+  parseEnqueteConfirm,
   type UnivNotice,
   type ClassNotice,
   type NoticeDetail,
   type TimetableEntry,
   type ScheduleDay,
+  type PerformanceEntry,
+  type EnqueteList,
+  type EnqueteAnswerForm,
 } from './parse';
 
 /** ログインページ（失効）なら LcamExpiredError を投げる。 */
@@ -122,6 +137,168 @@ export async function fetchFile(
     throw new LcamExpiredError();
   }
   return res;
+}
+
+/** 成績情報。認証済み SP ページと同様、Struts token の有無でセッション生存を判定する。 */
+export async function fetchPerformance(
+  cookies: LcamCookies,
+): Promise<PerformanceEntry[]> {
+  const body = await getPerformanceBody(cookies);
+  assertSpSessionAlive(body);
+  return parsePerformance(body);
+}
+
+/** アンケート一覧（授業アンケート/授業評価アンケート/学内アンケート）。 */
+export async function fetchEnqueteList(
+  cookies: LcamCookies,
+  type: EnqueteType,
+): Promise<EnqueteList> {
+  const body = await getEnqueteBody(cookies, type);
+  assertSpSessionAlive(body);
+  return parseEnqueteList(body);
+}
+
+/**
+ * アンケート一覧のトップから goDetail(index) → 回答フォーム初期表示まで進み、設問を返す。
+ * サーバー側が「選択中のアンケート」をセッションで保持するため、この一連の遷移を
+ * 毎回やり直す必要がある（classEnqId 等をパラメータで直接指定する経路は無い）。
+ * 参照のみで書き込みは発生しない。
+ */
+export async function fetchEnqueteQuestions(
+  cookies: LcamCookies,
+  index: number,
+): Promise<EnqueteAnswerForm> {
+  const listBody = await getEnqueteBody(cookies, 'class');
+  assertSpSessionAlive(listBody);
+  const listToken = extractStrutsTokenByForm(
+    listBody,
+    'classenq_student_searchListActionForm',
+  );
+  if (listToken == null) throw new LcamExpiredError();
+
+  const detailBody = await getEnqueteDetailBody(cookies, listToken, index);
+  assertSpSessionAlive(detailBody);
+
+  const answerBody = await getEnqueteAnswerFormBody(cookies);
+  assertSpSessionAlive(answerBody);
+  return parseEnqueteAnswerForm(answerBody);
+}
+
+interface PreparedEnqueteAnswer {
+  token: string;
+  classEnqId: string;
+  fields: Record<string, string>;
+}
+
+/**
+ * list → goDetail(index) → answer/initialize を辿って token・classEnqId を取得し、
+ * answers（設問index→回答文字列）を実際の value{i} フィールドへ変換する共通処理。
+ * tempSave/confirm どちらの書き込みからも使う。
+ */
+async function prepareEnqueteAnswer(
+  cookies: LcamCookies,
+  index: number,
+  answers: Record<number, string>,
+): Promise<PreparedEnqueteAnswer> {
+  const listBody = await getEnqueteBody(cookies, 'class');
+  assertSpSessionAlive(listBody);
+  const listToken = extractStrutsTokenByForm(
+    listBody,
+    'classenq_student_searchListActionForm',
+  );
+  if (listToken == null) throw new LcamExpiredError();
+
+  const detailBody = await getEnqueteDetailBody(cookies, listToken, index);
+  assertSpSessionAlive(detailBody);
+
+  const answerBody = await getEnqueteAnswerFormBody(cookies);
+  assertSpSessionAlive(answerBody);
+  const form = parseEnqueteAnswerForm(answerBody);
+  const token = extractStrutsTokenByForm(
+    answerBody,
+    'smartphone_smartPhoneClassEnqAnswerActionForm',
+  );
+  if (token == null) throw new LcamExpiredError();
+
+  const fields: Record<string, string> = {};
+  for (const [key, value] of Object.entries(answers)) {
+    const qIndex = Number(key);
+    const question = form.questions.find((q) => q.index === qIndex);
+    if (!question) {
+      throw new ValidationError(`設問 ${qIndex} は存在しません（全 ${form.questions.length} 問）`);
+    }
+    if (question.answerType !== 'text') {
+      throw new ValidationError(
+        `設問 ${qIndex}（${question.label}）はテキストボックス形式以外のため未対応です`,
+      );
+    }
+    fields[question.fieldName] = value;
+  }
+
+  return { token, classEnqId: form.classEnqId, fields };
+}
+
+/** 応答 HTML にエラー表示（#_errorInformation）が無いことを成功の目安とする。 */
+function looksLikeSuccess(html: string): boolean {
+  return (
+    parseHtml(html).querySelectorAll('#_errorInformation > ul > li:nth-child(1)').length === 0
+  );
+}
+
+/**
+ * 授業アンケートへの回答を一時保存する（tempSaveAction）。
+ *
+ * ユーザー許可のもと実データで動作検証済み（保存後に value1〜3 が入力値のまま
+ * 返ってくることを確認した。MIGRATION_NOTES §11）。
+ * テキストボックス形式以外の設問（テキストエリア/日付/コンボボックス/ラジオボタン/
+ * チェックボックス/添付ファイル）への回答は ValidationError で拒否する
+ * （実データを観測できておらず、誤ったフィールド形式で送信することを避けるため）。
+ */
+export async function submitEnqueteAnswer(
+  cookies: LcamCookies,
+  index: number,
+  answers: Record<number, string>,
+): Promise<{ ok: boolean }> {
+  const { token, classEnqId, fields } = await prepareEnqueteAnswer(cookies, index, answers);
+  const resultBody = await postEnqueteTempSave(cookies, token, classEnqId, fields);
+  return { ok: looksLikeSuccess(resultBody) };
+}
+
+/**
+ * 授業アンケートへの回答を最終提出する（確認画面を経由した本登録）。
+ *
+ * フロー: answer/initialize（token・classEnqId 取得）→
+ * smartPhoneClassEnqAnswer/confirmAction（value{i} を送信し「登録確認」画面を取得）→
+ * 確認画面自身のフォーム（smartphone_smartPhoneClassEnqAnswerConfirmActionForm、SP フロー実測）で
+ * smartPhoneClassEnqAnswerConfirm/confirmAction へ最終 POST（本登録）。
+ * 当初ユーザーから提供された実 HTML は PC 版フローのフォーム名
+ * （classenq_student_answerConfirmActionForm）だったが、本実装が使う SP フローでは
+ * 実際には異なるフォーム名/遷移先だったため実機再現で修正した（MIGRATION_NOTES §11.5）。
+ * 回答取消 (`answerCancel`) は未実装。
+ */
+export async function finalizeEnqueteAnswer(
+  cookies: LcamCookies,
+  index: number,
+  answers: Record<number, string>,
+): Promise<{ ok: boolean }> {
+  const { token, classEnqId, fields } = await prepareEnqueteAnswer(cookies, index, answers);
+
+  const confirmBody = await postEnqueteConfirm(cookies, token, classEnqId, fields);
+  assertSpSessionAlive(confirmBody);
+  const confirmForm = parseEnqueteConfirm(confirmBody);
+  const confirmToken = extractStrutsTokenByForm(
+    confirmBody,
+    'smartphone_smartPhoneClassEnqAnswerConfirmActionForm',
+  );
+  if (confirmToken == null) throw new LcamExpiredError();
+
+  const finalBody = await postEnqueteFinalize(
+    cookies,
+    confirmToken,
+    confirmForm.classEnqId,
+    confirmForm.backPath,
+  );
+  return { ok: looksLikeSuccess(finalBody) };
 }
 
 /**

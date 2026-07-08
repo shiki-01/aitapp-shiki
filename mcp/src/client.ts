@@ -70,7 +70,12 @@ export class WorkerClient {
     await this.ensureLogin();
     return fetch(`${this.config.workerUrl}${path}`, {
       ...init,
-      headers: { ...(init.headers ?? {}), Cookie: this.cookie ?? '' },
+      headers: {
+        ...(init.headers ?? {}),
+        Cookie: this.cookie ?? '',
+        // 状態変更系エンドポイント（例: /api/enquetes/answer）は Origin チェックを行うため付与する。
+        Origin: this.config.appOrigin,
+      },
     });
   }
 

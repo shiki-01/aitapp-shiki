@@ -249,3 +249,164 @@ SP とは別系統。`get_lcam_data.dart` の `GetPCLcamData`:
 
 - **シラバス**（認証不要）は実サーバーで session→filters(9行/年度21オプション)→検索(150件)→詳細(24行) までエンドツーエンド動作を確認済み。
 - **LCAM**（要認証）はローカル未認証検証のみ。SP ログインページの marker（`name="userID"`+`name="password"`+`smartPhoneLogin`）で失効検知が `true` になることは確認済み。token/一覧/時間割の実データは上記2修正適用後に要再確認。
+
+## 10. 追加スコープ: 成績情報・アンケート一覧（Dart 実装に対応機能なし）
+
+Dart 版アプリの `lib/application/config/const.dart`（`webAccessLinks`）には、アプリ内 WebView
+で開くだけでパース未実装のリンク集が定義されている。実アカウントでログインして GET してみたところ、
+このうち以下が単純 GET で取得できる実データを返すことを確認したため、新規に worker/mcp へ追加した
+（Dart にパース実装は無いため「移植」ではなく実機観測に基づく新規実装）。
+
+### 10.1 成績情報（`/api/performance`、`get_grades`）
+
+- `GET /portalv2/smartphone/smartPhonePerformanceInfor/nextPage/performance/`（cookies のみ、token 不要）。
+- デフォルト表示（学年タブ=卒業進級用１年、未修得科目を含めて表示）のみ取得する。
+  学年タブ切替（`requirementTypeCode=02/03/04/15`）は `org.apache.struts.taglib.html.TOKEN` 付き
+  POST `/smartphone/smartPhonePerformance/selectClassContactList` への遷移が必要だが、
+  今回のテストアカウント（1年生）では他学年タブとの差分を実データで確認できなかったため
+  実装対象外とした（過剰実装回避。**要確認**: 上級学年アカウントでの実データ）。
+- パース: 結果テーブルの各行は `td.txt12` 1個。テキスト行数が1行のみ＝カテゴリ見出し
+  （専門教育科目/総合教育科目/【カリキュラム外科目】等）、複数行＝科目データ行として判別する。
+  科目データ行は先頭が `※` なら履修中（`inProgress`）、以降の行を
+  `教員`/`YYYY年度`/`前期|後期`/`単位 : N`/`評価 : X` のラベルで判定して抽出する
+  （固定インデックス依存にせず、ラベルの正規表現マッチで判定＝Dart の位置依存より堅牢）。
+- 評価済み科目（`評価 : ` に実際の評点が入るケース）は実データで未観測（テストアカウントは
+  全科目履修中のため）。パース処理自体はラベル抽出方式のため対応可能なはずだが**要確認**。
+
+### 10.2 アンケート一覧（`/api/enquetes?type=class|evaluation|campus`、`list_enquetes`）
+
+- `GET /portalv2/smartphone/smartPhoneContactNotice/nextPage/{classEnquete|courseEvaluation|enqueteContact}/`
+  （cookies のみ、token 不要。3種とも `smartPhoneHome` のメニューから遷移する別コントローラ）。
+  - `class`=授業アンケート（`smartPhoneClassEnqList`）
+  - `evaluation`=授業評価アンケート（`smartPhoneCourseEvaluationContact`）
+  - `campus`=学内アンケート（`smartPhoneEnqueteContact`）
+- デフォルト検索条件（画面初期表示）の一覧のみ取得する。もっと見る（`nextSelect*`）によるページング、
+  年度/学期/科目を変えての再検索、および回答送信フロー（`formSubmit`/`showEnqueteContactDetail` 等）は
+  書き込み系または過剰実装のため対象外。
+- パース: `div.listItem` 内のテキストが「ラベル行 → `:` のみの行 → 値行(複数可)」の繰り返しという
+  サイト共通の JSP 出力パターン（連絡詳細パースと同様の慣習）に従うことを利用し、ラベル文字列を
+  固定せず「次行が `:`」で汎用的にラベル/値ペアを抽出する（`Record<string,string>` で返す）。
+- 実機検証: **授業アンケート(class)のみ実データ1件で確認済み**
+  （`授業科目`/`タイトル`/`状態`/`提出期間`/`提出状況` の5ラベルを正しく抽出）。
+  授業評価アンケート(evaluation)・学内アンケート(campus)はテストアカウントで該当データが0件のため、
+  `div.listItem` の実構造は未観測。同一 JSP パターンだろうという推定に基づく実装であり、
+  実データがある状態で再検証が必要（**要確認**）。0件の場合は空配列を返すのみでエラーにはならない。
+
+## 11. 授業アンケート回答（書き込み。一時保存はユーザー許可のもと実データで検証済み）
+
+ユーザーから「授業アンケートへの回答を実装したいが、開発中に実際の課題へテスト送信されるのは困る」
+という要望があったため、当初は**読み取り経路のみ実データで検証し、実際の POST（一時保存）は
+一度も実行しない**方針で実装した。その後、ユーザーから実際の課題（微分積分1第11回授業の課題）の
+添付 PDF を確認した上で一時保存まで実行してよいと明示的な許可を得たため、実際の解答
+（ア=2, イ=1, ウ=2。添付 PDF の設問を計算して算出）で `tempSaveAction` を実行し、
+`goDetail`→`answer/initialize` を再取得して `value1〜3` が入力値のまま保存されていることを
+確認した（**一時保存は実データで動作検証済み**）。以下は実機観測した内容と設計である。
+
+### 11.1 回答画面までの遷移（参照のみ・実機検証済み）
+
+1. `GET smartphone/smartPhoneContactNotice/nextPage/classEnquete/` … 一覧。
+   `classenq_student_searchListActionForm`（`detailFormName`）の token を取得。
+2. `POST smartphone/smartPhoneClassEnqList/goDetail/{index}`（body: 上記 token,
+   `_screenIdentifier=smartPhoneClassEnqList`, `_scrollTop=0`）… 詳細参照画面
+   （タイトル・提出期間・設問数・伝達事項等。実データで「授業アンケート参照」画面を確認済み）。
+   サーバー側セッションに「選択中のアンケート」が保持される（ID をパラメータで渡す経路が無い）。
+3. `GET smartphone/smartPhoneClassEnqAnswer/initialize` … 回答フォーム。
+   手順2の直後でないと正しいアンケートの設問が返らない。
+
+### 11.2 設問構造（実データ3問で確認済み）
+
+- 設問は `<dt>ラベル(ア/イ/ウ...)</dt><dd><strong>プロンプト（N文字以内）</strong></dd>` のブロックが
+  設問数ぶん並び、対応する回答欄（実データでは全て `<input type="textbox" name="value{i}">`、
+  1始まりで dt の出現順と一致）が続く。dt 3個・value1〜3 の順序一致を確認済み。
+- テンプレートコメントから、テキストボックス以外に「テキストエリア/日付/コンボボックス/
+  ラジオボタン/チェックボックス/添付ファイル」形式が存在することが分かるが、実データが
+  無いため HTML 構造は未観測。Web 版はテキストボックス形式の設問のみ回答を受け付け、
+  それ以外は `ValidationError` で拒否する（誤った形式で送信しないため。**要確認**）。
+- `classEnqId`（隠しフィールド）が回答フォームの実体 ID。
+
+### 11.3 回答保存（実データで検証済み）
+
+- 「一時保存」ボタンの JS (`formSubmit('tempSaveAction')`) から
+  `POST smartphone/smartPhoneClassEnqAnswer/tempSaveAction`
+  （body: 回答フォーム自身の token, `classEnqId`, `questionNumber=''`, `selectedKey=''`,
+  `backPath=''`, `value{i}=回答文字列`）と特定し、実データ（`classEnqId=5167`,
+  `value1=2, value2=1, value3=2`）で実行した。直後に `goDetail`→`answer/initialize` を
+  再取得し、`value1〜3` の `value=""` 属性が保存した値のまま返ってくることを確認済み
+  （**サーバー側に確かに保存されている**）。
+- 「確認」ボタン (`formSubmit('confirmAction')`) を経由した最終提出（「提出」相当）のエンドポイントは
+  未解明。確認画面の実 HTML を観測していないため、Web 版は一時保存までしか実装していない
+  （最終提出の実装は別途、確認画面の実データ観測が必要。**要確認**）。
+- 成功/失敗判定は `isLoginSuccess` と同じ規約（`#_errorInformation > ul > li:nth-child(1)` の有無）を
+  流用しており、今回の成功ケース（`ok:true`）では正しく機能した。失敗時（バリデーションエラー等）の
+  実際のレスポンス文言は未観測のため、エラー時の判定精度は**引き続き要確認**。
+- 事故防止のため MCP ツール `save_class_enquete_answer_draft` は `confirm="CONFIRM_SUBMIT"`
+  という厳密な文字列を渡したときのみ実際に API を呼ぶガードを入れている（ユーザーの明示的同意なしに
+  AI が誤って実行しないようにするため）。
+- なお詳細参照画面の JS には `answerCancel()`（`POST smartPhoneClassEnqDetail/answerCancel`、
+  確認ダイアログ「提出取消を行いますか？」）があり、提出済み回答は取り消せる模様。
+  取消フローも未実装・未検証。
+
+### 11.4 実装バグ2件（開発中に実サーバーで発見・修正）
+
+- **`extractStrutsTokenByForm` の DOM 依存が原因で `LcamExpiredError` を誤検知するバグ**:
+  `smartPhoneClassEnqAnswer/initialize` の実 HTML は `<div class="right-module-bold ...">`
+  系のラップ div が5個開いて4個しか閉じられておらず（実機観測: 該当 form を単独で
+  切り出して再パースしても同じ現象が再現する＝form 自身の内部崩れ）、node-html-parser の
+  ツリーが壊れて対象 `<form name="smartphone_smartPhoneClassEnqAnswerActionForm">` 要素自体が
+  `querySelectorAll('form')` に出現しなくなる（form 内の `#classEnqId` や `dt`/`input[name=value1]`
+  等は個別要素として問題なく拾えるのに、form 要素だけ見えなくなるという非直感的な壊れ方）。
+  §9.2/9.3/9.5 と同種の「node-html-parser がタグ閉じ忘れに弱い」問題の新パターン。
+  対応: `extractStrutsTokenByForm` を DOM セレクタ方式から、生 HTML 文字列に対する
+  正規表現方式（`name="{formName}"` の直後に現れる最初の TOKEN を拾う）に変更した。
+- **`submitEnqueteAnswer` が `answer/initialize` を2回叩いていた設計ミス**: 当初は
+  `fetchEnqueteQuestions`（内部で1回 GET）で設問を取得した後、token 再取得のためにもう1回
+  `getEnqueteAnswerFormBody` を呼んでいた。無駄な subrequest のため、設問と token を
+  同じ1回のレスポンスから取り出すよう `submitEnqueteAnswer` を自己完結させた
+  （`fetchEnqueteQuestions` は使わず goDetail→answer/initialize を自前で1回だけ辿る）。
+  当初はこれが `LcamExpiredError` の原因だと誤って推測したが、実際の原因は上記の
+  DOM 崩れによる token 抽出失敗だった（2回叩くこと自体は無関係だったが、
+  subrequest 削減のため単一パス化は残した）。
+
+### 11.5 最終提出（確認画面経由の本登録。実データで動作検証済み）
+
+一時保存の実装・検証後、ユーザーが実際に L-Cam 上で「確認」ボタンまで手動操作し、遷移先の
+「登録確認」画面の実 HTML を提供してくれた。ただしこれは **PC 版フロー**
+（`classenq/student/answerConfirm`、フォーム名 `classenq_student_answerConfirmActionForm`）の
+ものであり、本実装が使う **SP フロー**（list→goDetail→answer/initialize の経路）で実際に
+返る確認画面はフォーム名・遷移先が異なった。最初の実装はユーザー提供 HTML の PC 版名称で
+実装したため実機で `NotFoundError: 登録確認フォームが見つかりません` になり、SP フローを
+自前で再現して実際のフォーム名を特定・修正した。最終的に**ユーザーの明示的な許可のもと
+実際に最終提出を実行し、成功を確認した**（微分積分の課題、ア=2/イ=1/ウ=2）。
+
+- 「確認」ボタン (`formSubmit('confirmAction')`、回答フォーム自身の
+  `smartphone_smartPhoneClassEnqAnswerActionForm` から) は
+  `POST smartphone/smartPhoneClassEnqAnswer/confirmAction`
+  （body: 回答フォームの token, `classEnqId`, `questionNumber=''`, `selectedKey=''`,
+  `backPath=''`, `value{i}=回答文字列`）で、回答値を送信して「登録確認」画面を返す
+  （まだ確定しない。届いた回答は読み取り専用テキストとして画面に表示される）。
+- **SP フローでの**「登録確認」画面自身は
+  `smartphone_smartPhoneClassEnqAnswerConfirmActionForm`
+  （action: `/portalv2/smartphone/smartPhoneClassEnqAnswerConfirm/`）という別 form を持ち、
+  隠しフィールドとして token・`classEnqId`・`questionNumber=''`・`backPath=''`（空文字。
+  PC 版の `/classenq/student/answer/selfForward` とは異なる）を保持する
+  （value{i} の入力欄は無い＝回答内容の再送は不要）。
+- 画面内の「登録」ボタン (`formSubmit('confirmAction')`、この画面固有の `formSubmit` が
+  `smartPhoneClassEnqAnswerConfirm/` 宛にオーバーライドされている) は
+  `POST smartphone/smartPhoneClassEnqAnswerConfirm/confirmAction`
+  （body: 上記 token/classEnqId/questionNumber/backPath）で、**これが実際の最終登録（本提出）**。
+  実行後、一覧（`/api/enquetes?type=class`）の対象が `count:1`→`count:0` に変化したことを確認
+  （一覧のデフォルト検索条件が「未提出のみ」であるため、提出済みになった課題が一覧から
+  消えたことが成功の裏付けとなる）。
+- Web 版はこの3段階（`confirmAction`（回答フォーム）→ 登録確認画面のパース →
+  `confirmAction`（`smartPhoneClassEnqAnswerConfirm`、実質的な「登録」実行））を
+  `finalizeEnqueteAnswer` として実装し、**実データで動作検証済み**。
+- 「登録確認」画面も他のアンケート系画面と同様に共通ヘッダ/ナビ込みの巨大な HTML だが、
+  実機観測ではこの画面自体の `<div>` は正しく閉じられており（§11.4 のような崩れは無い）、
+  ただし一貫性と堅牢性のため token・classEnqId・backPath の抽出は §11.4 と同じく
+  DOM セレクタでなく生 HTML への正規表現で行っている（`parseEnqueteConfirm`）。
+- 安全策として、MCP ツール `submit_class_enquete_final` は一時保存用の
+  `save_class_enquete_answer_draft` とは別の confirm 文字列（`CONFIRM_FINAL_SUBMIT`）を要求し、
+  一時保存で同意を得ていても最終提出には改めての同意が必要という前提を tool description に明記した。
+  API 層（`POST /api/enquetes/submit`）でも同じ `confirm` 文字列を必須にし、MCP を介さず
+  直接 API を叩かれた場合の保険としている。
+- 回答取消 (`answerCancel`) は未実装・未検証。

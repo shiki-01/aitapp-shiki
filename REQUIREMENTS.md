@@ -122,6 +122,11 @@ browser には正規化済みエンドポイントのみ公開し、上流 URL �
 | GET | `/api/notices` | LCAM 連絡（透過再ログイン適用） |
 | GET | `/api/timetable` | LCAM 時間割 |
 | GET | `/api/schedule` | LCAM スケジュール |
+| GET | `/api/performance` | LCAM 成績情報 |
+| GET | `/api/enquetes` | LCAM アンケート一覧（授業/授業評価/学内） |
+| GET | `/api/enquetes/questions` | 授業アンケートの設問（参照のみ） |
+| POST | `/api/enquetes/answer` | 授業アンケート回答の一時保存（実データで検証済み。MIGRATION_NOTES §11） |
+| POST | `/api/enquetes/submit` | 授業アンケートの最終提出（確認画面経由の本登録。`confirm` 必須。実データで検証済み。MIGRATION_NOTES §11.5） |
 | GET | `/api/assignments` | Moodle 課題（token 経由） |
 | GET | `/api/syllabus/search` | シラバス検索（都度 JSESSIONID） |
 | GET | `/api/file/:id` | 添付バイナリ（stream proxy） |

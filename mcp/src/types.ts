@@ -50,6 +50,38 @@ export interface ScheduleDay {
   events: ScheduleEvent[];
 }
 
+export interface PerformanceEntry {
+  category: string;
+  subject: string;
+  teacher: string;
+  year: string;
+  semester: string;
+  credits: number | null;
+  grade: string;
+  inProgress: boolean;
+}
+
+export interface EnqueteListItem {
+  fields: Record<string, string>;
+}
+export interface EnqueteList {
+  count: number;
+  items: EnqueteListItem[];
+}
+
+export interface EnqueteQuestion {
+  index: number;
+  label: string;
+  prompt: string;
+  maxLength: number | null;
+  answerType: 'text' | 'unsupported';
+  fieldName: string;
+}
+export interface EnqueteAnswerForm {
+  classEnqId: string;
+  questions: EnqueteQuestion[];
+}
+
 export interface Assignment {
   id: number;
   name: string;

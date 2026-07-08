@@ -307,6 +307,224 @@ export function parseClassNoticeDetail(html: string): NoticeDetail {
   };
 }
 
+// ---- 成績情報 ----
+
+export interface PerformanceEntry {
+  category: string;
+  subject: string;
+  teacher: string;
+  year: string;
+  semester: string;
+  credits: number | null;
+  grade: string;
+  inProgress: boolean;
+}
+
+/**
+ * 成績情報。移植元 Dart 実装なし（webAccessLinks は WebView 表示のみで未パース）。
+ * 実機観測: 結果テーブルの各行は `td.txt12` 1個で、カテゴリ見出し行（1行のみのテキスト）
+ * と科目行（※・科目名・教員・年度・学期・単位・評価をラベルで判別できる複数行）が混在する。
+ */
+export function parsePerformance(html: string): PerformanceEntry[] {
+  const root = parseHtml(html);
+  const cells = root.querySelectorAll('td.txt12');
+  if (cells.length === 0) {
+    throw new NotFoundError('[parsePerformance]データの取得に失敗しました');
+  }
+
+  const result: PerformanceEntry[] = [];
+  let category = '';
+  for (const td of cells) {
+    const lines = textLines(td);
+    if (lines.length === 0) continue;
+    if (lines.length === 1) {
+      category = lines[0].replace(/^【|】$/g, '');
+      continue;
+    }
+
+    let i = 0;
+    const inProgress = lines[0] === '※';
+    if (inProgress) i++;
+    let subject = '';
+    let teacher = '';
+    let year = '';
+    let semester = '';
+    let credits: number | null = null;
+    let grade = '';
+    for (; i < lines.length; i++) {
+      const line = lines[i];
+      if (/^教員/.test(line)) {
+        teacher = line.replace(/^教員\s*/, '').trim();
+      } else if (/^\d{4}年度$/.test(line)) {
+        year = line.replace('年度', '');
+      } else if (line === '前期' || line === '後期') {
+        semester = line;
+      } else if (/^単位\s*:/.test(line)) {
+        const m = /単位\s*:\s*(\d+)/.exec(line);
+        credits = m ? parseInt(m[1], 10) : null;
+      } else if (/^評価\s*:/.test(line)) {
+        grade = line.replace(/^評価\s*:\s*/, '').trim();
+      } else if (subject === '') {
+        subject = line;
+      }
+    }
+    result.push({ category, subject, teacher, year, semester, credits, grade, inProgress });
+  }
+  return result;
+}
+
+// ---- アンケート一覧 ----
+
+export interface EnqueteListItem {
+  fields: Record<string, string>;
+}
+
+export interface EnqueteList {
+  count: number;
+  items: EnqueteListItem[];
+}
+
+const FULLWIDTH_DIGITS = '０１２３４５６７８９';
+function toHalfWidthDigits(s: string): string {
+  return s.replace(/[０-９]/g, (d) => String(FULLWIDTH_DIGITS.indexOf(d)));
+}
+
+/**
+ * アンケート一覧（授業アンケート/授業評価アンケート/学内アンケート）。移植元 Dart 実装なし。
+ * 実機観測（授業アンケートのみ実データ1件で確認）: `div.listItem` 内のテキストは
+ * 「ラベル行」→「":" のみの行」→「値（複数行可）」の繰り返しで構成される。
+ * このラベル/コロン/値の並びは他の連絡詳細パース（lcam_parse.dart 由来）でも
+ * 使われているサイト共通の JSP 出力パターンのため、ラベル文字列を固定せず
+ * 「次行が ':' の行」をラベルとして汎用的に検出する。
+ * 授業評価アンケート/学内アンケートは実データ0件のためこの構造の実観測はできておらず、
+ * 同一パターンと推定（要確認）。
+ */
+export function parseEnqueteList(html: string): EnqueteList {
+  const root = parseHtml(html);
+  const countEl = root.querySelector('.resultCount');
+  const countText = countEl ? toHalfWidthDigits(countEl.text) : '';
+  const countMatch = /(\d+)/.exec(countText);
+  const count = countMatch ? parseInt(countMatch[1], 10) : 0;
+
+  const rows = root.querySelectorAll('div.listItem');
+  const items: EnqueteListItem[] = [];
+  for (const row of rows) {
+    const lines = textLines(row);
+    const fields: Record<string, string> = {};
+    let label: string | null = null;
+    let valueParts: string[] = [];
+    const commit = () => {
+      if (label != null) fields[label] = valueParts.join(' ').trim();
+    };
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      const next = lines[i + 1];
+      if (next === ':' || next === '：') {
+        commit();
+        label = line;
+        valueParts = [];
+        i += 2;
+        continue;
+      }
+      valueParts.push(line);
+      i++;
+    }
+    commit();
+    if (Object.keys(fields).length > 0) items.push({ fields });
+  }
+  return { count, items };
+}
+
+// ---- 授業アンケート回答フォーム ----
+
+export interface EnqueteQuestion {
+  /** 1始まり。value{index} が回答欄の name になる。 */
+  index: number;
+  /** 設問ラベル（ア/イ/ウ...）。 */
+  label: string;
+  prompt: string;
+  maxLength: number | null;
+  /**
+   * 実機観測できたのは「テキストボックス」形式のみ。他形式（テキストエリア/日付/
+   * コンボボックス/ラジオボタン/チェックボックス/添付ファイル）はテンプレート上
+   * 存在が確認できるが実データが無いため 'unsupported' として区別し、
+   * submitEnqueteAnswer 側で弾く（誤った形式で送信しない）。
+   */
+  answerType: 'text' | 'unsupported';
+  fieldName: string;
+}
+
+export interface EnqueteAnswerForm {
+  classEnqId: string;
+  questions: EnqueteQuestion[];
+}
+
+/**
+ * 授業アンケート回答フォーム。移植元 Dart 実装なし・実機観測に基づく新規実装。
+ * 設問は `<dt>ラベル</dt><dd><strong>プロンプト（Nバイト以内）</strong></dd>` の並びと、
+ * 対応する回答欄（`name="value{i}"`）が設問と同じ順序で並ぶことを利用して対応付ける
+ * （実データ3問で dt 3個・value1〜3 の順序一致を確認済み）。
+ */
+export function parseEnqueteAnswerForm(html: string): EnqueteAnswerForm {
+  const root = parseHtml(html);
+  const classEnqId = root.querySelector('#classEnqId')?.getAttribute('value') ?? '';
+  if (!classEnqId) {
+    throw new NotFoundError('[parseEnqueteAnswerForm]classEnqIdの取得に失敗しました');
+  }
+
+  const dts = root.querySelectorAll('dt');
+  const questions: EnqueteQuestion[] = [];
+  for (let i = 0; i < dts.length; i++) {
+    const fieldName = `value${i + 1}`;
+    const label = textLines(dts[i])[0] ?? '';
+    const container = dts[i].parentNode;
+    const promptRaw = container ? textLines(container.querySelector('dd')).join(' ') : '';
+    const lenMatch = /（\s*(\d+)\s*文字以内\s*）/.exec(promptRaw);
+    const maxLength = lenMatch ? parseInt(lenMatch[1], 10) : null;
+    const prompt = promptRaw.replace(/（\s*\d+\s*文字以内\s*）/, '').trim();
+
+    const textInput = root.querySelector(`input[name="${fieldName}"]`);
+    const answerType: EnqueteQuestion['answerType'] = textInput ? 'text' : 'unsupported';
+
+    questions.push({ index: i + 1, label, prompt, maxLength, answerType, fieldName });
+  }
+  return { classEnqId, questions };
+}
+
+// ---- 授業アンケート確認画面（登録確認） ----
+
+export interface EnqueteConfirmForm {
+  classEnqId: string;
+  backPath: string;
+}
+
+/**
+ * 「登録確認」画面（`smartphone_smartPhoneClassEnqAnswerConfirmActionForm`、SP フロー実測）
+ * から最終登録 POST に必要な `classEnqId`/`backPath` を取り出す。
+ * この画面もヘッダ/ナビ等の共通部品込みで巨大かつ他のアンケート系画面と同様に
+ * node-html-parser がタグ閉じ忘れで壊れるおそれがあるため（§9, §11.4）、DOM
+ * セレクタではなく生 HTML への正規表現で対象 form 以降の値を拾う。
+ */
+export function parseEnqueteConfirm(html: string): EnqueteConfirmForm {
+  const formIdx = html.indexOf(
+    'name="smartphone_smartPhoneClassEnqAnswerConfirmActionForm"',
+  );
+  if (formIdx < 0) {
+    throw new NotFoundError('[parseEnqueteConfirm]登録確認フォームが見つかりません');
+  }
+  const tail = html.slice(formIdx);
+  const classEnqIdMatch = /name="classEnqId"\s+value="([^"]*)"/.exec(tail);
+  const backPathMatch = /name="backPath"\s+value="([^"]*)"/.exec(tail);
+  if (!classEnqIdMatch) {
+    throw new NotFoundError('[parseEnqueteConfirm]classEnqIdが見つかりません');
+  }
+  return {
+    classEnqId: classEnqIdMatch[1],
+    backPath: backPathMatch ? backPathMatch[1] : '',
+  };
+}
+
 // ---- 時間割（SP） ----
 
 const DAY_TH: Record<string, string> = {

@@ -23,7 +23,13 @@ import {
   fetchTimetable,
   fetchFile,
   fetchSchedule,
+  fetchPerformance,
+  fetchEnqueteList,
+  fetchEnqueteQuestions,
+  submitEnqueteAnswer,
+  finalizeEnqueteAnswer,
 } from './upstream/lcam/client';
+import type { EnqueteType } from './upstream/lcam/access';
 import { getMoodleToken, getMoodleAssignments, MoodleTokenError } from './upstream/moodle/access';
 import {
   getSyllabusSession,
@@ -41,6 +47,7 @@ import {
   AuthFailedError,
   NotFoundError,
   UpstreamError,
+  ValidationError,
 } from './upstream/errors';
 
 type Variables = { userId: string; state: UserState };
@@ -209,6 +216,115 @@ app.get('/api/schedule', async (c) => {
   return c.json({ schedule });
 });
 
+// ---- GET /api/performance（成績情報） ----
+app.get('/api/performance', async (c) => {
+  const userId = c.get('userId');
+  const state = c.get('state');
+  try {
+    const performance = await withLcamRelogin(c.env, userId, state, (cookies) =>
+      fetchPerformance(cookies),
+    );
+    return c.json({ performance });
+  } catch (e) {
+    // 履修科目が1件も無い場合はパースが空で失敗する。空配列として正常扱いする。
+    if (e instanceof NotFoundError) return c.json({ performance: [] });
+    throw e;
+  }
+});
+
+// ---- GET /api/enquetes?type=class|evaluation|campus ----
+app.get('/api/enquetes', async (c) => {
+  const type = (c.req.query('type') ?? 'class') as EnqueteType;
+  if (type !== 'class' && type !== 'evaluation' && type !== 'campus') {
+    return c.json({ error: 'invalid type' }, 400);
+  }
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const list = await withLcamRelogin(c.env, userId, state, (cookies) =>
+    fetchEnqueteList(cookies, type),
+  );
+  return c.json(list);
+});
+
+// ---- GET /api/enquetes/questions?index=（授業アンケートの設問。参照のみ） ----
+app.get('/api/enquetes/questions', async (c) => {
+  const index = parseInt(c.req.query('index') ?? '', 10);
+  if (Number.isNaN(index)) return c.json({ error: 'index required' }, 400);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const form = await withLcamRelogin(c.env, userId, state, (cookies) =>
+    fetchEnqueteQuestions(cookies, index),
+  );
+  return c.json(form);
+});
+
+// アンケート回答系エンドポイント共通のリクエストボディ検証。
+function parseEnqueteAnswerBody(
+  bodyIn: { index?: number; answers?: Record<string, string> },
+): { index: number; answers: Record<number, string> } | { error: string } {
+  const index = bodyIn.index;
+  const answersIn = bodyIn.answers ?? {};
+  if (typeof index !== 'number' || Number.isNaN(index)) {
+    return { error: 'index required' };
+  }
+  const answers: Record<number, string> = {};
+  for (const [k, v] of Object.entries(answersIn)) {
+    const n = Number(k);
+    if (Number.isNaN(n)) return { error: `invalid question index: ${k}` };
+    answers[n] = String(v);
+  }
+  return { index, answers };
+}
+
+// ---- POST /api/enquetes/answer（授業アンケートへの回答を一時保存） ----
+// 実データで動作検証済み。MIGRATION_NOTES §11 参照。
+app.post('/api/enquetes/answer', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  let bodyIn: { index?: number; answers?: Record<string, string> };
+  try {
+    bodyIn = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid body' }, 400);
+  }
+  const parsed = parseEnqueteAnswerBody(bodyIn);
+  if ('error' in parsed) return c.json({ error: parsed.error }, 400);
+
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const result = await withLcamRelogin(c.env, userId, state, (cookies) =>
+    submitEnqueteAnswer(cookies, parsed.index, parsed.answers),
+  );
+  return c.json(result);
+});
+
+// ---- POST /api/enquetes/submit（授業アンケートの最終提出。確認画面を経由した本登録） ----
+// MIGRATION_NOTES §11.5。取り消しにくい操作のため API 層でも明示的な confirm 文字列を要求する
+// （MCP ツール側のガードと合わせた多層防御。ブラウザや curl から直接叩かれた場合の保険）。
+app.post('/api/enquetes/submit', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  let bodyIn: { index?: number; answers?: Record<string, string>; confirm?: string };
+  try {
+    bodyIn = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid body' }, 400);
+  }
+  if (bodyIn.confirm !== 'CONFIRM_FINAL_SUBMIT') {
+    return c.json(
+      { error: 'confirm_required', message: 'confirm に "CONFIRM_FINAL_SUBMIT" を指定してください' },
+      400,
+    );
+  }
+  const parsed = parseEnqueteAnswerBody(bodyIn);
+  if ('error' in parsed) return c.json({ error: parsed.error }, 400);
+
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const result = await withLcamRelogin(c.env, userId, state, (cookies) =>
+    finalizeEnqueteAnswer(cookies, parsed.index, parsed.answers),
+  );
+  return c.json(result);
+});
+
 // ---- GET /api/assignments（Moodle） ----
 app.get('/api/assignments', async (c) => {
   const userId = c.get('userId');
@@ -364,6 +480,9 @@ app.onError((err, c) => {
   }
   if (err instanceof NotFoundError) {
     return c.json({ error: 'not_found', message: err.message }, 404);
+  }
+  if (err instanceof ValidationError) {
+    return c.json({ error: 'validation_error', message: err.message }, 400);
   }
   if (err instanceof UpstreamError) {
     return c.json({ error: 'upstream_error', message: err.message }, 502);

@@ -265,6 +265,220 @@ export async function getNoticeDetailBody(
   return res.text();
 }
 
+// ---- 成績情報 ----
+
+/**
+ * GET smartPhonePerformanceInfor/nextPage/performance/。
+ * デフォルト表示（卒業進級用１年タブ・未修得科目を含めて表示）のみ取得する。
+ * 学年タブ切替（requirementTypeCode）は POST 遷移で別途 token が要るため対象外
+ * （実データで複数学年の差異を確認できておらず、過剰実装を避ける。要確認）。
+ */
+export async function getPerformanceBody(cookies: LcamCookies): Promise<string> {
+  const headers = {
+    Cookie: cookieHeader(cookies),
+    ...constHeader,
+    ...secFetchHeader,
+  };
+  const res = await httpAccess(
+    `${BASE}/portalv2/smartphone/smartPhonePerformanceInfor/nextPage/performance/`,
+    headers,
+  );
+  return res.text();
+}
+
+// ---- アンケート一覧 ----
+
+export type EnqueteType = 'class' | 'evaluation' | 'campus';
+
+/** 実機観測した nextPage 名（const.dart webAccessLinks 由来）。 */
+const ENQUETE_PATH: Record<EnqueteType, string> = {
+  class: 'classEnquete',
+  evaluation: 'courseEvaluation',
+  campus: 'enqueteContact',
+};
+
+/**
+ * GET smartPhoneContactNotice/nextPage/{classEnquete|courseEvaluation|enqueteContact}/。
+ * デフォルト検索条件（当該画面の初期表示）の一覧をそのまま取得する。
+ * 回答送信フローは実装しない（書き込み系のため対象外）。
+ */
+export async function getEnqueteBody(
+  cookies: LcamCookies,
+  type: EnqueteType,
+): Promise<string> {
+  const headers = {
+    Cookie: cookieHeader(cookies),
+    Referer: `${BASE}/portalv2/smartphone/smartPhoneHome/nextPage/contactNotice`,
+    ...constHeader,
+    ...secFetchHeader,
+  };
+  const res = await httpAccess(
+    `${BASE}/portalv2/smartphone/smartPhoneContactNotice/nextPage/${ENQUETE_PATH[type]}/`,
+    headers,
+  );
+  return res.text();
+}
+
+// ---- 授業アンケート回答（読み取りは実機検証済み。書き込みは未検証） ----
+
+/** POST goDetail/{index} → アンケート詳細参照（タイトル・期間・設問数等）。 */
+export async function getEnqueteDetailBody(
+  cookies: LcamCookies,
+  token: string,
+  index: number,
+): Promise<string> {
+  const headers = {
+    Origin: BASE,
+    Referer: `${BASE}/portalv2/smartphone/smartPhoneContactNotice/nextPage/classEnquete/`,
+    Cookie: cookieHeader(cookies),
+    ...constHeader,
+    ...secFetchHeader,
+    ...contentTypeHeader,
+  };
+  const data = {
+    'org.apache.struts.taglib.html.TOKEN': token,
+    _screenIdentifier: 'smartPhoneClassEnqList',
+    _scrollTop: '0',
+  };
+  const res = await httpAccess(
+    `${BASE}/portalv2/smartphone/smartPhoneClassEnqList/goDetail/${index}`,
+    headers,
+    data,
+  );
+  return res.text();
+}
+
+/**
+ * GET smartPhoneClassEnqAnswer/initialize → 設問と回答欄。
+ * サーバー側セッションが「goDetail で選択中のアンケート」を保持しているため、
+ * 必ず getEnqueteDetailBody の直後に呼び出す必要がある（ID をパラメータで渡せない）。
+ */
+export async function getEnqueteAnswerFormBody(cookies: LcamCookies): Promise<string> {
+  const headers = {
+    Cookie: cookieHeader(cookies),
+    Referer: `${BASE}/portalv2/smartphone/smartPhoneClassEnqDetail/`,
+    ...constHeader,
+    ...secFetchHeader,
+  };
+  const res = await httpAccess(
+    `${BASE}/portalv2/smartphone/smartPhoneClassEnqAnswer/initialize`,
+    headers,
+  );
+  return res.text();
+}
+
+/**
+ * POST smartPhoneClassEnqAnswer/tempSaveAction（一時保存）。
+ * ユーザー許可のもと実データで検証済み（value1〜3 が保存されサーバー側に反映されることを
+ * goDetail→answer/initialize の再取得で確認した。MIGRATION_NOTES §11 参照）。
+ * 「確認」(confirmAction) を経た最終提出フローは未解明のため実装していない（一時保存止まり）。
+ */
+export async function postEnqueteTempSave(
+  cookies: LcamCookies,
+  token: string,
+  classEnqId: string,
+  answers: Record<string, string>,
+): Promise<string> {
+  const headers = {
+    Origin: BASE,
+    Referer: `${BASE}/portalv2/smartphone/smartPhoneClassEnqAnswer/initialize`,
+    Cookie: cookieHeader(cookies),
+    ...constHeader,
+    ...secFetchHeader,
+    ...contentTypeHeader,
+  };
+  const data: Record<string, string> = {
+    'org.apache.struts.taglib.html.TOKEN': token,
+    classEnqId,
+    questionNumber: '',
+    selectedKey: '',
+    backPath: '',
+    ...answers,
+  };
+  const res = await httpAccess(
+    `${BASE}/portalv2/smartphone/smartPhoneClassEnqAnswer/tempSaveAction`,
+    headers,
+    data,
+  );
+  return res.text();
+}
+
+/**
+ * POST smartPhoneClassEnqAnswer/confirmAction（確認画面表示。まだ確定しない）。
+ * ユーザーから提供された実データ（「登録確認」画面の実 HTML）により、
+ * このリクエストが `classenq_student_answerConfirmActionForm`
+ * （classEnqId・questionNumber・backPath・TOKEN を持つ）を含む確認画面を返すことを確認済み。
+ */
+export async function postEnqueteConfirm(
+  cookies: LcamCookies,
+  token: string,
+  classEnqId: string,
+  answers: Record<string, string>,
+): Promise<string> {
+  const headers = {
+    Origin: BASE,
+    Referer: `${BASE}/portalv2/smartphone/smartPhoneClassEnqAnswer/initialize`,
+    Cookie: cookieHeader(cookies),
+    ...constHeader,
+    ...secFetchHeader,
+    ...contentTypeHeader,
+  };
+  const data: Record<string, string> = {
+    'org.apache.struts.taglib.html.TOKEN': token,
+    classEnqId,
+    questionNumber: '',
+    selectedKey: '',
+    backPath: '',
+    ...answers,
+  };
+  const res = await httpAccess(
+    `${BASE}/portalv2/smartphone/smartPhoneClassEnqAnswer/confirmAction`,
+    headers,
+    data,
+  );
+  return res.text();
+}
+
+/**
+ * POST smartPhoneClassEnqAnswerConfirm/confirmAction（最終登録＝実際の提出）。
+ * 確認画面自身のフォーム（`smartphone_smartPhoneClassEnqAnswerConfirmActionForm`）が持つ
+ * token/classEnqId/questionNumber/backPath をそのまま送信する（回答値の再送は不要。
+ * 確認画面は一時保存済みの値を読み取り表示しているだけで、フォーム自体に
+ * value{i} の入力欄は無い）。
+ * 実機観測: 当初ユーザーから提供された「登録確認」画面 HTML は
+ * `classenq_student_answerConfirmActionForm`（PC 版の画面遷移）だったが、
+ * SP 版フロー（本実装が使う list→goDetail→answer/initialize→confirmAction の経路）で
+ * 実際に返る確認画面のフォーム名は `smartphone_smartPhoneClassEnqAnswerConfirmActionForm`、
+ * 遷移先は `smartPhoneClassEnqAnswerConfirm/confirmAction` だった（実機再現で確認・修正）。
+ */
+export async function postEnqueteFinalize(
+  cookies: LcamCookies,
+  token: string,
+  classEnqId: string,
+  backPath: string,
+): Promise<string> {
+  const headers = {
+    Origin: BASE,
+    Referer: `${BASE}/portalv2/smartphone/smartPhoneClassEnqAnswer/confirmAction`,
+    Cookie: cookieHeader(cookies),
+    ...constHeader,
+    ...secFetchHeader,
+    ...contentTypeHeader,
+  };
+  const data = {
+    'org.apache.struts.taglib.html.TOKEN': token,
+    classEnqId,
+    questionNumber: '',
+    backPath,
+  };
+  const res = await httpAccess(
+    `${BASE}/portalv2/smartphone/smartPhoneClassEnqAnswerConfirm/confirmAction`,
+    headers,
+    data,
+  );
+  return res.text();
+}
+
 // ---- 時間割（SP） ----
 
 /** GET smartPhoneHome/nextPage/timeTable。 */
