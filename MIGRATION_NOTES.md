@@ -410,3 +410,157 @@ Dart 版アプリの `lib/application/config/const.dart`（`webAccessLinks`）�
   API 層（`POST /api/enquetes/submit`）でも同じ `confirm` 文字列を必須にし、MCP を介さず
   直接 API を叩かれた場合の保険としている。
 - 回答取消 (`answerCancel`) は未実装・未検証。
+
+## 12. Moodle 書き込み系（クイズ回答・課題提出。Dart 実装に対応機能なし）
+
+Dart 版（`access_moodle.dart`）には課題一覧取得（読み取り）しか実装が無く、クイズ回答・
+課題提出は Web 版で新規追加した機能。`core_webservice_get_site_info` で利用可能と確認済みの
+以下の関数を対象に、Moodle Mobile app 用 Web Service の標準的なパラメータ仕様に従って実装した
+（AIT Moodle: `cms.aitech.ac.jp`, Moodle 4.5.12）。
+
+```
+mod_assign_start_submission / mod_assign_save_submission / mod_assign_submit_for_grading
+mod_quiz_start_attempt / mod_quiz_get_attempt_data / mod_quiz_save_attempt / mod_quiz_process_attempt
+mod_quiz_get_quizzes_by_courses / mod_quiz_get_quiz_access_information
+core_files_get_unused_draft_itemid / webservice/upload.php (POST multipart, REST APIとは別エンドポイント)
+```
+
+### 12.1 `webservice/upload.php` のレスポンス形式（実データで疎通確認済み）
+
+ユーザーの許可のもと、実 credential で以下を実データ確認した（draft area への
+テストアップロードのみ。提出・クイズ回答等の書き込みは行っていない）。
+
+- `core_files_get_unused_draft_itemid` のレスポンスは `{component, contextid, userid, filearea, itemid, warnings}`
+  というフラットなオブジェクト（`itemid` はトップレベル）。
+- `webservice/upload.php` へ `token` / `itemid` / `file_1`（ファイル本体）を multipart/form-data で
+  POST すると、HTTP 200 + **配列**（アップロード済みファイル情報のオブジェクトの配列。
+  `component, contextid, userid, filearea, filename, filepath, itemid, license, author, source, filesize`）
+  が返る。配列であることと `itemid` が送信した値と一致することを確認済み
+  （`uploadFileToDraftArea` はこの配列形式を前提に実装）。
+
+### 12.2 実装中に実データで発覚したバグ2件
+
+開発中、`get_quiz_info` / `start_quiz_attempt` の実装を実際の受講科目（courseId=5533、
+小テスト8件）に対して動作確認したところ、以下の想定違いが判明し修正した。
+
+- **`mod_quiz_get_quiz_access_information` の `preventaccessreasons` は `{description}` を持つ
+  オブジェクトの配列ではなく、そのまま `string[]`**（実レスポンス例:
+  `["現在、この小テストは利用できません。"]`）。オブジェクト形式を仮定した初期実装は
+  `undefined.description` 相当のバグにはならなかったが値が失われていたため、`string[]`
+  前提に修正した。
+- **`mod_quiz_start_attempt` は受験不可の場合（時間外・試行回数超過等）、Moodle 標準の
+  `exception`/`errorcode` を投げず、HTTP 200 で `attempt: []`（空配列）+ `warnings`
+  （`{item, itemid, warningcode, message}` の配列）を返す**。実データ確認: 既に受験期間が
+  終了した小テスト（`quizid=39063`、`attemptsAllowed=1`、既存の受験は `state=finished`
+  1件のみ）に対して `start_attempt` を呼んだところ `{"attempt":[],"warnings":[{...,"message":
+  "現在、この小テストは利用できません。"}]}` が返り、その後 `mod_quiz_get_attempt_data` に
+  `attemptid=undefined` を渡す形になって別のエラー（`無効なパラメータ値が検出されました`）を
+  誘発していた（`mod_quiz_get_user_attempts` で確認した限り、新規の受験は作成されておらず
+  実害は無かった）。`isStartedAttempt`（`attempt` が配列でないことを判定）で明示的に検出し、
+  `warnings[0].message` を理由として `UpstreamError` にする形に修正した
+  （`worker/src/upstream/moodle/access.ts`）。
+
+### 12.3 実データで完全検証済み（クイズ回答フロー全体）
+
+§12.2 の時点では「受験期間中の実クイズに対して書き込みを行わないと検証できない」ため
+未検証としていたが、ユーザーの許可のもと実際に受講中のコース（Communicative English A
+2026, courseId=5452, Lesson 12）の6つの小テストを対象に、`start_quiz_attempt` →
+`answer_quiz_question` → `finish_quiz_attempt` の一連を実データで検証し、**全問正解
+（各クイズとも `mod_quiz_get_user_best_grade` で満点を確認）** した。検証した設問タイプ:
+
+| qtype | 内容 | 検証したクイズ |
+|---|---|---|
+| `ordering` | 単語の並び替え（D&D方式1） | Vocabulary Quiz 12 |
+| `multichoice` | 単一選択 | Vocabulary Quiz 12（音節ストレス）、Emily Part 5a（音声問題） |
+| `match` | 文法判定（good/bad、sub-row形式） | Vocabulary Quiz 12 |
+| `ddwtos` | 文中の空所への単語ドラッグ（D&D方式2） | Vocabulary Quiz 12、Lesson 12 - Making Questions Shuffle（35問7ページ） |
+| `multianswer`(cloze) + 複数`select` | 動画内容理解の穴埋め選択 | Lesson 12 - Animated Short Film Quiz Part 1（YouTube埋め込み動画） |
+
+これにより判明・確定した実装方針:
+
+- `mod_quiz_get_attempt_data` のページング。`page=-1`（全ページ一括取得）は無効
+  （§12.2 で発覚）と判断し、`nextpage` が `-1` になるまで `page` を進める実装
+  （`getAllAttemptQuestions`）にしたが、これは実際に7ページ・35問のクイズ
+  （Making Questions Shuffle）で正しく全問を収集できることを確認済み。
+- `mod_quiz_save_attempt` に渡す `answers` の name/value は、`get_attempt_data` が返す
+  設問 HTML 中の実際の input/select 要素の name 属性をそのまま使う想定で実装しており、
+  これは4種類の qtype（ordering/multichoice/match/ddwtos）全てで実データにより
+  正しく動作することを確認した。HTML パース・設問タイプ別のフォーム解析は worker/MCP
+  側では行わず、生の HTML を呼び出し元（LLM）に渡す設計のまま（過剰実装をしない）。
+- `ddwtos` で同一単語が複数回出現する設問（例: "do" が2箇所）では、Moodle が各タイル末尾に
+  `(1)`/`(2)`（または `①`/`②`）のタグを付けて区別する。これを無視して先頭一致で
+  選ぶと一部だけ不一致になる（`/Users/x26049xx/Claude/moodle/CLAUDE.md` にある既知の
+  落とし穴と同じ）。実データ検証（Making Questions Shuffle 内に実際にこのケースが
+  1問あった）で、タグ番号昇順に出現順で割り当てる方式が正しく機能することを確認済み。
+  この組み立てロジックはツール側には実装せず、`answer_quiz_question` の description で
+  注意喚起するに留めている（判断はLLM側で行う設計）。
+- `mod_quiz_process_attempt`（`finish_quiz_attempt`）は `data`（回答）を渡さず
+  `finishattempt=1` のみで呼ぶ実装で、事前の `mod_quiz_save_attempt` で保存済みの回答が
+  正しく確定されることを確認済み（`mod_quiz_get_user_best_grade` で採点結果を確認）。
+- `mod_assign_save_submission` のオンラインテキスト提出・ファイル提出、
+  `mod_assign_submit_for_grading`（`submit_assignment`）は今回の検証範囲外
+  （クイズと異なり実際の課題提出は元に戻せない形で記録が残るため）。§12.1 の
+  draft area アップロード自体は確認済みだが、実際の課題への保存・最終提出は未検証のまま。
+
+### 12.4 安全設計
+
+`finish_quiz_attempt` と `submit_assignment` は取り消し不可のため、一時保存系
+（`answer_quiz_question` / `save_assignment_draft` / `upload_assignment_file`）とは
+別ツールに分離し、§11.5 の `submit_class_enquete_final` と同じパターンで
+`confirm` に専用の文字列（それぞれ `CONFIRM_FINISH_ATTEMPT` / `CONFIRM_SUBMIT_ASSIGNMENT`）
+を要求する。MCP ツール層・API 層（`POST /api/moodle/quiz/finish` /
+`POST /api/moodle/assignment/submit`）の両方でチェックする多層防御も同様に踏襲した。
+`start_quiz_attempt` はツール定義に含まれていないため confirm は要求していないが、
+呼び出し自体が試行回数を消費する（取り消し不可）ことを tool description に明記した。
+
+### 12.5 設問・課題が参照する補助ファイルのダウンロード（webservice以外の手段）
+
+課題やクイズには「別途配布されたファイル（例: 単語帳）の内容を踏まえて解答する」形式や、
+設問中に音声・動画が埋め込まれる形式がある。これらのファイル取得は
+`mod_assign_*` / `mod_quiz_*` の webservice 関数だけでは完結しないため、実データで
+以下の2種類のURL形式・認証方式を確認し、両対応する `downloadMoodleFile`
+（`worker/src/upstream/moodle/access.ts`）を実装した。
+
+- **`webservice/pluginfile.php/...` 形式**（`mod_resource_get_resources_by_courses` 等の
+  webservice関数が返す `fileurl`。正規のファイルピッカー経由でアップロードされたファイルは
+  基本的にこちら）: クエリに `?token=<wstoken>` を付与するだけで認証完了する
+  （mobile app と同じ方式）。実データ確認: `core_files_get_unused_draft_itemid` /
+  `webservice/upload.php` と同様、course の「ファイル」リソース（Vocabulary Card,
+  `mod_resource_get_resources_by_courses` で取得）のダウンロードで確認済み。
+  **逆に、このURL形式に webservice token を付けずセッションCookieのみでアクセスすると
+  `{"errorcode":"missingparam"}` になり、token 必須であることも確認済み。**
+- **`file.php/...` 形式（レガシー形式）**: 設問HTML中に教員が直接埋め込んだ音声ファイル
+  （例: Emily シリーズの `https://cms.aitech.ac.jp/file.php/5452/Emily/Em-02-06-s.mp3`）
+  はこちらの形式で、**`?token=` を付けても既存のCookie無しでも 303 でログイン画面へ
+  リダイレクトされ、webservice token では認証できない**ことを実データで確認した
+  （`file.php` は通常のMoodle Webログインセッション、Cookie名
+  `MoodleSessionAITECH2012` を要求する）。このため `downloadMoodleFile` は
+  このURL形式の場合のみ `moodleWebLogin`（`/login/index.php` へ都度ユーザー名/
+  パスワードでログインしCookieを取得、永続化はしない）にフォールバックする実装にした。
+  同じ理由でこの用途にのみ、通常のMoodle Webログインフォーム（`logintoken`
+  CSRF値の取得→POST）を移植先未実装のまま新規実装している
+  （LCAM/シラバスのログインとは別の第3の認証経路）。
+- 上記2方式の判定はURLのprefix（`{moodle}/webservice/pluginfile.php/`で始まるか）のみで
+  行っている。それ以外の内部URL形式（旧 `pluginfile.php`（webserviceプレフィックス無し）等）
+  が実際に出現するケースは未確認だが、`file.php` と同じくCookie認証が必要と推測されるため
+  同じフォールバック経路（`moodleWebLogin`）で扱う設計にしている。
+- 上記2方式とも `GET /api/moodle/file?url=` （`worker/src/router.ts`）でstream proxyし、
+  MCP側の `download_moodle_file` ツールからローカル一時ディレクトリへ保存できる。
+  SSRF対策として `url` は `https://cms.aitech.ac.jp/` 配下のみ許可している。
+  コース内の「ファイル」リソース一覧取得には `mod_resource_get_resources_by_courses`
+  を使う `get_course_files` ツール（`GET /api/moodle/resources?courseId=`）を別途追加した。
+- 動画（Animated Short Film Quiz 等）は Moodle 上のファイルではなく YouTube 埋め込み
+  （`<iframe src="https://www.youtube.com/embed/...">`）のため、上記のダウンロード機構の
+  対象外。動画の視聴・内容理解はMCPツールの範囲外とし、呼び出し元（LLM）が別途
+  対応する前提とした（過剰実装をしない）。
+
+### 12.6 参考にした外部知見
+
+`/Users/x26049xx/Claude/moodle/CLAUDE.md`（このリポジトリ外、別プロジェクトの
+Claude in Chrome を使った同一Moodleサイトの解答自動化に関する知見ドキュメント）を
+参考に、設問タイプ（ordering/ddwtos/match等）の想定・重複タイルの扱い・
+`file.php`のCookie認証必須という制約を事前に把握した上で実データ検証を行った。
+本実装（worker/MCP）はこのドキュメントが前提とする Claude in Chrome ブラウザ操作には
+依存せず、Moodle webservice（token方式）とこの節で追加した最小限の非webservice手段
+（`webservice/pluginfile.php`のtoken付与、`file.php`向けの都度Webログイン）のみで
+同等のクイズ回答・課題提出操作が完結する。

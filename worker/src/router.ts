@@ -30,7 +30,22 @@ import {
   finalizeEnqueteAnswer,
 } from './upstream/lcam/client';
 import type { EnqueteType } from './upstream/lcam/access';
-import { getMoodleToken, getMoodleAssignments, MoodleTokenError } from './upstream/moodle/access';
+import {
+  getMoodleToken,
+  getMoodleAssignments,
+  getQuizInfoByCourse,
+  startQuizAttempt,
+  saveQuizAttempt,
+  finishQuizAttempt,
+  saveAssignTextDraft,
+  getUnusedDraftItemId,
+  uploadFileToDraftArea,
+  saveAssignFileSubmission,
+  submitAssignmentForGrading,
+  getCourseResources,
+  downloadMoodleFile,
+} from './upstream/moodle/access';
+import { withMoodleToken } from './upstream/moodle/token';
 import {
   getSyllabusSession,
   getSyllabusListBody,
@@ -329,30 +344,181 @@ app.post('/api/enquetes/submit', async (c) => {
 app.get('/api/assignments', async (c) => {
   const userId = c.get('userId');
   const state = c.get('state');
+  const assignments = await withMoodleToken(c.env, userId, state, (token) =>
+    getMoodleAssignments(token),
+  );
+  return c.json({ assignments });
+});
 
-  async function ensureToken(): Promise<string> {
-    if (state.moodleToken) return state.moodleToken;
-    const cred = await decryptCredential(c.env.CRED_KEY, state.credential);
-    const token = await getMoodleToken(cred.id, cred.password);
-    state.moodleToken = token;
-    await writeState(c.env, userId, state);
-    return token;
-  }
+// ---- GET /api/moodle/quiz/info?courseId=（クイズ一覧・受験可否） ----
+app.get('/api/moodle/quiz/info', async (c) => {
+  const courseId = parseInt(c.req.query('courseId') ?? '', 10);
+  if (Number.isNaN(courseId)) return c.json({ error: 'courseId required' }, 400);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const quizzes = await withMoodleToken(c.env, userId, state, (token) =>
+    getQuizInfoByCourse(token, courseId),
+  );
+  return c.json({ quizzes });
+});
 
-  let token = await ensureToken();
+// ---- POST /api/moodle/quiz/start（受験開始。試行回数を1回消費する） ----
+app.post('/api/moodle/quiz/start', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  let bodyIn: { quizId?: number };
   try {
-    const assignments = await getMoodleAssignments(token);
-    return c.json({ assignments });
-  } catch (e) {
-    if (!(e instanceof MoodleTokenError)) throw e;
-    // token 失効 → password で再取得 → 1回リトライ。
-    const cred = await decryptCredential(c.env.CRED_KEY, state.credential);
-    token = await getMoodleToken(cred.id, cred.password);
-    state.moodleToken = token;
-    await writeState(c.env, userId, state);
-    const assignments = await getMoodleAssignments(token);
-    return c.json({ assignments });
+    bodyIn = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid body' }, 400);
   }
+  if (typeof bodyIn.quizId !== 'number') return c.json({ error: 'quizId required' }, 400);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const result = await withMoodleToken(c.env, userId, state, (token) =>
+    startQuizAttempt(token, bodyIn.quizId as number),
+  );
+  return c.json(result);
+});
+
+// ---- POST /api/moodle/quiz/answer（回答の一時保存） ----
+app.post('/api/moodle/quiz/answer', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  let bodyIn: { attemptId?: number; answers?: Record<string, string> };
+  try {
+    bodyIn = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid body' }, 400);
+  }
+  if (typeof bodyIn.attemptId !== 'number') return c.json({ error: 'attemptId required' }, 400);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const result = await withMoodleToken(c.env, userId, state, (token) =>
+    saveQuizAttempt(token, bodyIn.attemptId as number, bodyIn.answers ?? {}),
+  );
+  return c.json(result);
+});
+
+// ---- POST /api/moodle/quiz/finish（受験の確定。取り消し不可） ----
+app.post('/api/moodle/quiz/finish', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  let bodyIn: { attemptId?: number; confirm?: string };
+  try {
+    bodyIn = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid body' }, 400);
+  }
+  if (bodyIn.confirm !== 'CONFIRM_FINISH_ATTEMPT') {
+    return c.json(
+      { error: 'confirm_required', message: 'confirm に "CONFIRM_FINISH_ATTEMPT" を指定してください' },
+      400,
+    );
+  }
+  if (typeof bodyIn.attemptId !== 'number') return c.json({ error: 'attemptId required' }, 400);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const result = await withMoodleToken(c.env, userId, state, (token) =>
+    finishQuizAttempt(token, bodyIn.attemptId as number),
+  );
+  return c.json(result);
+});
+
+// ---- POST /api/moodle/assignment/draft（テキストのみの下書き保存） ----
+app.post('/api/moodle/assignment/draft', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  let bodyIn: { assignmentId?: number; text?: string };
+  try {
+    bodyIn = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid body' }, 400);
+  }
+  if (typeof bodyIn.assignmentId !== 'number') return c.json({ error: 'assignmentId required' }, 400);
+  if (typeof bodyIn.text !== 'string') return c.json({ error: 'text required' }, 400);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const result = await withMoodleToken(c.env, userId, state, (token) =>
+    saveAssignTextDraft(token, bodyIn.assignmentId as number, bodyIn.text as string),
+  );
+  return c.json(result);
+});
+
+// ---- POST /api/moodle/assignment/upload（ファイル添付。multipart/form-data） ----
+app.post('/api/moodle/assignment/upload', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  const form = await c.req.formData();
+  const assignmentId = parseInt(String(form.get('assignmentId') ?? ''), 10);
+  const file = form.get('file');
+  if (Number.isNaN(assignmentId)) return c.json({ error: 'assignmentId required' }, 400);
+  if (!(file instanceof File)) return c.json({ error: 'file required' }, 400);
+
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const result = await withMoodleToken(c.env, userId, state, async (token) => {
+    const itemId = await getUnusedDraftItemId(token);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    await uploadFileToDraftArea(token, itemId, file.name, bytes, file.type || 'application/octet-stream');
+    return saveAssignFileSubmission(token, assignmentId, itemId);
+  });
+  return c.json(result);
+});
+
+// ---- POST /api/moodle/assignment/submit（採点対象として最終提出。取り消し不可） ----
+app.post('/api/moodle/assignment/submit', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  let bodyIn: { assignmentId?: number; confirm?: string };
+  try {
+    bodyIn = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid body' }, 400);
+  }
+  if (bodyIn.confirm !== 'CONFIRM_SUBMIT_ASSIGNMENT') {
+    return c.json(
+      { error: 'confirm_required', message: 'confirm に "CONFIRM_SUBMIT_ASSIGNMENT" を指定してください' },
+      400,
+    );
+  }
+  if (typeof bodyIn.assignmentId !== 'number') return c.json({ error: 'assignmentId required' }, 400);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const result = await withMoodleToken(c.env, userId, state, (token) =>
+    submitAssignmentForGrading(token, bodyIn.assignmentId as number),
+  );
+  return c.json(result);
+});
+
+// ---- GET /api/moodle/resources?courseId=（コース内「ファイル」リソース一覧） ----
+app.get('/api/moodle/resources', async (c) => {
+  const courseId = parseInt(c.req.query('courseId') ?? '', 10);
+  if (Number.isNaN(courseId)) return c.json({ error: 'courseId required' }, 400);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const files = await withMoodleToken(c.env, userId, state, (token) =>
+    getCourseResources(token, courseId),
+  );
+  return c.json({ files });
+});
+
+// ---- GET /api/moodle/file?url=（Moodle上のファイルをstream proxy。課題・クイズが参照する
+// 補助資料や設問中の音声等をダウンロードするための汎用エンドポイント） ----
+app.get('/api/moodle/file', async (c) => {
+  const url = c.req.query('url');
+  // SSRF/オープンプロキシ防止: cms.aitech.ac.jp 配下のみ許可。
+  if (!url || !url.startsWith('https://cms.aitech.ac.jp/')) {
+    return c.json({ error: 'valid cms.aitech.ac.jp url required' }, 400);
+  }
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const cred = await decryptCredential(c.env.CRED_KEY, state.credential);
+  const upstream = await withMoodleToken(c.env, userId, state, (token) =>
+    downloadMoodleFile(url, token, cred),
+  );
+  const headers = new Headers();
+  const ct = upstream.headers.get('content-type');
+  const cd = upstream.headers.get('content-disposition');
+  const cl = upstream.headers.get('content-length');
+  if (ct) headers.set('content-type', ct);
+  if (cd) headers.set('content-disposition', cd);
+  if (cl) headers.set('content-length', cl);
+  return new Response(upstream.body, { status: upstream.status, headers });
 });
 
 // ---- シラバス（状態を持たない・都度 JSESSIONID） ----

@@ -62,12 +62,30 @@ bun install
 | `get_timetable` | `GET /api/timetable` |
 | `get_schedule` | `GET /api/schedule` |
 | `list_assignments` | `GET /api/assignments`（Moodle） |
+| `save_assignment_draft` | `POST /api/moodle/assignment/draft`（Moodle・実書き込み） |
+| `upload_assignment_file` | `POST /api/moodle/assignment/upload`（Moodle・実書き込み） |
+| `submit_assignment` | `POST /api/moodle/assignment/submit`（Moodle・実書き込み・取り消し不可） |
+| `get_quiz_info` | `GET /api/moodle/quiz/info`（Moodle） |
+| `start_quiz_attempt` | `POST /api/moodle/quiz/start`（Moodle・実書き込み・試行回数を消費） |
+| `answer_quiz_question` | `POST /api/moodle/quiz/answer`（Moodle・実書き込み） |
+| `finish_quiz_attempt` | `POST /api/moodle/quiz/finish`（Moodle・実書き込み・取り消し不可） |
+| `get_course_files` | `GET /api/moodle/resources`（Moodleコース内「ファイル」リソース一覧） |
+| `download_moodle_file` | `GET /api/moodle/file`（Moodle上のファイル・設問中の音声等をダウンロード） |
 | `get_syllabus_filters` | `GET /api/syllabus/filters` |
 | `search_syllabus` | `GET /api/syllabus/search` |
 | `get_syllabus_detail` | `GET /api/syllabus/detail` |
 
 Moodle課題・シラバスには現状ダウンロード可能な添付URLがworker APIから
-返されないため、添付ダウンロードはLCAM連絡のみが対象。
+返されないため、LCAM連絡の添付ダウンロードは`download_notice_attachment`、
+Moodle側（コースファイル・設問中の音声等）は`download_moodle_file`と使い分ける
+（`upload_assignment_file`は逆方向、ローカルファイルをMoodleへアップロードする
+書き込みツール）。`download_moodle_file`はMoodleの2種類のファイルURL形式
+（`webservice/pluginfile.php`のtoken認証、レガシー`file.php`の都度Webログイン）を
+自動判別する。詳細は`MIGRATION_NOTES.md`12.5節を参照。
+
+クイズ・課題提出系のうち`finish_quiz_attempt`・`submit_assignment`は取り消し不可の操作で、
+`confirm`に専用の文字列（`CONFIRM_FINISH_ATTEMPT` / `CONFIRM_SUBMIT_ASSIGNMENT`）を渡した
+場合のみ実行される。詳細・実データ検証状況は`MIGRATION_NOTES.md`の12節を参照。
 
 ## 認証・再ログインの挙動
 

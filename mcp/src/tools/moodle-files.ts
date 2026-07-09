@@ -1,0 +1,48 @@
+import { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { WorkerClient } from '../client';
+import type { MoodleCourseFile } from '../types';
+
+function json(data: unknown) {
+  return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
+}
+
+export function registerMoodleFileTools(server: McpServer, client: WorkerClient): void {
+  server.registerTool(
+    'get_course_files',
+    {
+      title: 'Moodleコース内「ファイル」リソース一覧の取得',
+      description:
+        '指定したcourseIdのMoodleコースに置かれている「ファイル」リソース' +
+        '（課題やクイズの参考資料として案内されることが多い、例: 単語帳・配布資料）の' +
+        '一覧をfileUrlとともに取得する（参照のみ）。fileUrlはdownload_moodle_fileへ渡せる。',
+      inputSchema: { courseId: z.number().int() },
+    },
+    async ({ courseId }) => {
+      const res = await client.request<{ files: MoodleCourseFile[] }>(
+        `/api/moodle/resources?courseId=${courseId}`,
+      );
+      return json(res.files);
+    },
+  );
+
+  server.registerTool(
+    'download_moodle_file',
+    {
+      title: 'Moodle上のファイルをダウンロード',
+      description:
+        'get_course_filesが返すfileUrl、またはget_quiz_info/start_quiz_attempt/' +
+        'answer_quiz_questionが返す設問HTML中に含まれる音声・動画・添付ファイルの' +
+        'URL（pluginfile.php/file.php等の絶対URL）をローカルの一時ディレクトリへ保存し、' +
+        'ファイルパスを返す。返ったパスはRead等でそのまま開ける。',
+      inputSchema: {
+        fileUrl: z.string().describe('cms.aitech.ac.jp配下のファイルの絶対URL'),
+        fileName: z.string().describe('保存時のファイル名（拡張子を含める）'),
+      },
+    },
+    async ({ fileUrl, fileName }) => {
+      const res = await client.downloadMoodleFile(fileUrl, fileName);
+      return json(res);
+    },
+  );
+}

@@ -92,6 +92,45 @@ export interface Assignment {
   courseName: string;
 }
 
+export interface MoodleQuizInfo {
+  id: number;
+  courseId: number;
+  name: string;
+  intro: string;
+  timeOpen: string | null;
+  timeClose: string | null;
+  timeLimitSeconds: number;
+  attemptsAllowed: number;
+  canAttempt: boolean;
+  preventAccessReasons: string[];
+}
+
+export interface MoodleQuizAttempt {
+  id: number;
+  quizId: number;
+  attemptNumber: number;
+  state: string;
+}
+export interface MoodleQuizQuestion {
+  slot: number;
+  page: number;
+  type: string;
+  html: string;
+}
+export interface MoodleQuizStart {
+  attempt: MoodleQuizAttempt;
+  questions: MoodleQuizQuestion[];
+}
+
+export interface MoodleCourseFile {
+  name: string;
+  courseModuleId: number;
+  fileName: string;
+  fileUrl: string;
+  fileSize: number;
+  mimeType: string;
+}
+
 export interface SyllabusFilters {
   year: Record<string, string>;
   folder: Record<string, string>;

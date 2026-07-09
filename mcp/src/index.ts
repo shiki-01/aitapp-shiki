@@ -11,6 +11,8 @@ import { registerAssignmentTools } from './tools/assignments';
 import { registerSyllabusTools } from './tools/syllabus';
 import { registerPerformanceTools } from './tools/performance';
 import { registerEnqueteTools } from './tools/enquetes';
+import { registerQuizTools } from './tools/quiz';
+import { registerMoodleFileTools } from './tools/moodle-files';
 
 const config = loadConfig(process.env);
 const client = new WorkerClient(config);
@@ -23,5 +25,7 @@ registerAssignmentTools(server, client);
 registerSyllabusTools(server, client);
 registerPerformanceTools(server, client);
 registerEnqueteTools(server, client);
+registerQuizTools(server, client);
+registerMoodleFileTools(server, client);
 
 await server.connect(new StdioServerTransport());

@@ -132,4 +132,32 @@ export class WorkerClient {
     await writeFile(path, buf);
     return { path, contentType: res.headers.get('content-type') };
   }
+
+  /**
+   * Moodle上のファイル(コースの資料・設問中の音声等)をローカル一時ディレクトリへ保存し、
+   * パスを返す。`fileUrl` は get_course_files の fileUrl、または設問HTML中の
+   * pluginfile.php/file.php の絶対URLをそのまま渡す。
+   */
+  async downloadMoodleFile(
+    fileUrl: string,
+    suggestedName: string,
+  ): Promise<{ path: string; contentType: string | null }> {
+    const path = `/api/moodle/file?url=${encodeURIComponent(fileUrl)}`;
+    let res = await this.rawRequest(path);
+    if (res.status === 401) {
+      this.cookie = undefined;
+      this.loginInFlight = undefined;
+      await this.login();
+      res = await this.rawRequest(path);
+    }
+    if (!res.ok) {
+      throw new ApiError(res.status, `Moodle file download failed: HTTP ${res.status}`);
+    }
+    const dir = await mkdtemp(join(tmpdir(), 'aitapp-mcp-'));
+    const safeName = suggestedName.replace(/[\\/:*?"<>|]/g, '_') || 'moodle-file';
+    const savedPath = join(dir, safeName);
+    const buf = Buffer.from(await res.arrayBuffer());
+    await writeFile(savedPath, buf);
+    return { path: savedPath, contentType: res.headers.get('content-type') };
+  }
 }
