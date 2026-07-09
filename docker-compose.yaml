@@ -1,0 +1,47 @@
+services:
+  db:
+    image: mariadb:10
+    container_name: moodle-db
+    restart: always
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: "1"
+      MYSQL_DATABASE: moodle
+      MYSQL_USER: moodle
+      MYSQL_PASSWORD: moodlepass
+    volumes:
+      - db_data:/var/lib/mysql
+
+  moodle:
+    image: bitnamilegacy/moodle:latest
+    container_name: moodle-app
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    environment:
+      BITNAMI_DEBUG: "true"
+      MOODLE_USERNAME: admin
+      MOODLE_PASSWORD: MEfS2xgfxh
+      MOODLE_EMAIL: admin@example.com
+      MOODLE_HOST: moodle.shiki-01.com
+      MOODLE_REVERSEPROXY: "no"
+      MOODLE_SSLPROXY: "yes"
+      MOODLE_DATABASE_TYPE: mariadb
+      MOODLE_DATABASE_HOST: db
+      MOODLE_DATABASE_PORT_NUMBER: "3306"
+      MOODLE_DATABASE_USER: moodle
+      MOODLE_DATABASE_NAME: moodle
+      MOODLE_DATABASE_PASSWORD: moodlepass
+      MARIADB_HOST: db
+      MARIADB_PORT_NUMBER: "3306"
+      ALLOW_EMPTY_PASSWORD: "no"
+    volumes:
+      - moodle_data:/bitnami/moodle
+      - moodledata_data:/bitnami/moodledata
+
+volumes:
+  db_data:
+  moodle_data:
+  moodledata_data:

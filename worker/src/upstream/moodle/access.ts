@@ -7,7 +7,7 @@
 import type { Credential } from '../../types';
 import { UpstreamError } from '../errors';
 
-const MOODLE_ORIGIN = 'cms.aitech.ac.jp';
+const MOODLE_ORIGIN = 'moodle.shiki-01.com'; // TEMP: sandbox testing (see MIGRATION_NOTES / revert before merging)
 const WEBSERVICE = '/webservice/rest/server.php';
 const UPLOAD_ENDPOINT = '/webservice/upload.php';
 const BASE = `https://${MOODLE_ORIGIN}`;
