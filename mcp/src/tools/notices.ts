@@ -12,7 +12,13 @@ export function registerNoticeTools(server: McpServer, client: WorkerClient): vo
     'list_notices',
     {
       title: '連絡一覧の取得',
-      description: 'LCAMの学内連絡(common)または授業連絡(class)を先頭からcount件取得する。',
+      description:
+        'LCAMの学内連絡(common)または授業連絡(class)を先頭からcount件取得する。' +
+        '授業連絡(class)には「課題」として告知されるものが含まれることがあり、' +
+        'これはMoodleの課題システム(list_assignments)とは別の、LCAM側の正式な情報源。' +
+        'ユーザーが出典を指定せず単に「課題」と聞いた場合は、こちらとlist_assignmentsの' +
+        '両方を確認し、どちらの結果かを明示して両方提示する。' +
+        '「LCAMの」「授業連絡の」等と出典を指定された場合はこちらのみを使う。',
       inputSchema: {
         type: z.enum(['common', 'class']).default('common'),
         count: z.number().int().min(1).default(10),

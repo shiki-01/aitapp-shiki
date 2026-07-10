@@ -14,7 +14,13 @@ export function registerAssignmentTools(server: McpServer, client: WorkerClient)
     'list_assignments',
     {
       title: 'Moodle課題一覧の取得',
-      description: 'Moodle上の未提出/提出済みを問わず全課題を締切等の情報とともに取得する。',
+      description:
+        'Moodle上の未提出/提出済みを問わず全課題を締切等の情報とともに取得する。' +
+        'LCAMの授業連絡(list_notices type=class)にも「課題」として告知が載ることがあり、' +
+        'そちらもLCAM側の正式な情報源（Moodleとは別システム）。' +
+        'ユーザーが出典を指定せず単に「課題」と聞いた場合は、こちらとlist_notices(class)の' +
+        '両方を確認し、どちらの結果かを明示して両方提示する。' +
+        '「Moodleの」等と出典を指定された場合はこちらのみを使う。',
     },
     async () => {
       const res = await client.request<{ assignments: Assignment[] }>('/api/assignments');
