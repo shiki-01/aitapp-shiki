@@ -13,8 +13,12 @@ export function registerEnqueteTools(server: McpServer, client: WorkerClient): v
     {
       title: 'アンケート一覧の取得',
       description:
-        'LCAMの授業アンケート(class)/授業評価アンケート(evaluation)/学内アンケート(campus)の' +
-        '一覧(提出状況・提出期間など)を取得する。',
+        'LCAMのアンケート一覧をtypeで指定して取得する(提出状況・提出期間など)。' +
+        'type=class: 授業アンケート（各授業内で回答する小規模な調査）。' +
+        'type=evaluation: 授業評価アンケート（学期末に行う授業への評価）。' +
+        'type=campus: 学内アンケート（全学向け、特定の授業に紐づかない調査）。' +
+        '出典を指定せず単に「アンケート」と聞かれた場合は3種類とも確認し、' +
+        'どのtypeの結果かを明示して提示する。',
       inputSchema: {
         type: z.enum(['class', 'evaluation', 'campus']).default('class'),
       },
