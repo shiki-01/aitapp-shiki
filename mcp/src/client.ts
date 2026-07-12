@@ -42,7 +42,11 @@ export class WorkerClient {
         'Content-Type': 'application/json',
         Origin: this.config.appOrigin,
       },
-      body: JSON.stringify({ id: this.config.portalId, password: this.config.portalPassword }),
+      body: JSON.stringify({
+        id: this.config.portalId,
+        password: this.config.portalPassword,
+        moodleOrigin: this.config.moodleOrigin,
+      }),
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };

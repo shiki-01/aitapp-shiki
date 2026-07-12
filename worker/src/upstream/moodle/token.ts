@@ -5,6 +5,7 @@
 import type { Env, UserState } from '../../types';
 import { decryptCredential } from '../../crypto/aes';
 import { writeState } from '../../store/kv';
+import { UpstreamError } from '../errors';
 import { getMoodleToken, MoodleTokenError } from './access';
 
 /** Moodle 操作を token 確保＋失効時リトライ付きで実行する。 */
@@ -12,11 +13,16 @@ export async function withMoodleToken<T>(
   env: Env,
   userId: string,
   state: UserState,
-  op: (token: string) => Promise<T>,
+  op: (token: string, moodleOrigin: string) => Promise<T>,
 ): Promise<T> {
+  const cred = await decryptCredential(env.CRED_KEY, state.credential);
+  if (!cred.moodleOrigin) {
+    throw new UpstreamError('Moodle origin not configured for this user');
+  }
+  const moodleOrigin = cred.moodleOrigin;
+
   async function refreshToken(): Promise<string> {
-    const cred = await decryptCredential(env.CRED_KEY, state.credential);
-    const token = await getMoodleToken(cred.id, cred.password);
+    const token = await getMoodleToken(moodleOrigin, cred.id, cred.password);
     state.moodleToken = token;
     await writeState(env, userId, state);
     return token;
@@ -24,10 +30,10 @@ export async function withMoodleToken<T>(
 
   const token = state.moodleToken ?? (await refreshToken());
   try {
-    return await op(token);
+    return await op(token, moodleOrigin);
   } catch (e) {
     if (!(e instanceof MoodleTokenError)) throw e;
     const fresh = await refreshToken();
-    return op(fresh);
+    return op(fresh, moodleOrigin);
   }
 }

@@ -2,3 +2,7 @@
 # 生成例: node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
 CRED_KEY=
 SESSION_SECRET=
+
+# 任意。設定するとログイン時にクライアント指定の moodleOrigin を無視し、常にこの値を使う。
+# ローカル開発でサンドボックス Moodle に固定したい場合に使う（本番では設定しない）。
+MOODLE_ORIGIN_OVERRIDE=

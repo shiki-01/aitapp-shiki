@@ -117,11 +117,15 @@ app.use('/api/*', async (c, next) => {
   await next();
 });
 
+// Moodle 接続先ホスト名として妥当な形式か（スキーム・パス・`@` を含まない）。
+const MOODLE_ORIGIN_PATTERN =
+  /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+
 // ---- POST /api/auth/login ----
 app.post('/api/auth/login', async (c) => {
   if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
 
-  let bodyIn: { id?: string; password?: string };
+  let bodyIn: { id?: string; password?: string; moodleOrigin?: string };
   try {
     bodyIn = await c.req.json();
   } catch {
@@ -131,6 +135,12 @@ app.post('/api/auth/login', async (c) => {
   const password = (bodyIn.password ?? '').trim();
   if (!id || !password) return c.json({ error: 'id/password required' }, 400);
 
+  // ローカル開発時は .dev.vars の MOODLE_ORIGIN_OVERRIDE が常にクライアント指定より優先される。
+  const moodleOrigin = c.env.MOODLE_ORIGIN_OVERRIDE || (bodyIn.moodleOrigin ?? '').trim();
+  if (moodleOrigin && !MOODLE_ORIGIN_PATTERN.test(moodleOrigin)) {
+    return c.json({ error: 'invalid moodleOrigin' }, 400);
+  }
+
   // LCAM(SP) ログインで認証情報を検証しつつ上流 Cookie を確立する。
   const initial = await getCookie();
   const { body: loginBody, cookies } = await loginLcam(id, password, initial);
@@ -138,16 +148,18 @@ app.post('/api/auth/login', async (c) => {
     return c.json({ error: 'invalid credentials' }, 401);
   }
 
-  // Moodle token を取得（失敗しても LCAM ログインは成立させる）。
+  // Moodle token を取得（moodleOrigin 未設定 or 失敗しても LCAM ログインは成立させる）。
   let moodleToken: string | null = null;
-  try {
-    moodleToken = await getMoodleToken(id, password);
-  } catch {
-    moodleToken = null;
+  if (moodleOrigin) {
+    try {
+      moodleToken = await getMoodleToken(moodleOrigin, id, password);
+    } catch {
+      moodleToken = null;
+    }
   }
 
   // credential を即暗号化して保存。平文は browser に返さない。
-  const credential = await encryptCredential(c.env.CRED_KEY, { id, password });
+  const credential = await encryptCredential(c.env.CRED_KEY, { id, password, moodleOrigin });
   const state: UserState = { lcamCookies: cookies, moodleToken, credential };
   await writeState(c.env, id, state);
 
@@ -344,8 +356,8 @@ app.post('/api/enquetes/submit', async (c) => {
 app.get('/api/assignments', async (c) => {
   const userId = c.get('userId');
   const state = c.get('state');
-  const assignments = await withMoodleToken(c.env, userId, state, (token) =>
-    getMoodleAssignments(token),
+  const assignments = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    getMoodleAssignments(moodleOrigin, token),
   );
   return c.json({ assignments });
 });
@@ -356,8 +368,8 @@ app.get('/api/moodle/quiz/info', async (c) => {
   if (Number.isNaN(courseId)) return c.json({ error: 'courseId required' }, 400);
   const userId = c.get('userId');
   const state = c.get('state');
-  const quizzes = await withMoodleToken(c.env, userId, state, (token) =>
-    getQuizInfoByCourse(token, courseId),
+  const quizzes = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    getQuizInfoByCourse(moodleOrigin, token, courseId),
   );
   return c.json({ quizzes });
 });
@@ -374,8 +386,8 @@ app.post('/api/moodle/quiz/start', async (c) => {
   if (typeof bodyIn.quizId !== 'number') return c.json({ error: 'quizId required' }, 400);
   const userId = c.get('userId');
   const state = c.get('state');
-  const result = await withMoodleToken(c.env, userId, state, (token) =>
-    startQuizAttempt(token, bodyIn.quizId as number),
+  const result = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    startQuizAttempt(moodleOrigin, token, bodyIn.quizId as number),
   );
   return c.json(result);
 });
@@ -392,8 +404,8 @@ app.post('/api/moodle/quiz/answer', async (c) => {
   if (typeof bodyIn.attemptId !== 'number') return c.json({ error: 'attemptId required' }, 400);
   const userId = c.get('userId');
   const state = c.get('state');
-  const result = await withMoodleToken(c.env, userId, state, (token) =>
-    saveQuizAttempt(token, bodyIn.attemptId as number, bodyIn.answers ?? {}),
+  const result = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    saveQuizAttempt(moodleOrigin, token, bodyIn.attemptId as number, bodyIn.answers ?? {}),
   );
   return c.json(result);
 });
@@ -416,8 +428,8 @@ app.post('/api/moodle/quiz/finish', async (c) => {
   if (typeof bodyIn.attemptId !== 'number') return c.json({ error: 'attemptId required' }, 400);
   const userId = c.get('userId');
   const state = c.get('state');
-  const result = await withMoodleToken(c.env, userId, state, (token) =>
-    finishQuizAttempt(token, bodyIn.attemptId as number),
+  const result = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    finishQuizAttempt(moodleOrigin, token, bodyIn.attemptId as number),
   );
   return c.json(result);
 });
@@ -435,8 +447,8 @@ app.post('/api/moodle/assignment/draft', async (c) => {
   if (typeof bodyIn.text !== 'string') return c.json({ error: 'text required' }, 400);
   const userId = c.get('userId');
   const state = c.get('state');
-  const result = await withMoodleToken(c.env, userId, state, (token) =>
-    saveAssignTextDraft(token, bodyIn.assignmentId as number, bodyIn.text as string),
+  const result = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    saveAssignTextDraft(moodleOrigin, token, bodyIn.assignmentId as number, bodyIn.text as string),
   );
   return c.json(result);
 });
@@ -452,11 +464,18 @@ app.post('/api/moodle/assignment/upload', async (c) => {
 
   const userId = c.get('userId');
   const state = c.get('state');
-  const result = await withMoodleToken(c.env, userId, state, async (token) => {
-    const itemId = await getUnusedDraftItemId(token);
+  const result = await withMoodleToken(c.env, userId, state, async (token, moodleOrigin) => {
+    const itemId = await getUnusedDraftItemId(moodleOrigin, token);
     const bytes = new Uint8Array(await file.arrayBuffer());
-    await uploadFileToDraftArea(token, itemId, file.name, bytes, file.type || 'application/octet-stream');
-    return saveAssignFileSubmission(token, assignmentId, itemId);
+    await uploadFileToDraftArea(
+      moodleOrigin,
+      token,
+      itemId,
+      file.name,
+      bytes,
+      file.type || 'application/octet-stream',
+    );
+    return saveAssignFileSubmission(moodleOrigin, token, assignmentId, itemId);
   });
   return c.json(result);
 });
@@ -479,8 +498,8 @@ app.post('/api/moodle/assignment/submit', async (c) => {
   if (typeof bodyIn.assignmentId !== 'number') return c.json({ error: 'assignmentId required' }, 400);
   const userId = c.get('userId');
   const state = c.get('state');
-  const result = await withMoodleToken(c.env, userId, state, (token) =>
-    submitAssignmentForGrading(token, bodyIn.assignmentId as number),
+  const result = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    submitAssignmentForGrading(moodleOrigin, token, bodyIn.assignmentId as number),
   );
   return c.json(result);
 });
@@ -491,8 +510,8 @@ app.get('/api/moodle/resources', async (c) => {
   if (Number.isNaN(courseId)) return c.json({ error: 'courseId required' }, 400);
   const userId = c.get('userId');
   const state = c.get('state');
-  const files = await withMoodleToken(c.env, userId, state, (token) =>
-    getCourseResources(token, courseId),
+  const files = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    getCourseResources(moodleOrigin, token, courseId),
   );
   return c.json({ files });
 });
@@ -501,13 +520,17 @@ app.get('/api/moodle/resources', async (c) => {
 // 補助資料や設問中の音声等をダウンロードするための汎用エンドポイント） ----
 app.get('/api/moodle/file', async (c) => {
   const url = c.req.query('url');
-  // SSRF/オープンプロキシ防止: cms.aitech.ac.jp 配下のみ許可。
-  if (!url || !url.startsWith('https://cms.aitech.ac.jp/')) {
-    return c.json({ error: 'valid cms.aitech.ac.jp url required' }, 400);
-  }
   const userId = c.get('userId');
   const state = c.get('state');
   const cred = await decryptCredential(c.env.CRED_KEY, state.credential);
+  // SSRF/オープンプロキシ防止: このユーザーの Moodle 接続先配下のみ許可。
+  if (!cred.moodleOrigin) {
+    return c.json({ error: 'moodleOrigin not configured for this user' }, 400);
+  }
+  const allowedPrefix = `https://${cred.moodleOrigin}/`;
+  if (!url || !url.startsWith(allowedPrefix)) {
+    return c.json({ error: `valid ${cred.moodleOrigin} url required` }, 400);
+  }
   const upstream = await withMoodleToken(c.env, userId, state, (token) =>
     downloadMoodleFile(url, token, cred),
   );

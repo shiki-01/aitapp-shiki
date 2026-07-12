@@ -498,9 +498,41 @@ core_files_get_unused_draft_itemid / webservice/upload.php (POST multipart, REST
   `finishattempt=1` のみで呼ぶ実装で、事前の `mod_quiz_save_attempt` で保存済みの回答が
   正しく確定されることを確認済み（`mod_quiz_get_user_best_grade` で採点結果を確認）。
 - `mod_assign_save_submission` のオンラインテキスト提出・ファイル提出、
-  `mod_assign_submit_for_grading`（`submit_assignment`）は今回の検証範囲外
-  （クイズと異なり実際の課題提出は元に戻せない形で記録が残るため）。§12.1 の
-  draft area アップロード自体は確認済みだが、実際の課題への保存・最終提出は未検証のまま。
+  `mod_assign_submit_for_grading`（`submit_assignment`）は、本番 `cms.aitech.ac.jp` では
+  元に戻せない記録が残るため検証範囲外としていたが、書き込みを自由に試せるサンドボックス
+  （`moodle.shiki-01.com`、Bitnami Moodle 5.0.1、コース `TEST-ASSIGN-001` / 課題
+  `テスト課題1`）を用意し、`save_assignment_draft` → `upload_assignment_file` →
+  `submit_assignment` の一連を実データで検証した。
+  - **コードのバグを発見・修正**: `worker/src/upstream/moodle/access.ts` の
+    `saveAssignFileSubmission` が `mod_assign_save_submission` に渡すパラメータキーが
+    `plugindata[assignsubmission_file_filemanager]` になっていたが、Moodle の
+    `assignsubmission_file` プラグインの外部パラメータ定義上、正しいキーは
+    `plugindata[files_filemanager]`（`assignsubmission_file_` プレフィックスなし）。
+    誤ったキーだと `invalid_parameter_exception`
+    （`Unexpected keys (assignsubmission_file_filemanager) detected in parameter array.`）
+    になり `upload_assignment_file` が必ず失敗する状態だった。`files_filemanager` に修正し、
+    サンドボックスで疎通確認済み。
+  - オンラインテキストとファイルの両方の提出タイプを同時に有効にした課題で、片方のみの
+    `plugindata` を渡して `mod_assign_save_submission` を呼ぶと、もう一方の提出プラグイン
+    （既に提出データがある場合）が `NULL` で上書きされようとして
+    `dml_write_exception`（`Column 'onlineformat' cannot be null`）になることを確認した。
+    Moodle 側の挙動であり worker 側では対処していない。1回の呼び出しで有効な提出タイプ
+    それぞれの `plugindata` を揃える必要がある（本ツールは file 提出のみを対象にしており、
+    online text は `save_assignment_draft` で別途扱う設計のため、両方を同時に有効にした
+    課題への提出は現状想定していない）。
+  - 課題の「提出前の下書きを許可する」（`submissiondrafts`）設定が `0`（オフ、Moodle の
+    新規課題作成時のデフォルト）の場合、`upload_assignment_file` / `save_assignment_draft`
+    の時点で提出ステータスが即 `submitted` になり、その後の `submit_assignment`
+    （`mod_assign_submit_for_grading`）は「対象なし」で
+    `couldnotsubmitforgrading` 警告を返して何もしない。`submissiondrafts=1`
+    （下書きを許可する設定）の課題でのみ、`submit_assignment` が意味のある
+    `draft → submitted` の状態遷移を行うことを確認した。本番 `cms.aitech.ac.jp` の
+    実課題がどちらの設定かは課題ごとに異なるため、`submit_assignment` 呼び出し前に
+    現在のステータスを確認できるとよい（未実装、スコープ外）。
+  - 上記を踏まえ `submissiondrafts=1` のテスト課題で `save_assignment_draft`
+    （オンラインテキスト）→ 別課題で `upload_assignment_file`（ファイル、`files_filemanager`
+    修正後）→ `submit_assignment` の一連が正常に完了し、`mod_assign_get_submission_status`
+    で `status: "submitted"` になることを確認済み。
 
 ### 12.4 安全設計
 
@@ -546,7 +578,7 @@ core_files_get_unused_draft_itemid / webservice/upload.php (POST multipart, REST
   同じフォールバック経路（`moodleWebLogin`）で扱う設計にしている。
 - 上記2方式とも `GET /api/moodle/file?url=` （`worker/src/router.ts`）でstream proxyし、
   MCP側の `download_moodle_file` ツールからローカル一時ディレクトリへ保存できる。
-  SSRF対策として `url` は `https://cms.aitech.ac.jp/` 配下のみ許可している。
+  SSRF対策として `url` はそのユーザーの `moodleOrigin`（§12.7参照）配下のみ許可している。
   コース内の「ファイル」リソース一覧取得には `mod_resource_get_resources_by_courses`
   を使う `get_course_files` ツール（`GET /api/moodle/resources?courseId=`）を別途追加した。
 - 動画（Animated Short Film Quiz 等）は Moodle 上のファイルではなく YouTube 埋め込み
@@ -564,3 +596,37 @@ Claude in Chrome を使った同一Moodleサイトの解答自動化に関する
 依存せず、Moodle webservice（token方式）とこの節で追加した最小限の非webservice手段
 （`webservice/pluginfile.php`のtoken付与、`file.php`向けの都度Webログイン）のみで
 同等のクイズ回答・課題提出操作が完結する。
+
+### 12.7 Moodle 接続先ホストのユーザー単位化（TEMP定数の解消）
+
+§12.3 のサンドボックス検証は `worker/src/upstream/moodle/access.ts` の
+`MOODLE_ORIGIN = 'moodle.shiki-01.com'`（`// TEMP: sandbox testing` コメント付き）で
+本番ホスト `cms.aitech.ac.jp` を一時的に上書きして行っていた。検証完了後、この
+ハードコード定数を撤廃し、Moodle 接続先ホストをログイン資格情報の一部
+（`Credential.moodleOrigin`）にする設計に変更した。
+
+- `POST /api/auth/login` のリクエストボディに任意項目 `moodleOrigin` を追加。
+  LCAM ログイン（`lcam.aitech.ac.jp` 固定、変更なし）は今まで通り必須・独立。
+  Moodle token 取得は `moodleOrigin` が空なら丸ごとスキップする best-effort のまま
+  （LCAM ログインは Moodle 側の成否に関わらず成立する、既存の挙動を維持）。
+- `moodleOrigin` はホスト名として妥当な形式（スキーム・パス・`@`を含まない）かを
+  ログイン境界でのみ正規表現検証する。それ以外は特別なSSRF対策はしていない
+  （worker が自分の資格情報の送信先をユーザー自身が指定する設計として許容）。
+  ただし `GET /api/moodle/file` のオープンプロキシ対策（許可URLプレフィックス）は
+  引き続き必要なため、モジュール定数ではなくそのユーザーの `cred.moodleOrigin` を
+  参照するように変更した。
+- ローカル開発時は `worker/.dev.vars`（gitignore 済み）の
+  `MOODLE_ORIGIN_OVERRIDE=moodle.shiki-01.com` が、クライアントが送ってきた
+  `moodleOrigin` より常に優先される。本番の `wrangler.toml` にはこの変数を置かないため、
+  本番では常にクライアント指定の値がそのまま使われる。`.mcp.json` の
+  `AITAPP_MOODLE_ORIGIN` はあえて本番ホスト `cms.aitech.ac.jp` のままにしてあり、
+  ローカル `wrangler dev` 実行時にサーバー側の `MOODLE_ORIGIN_OVERRIDE` だけで
+  サンドボックスへ強制的に向くことを確認済み。
+- 既存の KV 上の `UserState`（`moodleOrigin` 未設定の credential）を持つユーザーは、
+  再ログインするまで Moodle 系エンドポイントで
+  「Moodle origin not configured for this user」エラーになる。個人開発規模のため
+  再ログインで解決する前提とし、マイグレーション処理は用意していない。
+- `access.ts` 側は `BASE`/`MOODLE_ORIGIN` のモジュール定数を廃止し、
+  `moodleBase(origin)` ヘルパー＋全関数に `origin: string` 引数を追加する形に変更した
+  （`downloadMoodleFile` のみ、既に受け取っている `credential.moodleOrigin` から
+  自己完結で origin を得られるためシグネチャ変更なし）。

@@ -11,6 +11,8 @@ export interface Env {
   APP_ORIGIN?: string;
   /** /api/schedule の reload ループ回数。 */
   SCHEDULE_WEEKS?: string;
+  /** ローカル開発時に Moodle 接続先を強制的に上書きする（`.dev.vars` 専用、本番では未設定）。 */
+  MOODLE_ORIGIN_OVERRIDE?: string;
 }
 
 /** AES-GCM 暗号文（base64）。 */
@@ -42,4 +44,6 @@ export interface UserState {
 export interface Credential {
   id: string;
   password: string;
+  /** Moodle 接続先ホスト名。未設定（空文字）なら Moodle 系機能は使わない。 */
+  moodleOrigin: string;
 }

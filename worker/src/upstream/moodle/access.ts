@@ -7,10 +7,13 @@
 import type { Credential } from '../../types';
 import { UpstreamError } from '../errors';
 
-const MOODLE_ORIGIN = 'moodle.shiki-01.com'; // TEMP: sandbox testing (see MIGRATION_NOTES / revert before merging)
 const WEBSERVICE = '/webservice/rest/server.php';
 const UPLOAD_ENDPOINT = '/webservice/upload.php';
-const BASE = `https://${MOODLE_ORIGIN}`;
+
+/** ユーザーの資格情報に紐づく Moodle 接続先ホストから base URL を組み立てる。 */
+function moodleBase(origin: string): string {
+  return `https://${origin}`;
+}
 
 const baseHeaders: Record<string, string> = {
   Accept: 'application/json',
@@ -36,11 +39,12 @@ interface MoodleExceptionBody {
  * `params` のキーは PHP 配列パラメータ（例: `data[0][name]`）をそのまま文字列で渡せる。
  */
 async function callMoodleApi<T>(
+  origin: string,
   token: string,
   wsfunction: string,
   params: Record<string, string>,
 ): Promise<T> {
-  const res = await fetch(`${BASE}${WEBSERVICE}`, {
+  const res = await fetch(`${moodleBase(origin)}${WEBSERVICE}`, {
     method: 'POST',
     headers: baseHeaders,
     body: new URLSearchParams({
@@ -88,10 +92,11 @@ export interface MoodleAssignment {
 
 /** token 取得。POST /login/token.php。 */
 export async function getMoodleToken(
+  origin: string,
   username: string,
   password: string,
 ): Promise<string> {
-  const res = await fetch(`${BASE}/login/token.php`, {
+  const res = await fetch(`${moodleBase(origin)}/login/token.php`, {
     method: 'POST',
     headers: baseHeaders,
     body: new URLSearchParams({
@@ -127,9 +132,10 @@ interface MoodleCourseRaw {
 
 /** 課題一覧。POST webservice mod_assign_get_assignments。 */
 export async function getMoodleAssignments(
+  origin: string,
   token: string,
 ): Promise<MoodleAssignment[]> {
-  const res = await fetch(`${BASE}${WEBSERVICE}`, {
+  const res = await fetch(`${moodleBase(origin)}${WEBSERVICE}`, {
     method: 'POST',
     headers: baseHeaders,
     body: new URLSearchParams({
@@ -207,10 +213,12 @@ interface RawQuizAccessInfo {
 
 /** クイズ一覧＋受験可否情報。mod_quiz_get_quizzes_by_courses + mod_quiz_get_quiz_access_information。 */
 export async function getQuizInfoByCourse(
+  origin: string,
   token: string,
   courseId: number,
 ): Promise<MoodleQuizInfo[]> {
   const quizzes = await callMoodleApi<{ quizzes: RawQuiz[] }>(
+    origin,
     token,
     'mod_quiz_get_quizzes_by_courses',
     { 'courseids[0]': String(courseId) },
@@ -218,6 +226,7 @@ export async function getQuizInfoByCourse(
   const out: MoodleQuizInfo[] = [];
   for (const q of quizzes.quizzes ?? []) {
     const access = await callMoodleApi<RawQuizAccessInfo>(
+      origin,
       token,
       'mod_quiz_get_quiz_access_information',
       { quizid: String(q.id) },
@@ -282,6 +291,7 @@ function isStartedAttempt(attempt: unknown): attempt is RawQuizAttempt {
  * -1（最終ページ）になるまで辿る。無限ループ防止のため上限ページ数を設ける。
  */
 async function getAllAttemptQuestions(
+  origin: string,
   token: string,
   attemptId: number,
 ): Promise<RawQuizQuestion[]> {
@@ -290,6 +300,7 @@ async function getAllAttemptQuestions(
   const MAX_PAGES = 50;
   for (let i = 0; i < MAX_PAGES; i++) {
     const data = await callMoodleApi<{ questions: RawQuizQuestion[]; nextpage: number }>(
+      origin,
       token,
       'mod_quiz_get_attempt_data',
       { attemptid: String(attemptId), page: String(page) },
@@ -308,10 +319,12 @@ async function getAllAttemptQuestions(
  * `attempt: []` + warnings で返る仕様のため、その場合は UpstreamError にして呼び出し元へ伝える。
  */
 export async function startQuizAttempt(
+  origin: string,
   token: string,
   quizId: number,
 ): Promise<{ attempt: MoodleQuizAttempt; questions: MoodleQuizQuestion[] }> {
   const started = await callMoodleApi<{ attempt: unknown; warnings?: RawWarning[] }>(
+    origin,
     token,
     'mod_quiz_start_attempt',
     { quizid: String(quizId) },
@@ -321,7 +334,7 @@ export async function startQuizAttempt(
     throw new UpstreamError(`Moodle mod_quiz_start_attempt error: ${reason}`);
   }
   const attempt = started.attempt;
-  const questions = await getAllAttemptQuestions(token, attempt.id);
+  const questions = await getAllAttemptQuestions(origin, token, attempt.id);
   return {
     attempt: { id: attempt.id, quizId: attempt.quiz, attemptNumber: attempt.attempt, state: attempt.state },
     questions: questions.map((q) => ({ slot: q.slot, page: q.page, type: q.type, html: q.html })),
@@ -333,12 +346,13 @@ export async function startQuizAttempt(
  * `answers` は設問HTML中のinput/select要素のname属性→値。
  */
 export async function saveQuizAttempt(
+  origin: string,
   token: string,
   attemptId: number,
   answers: Record<string, string>,
 ): Promise<{ ok: boolean }> {
   const pairs = Object.entries(answers).map(([name, value]) => ({ name, value }));
-  await callMoodleApi(token, 'mod_quiz_save_attempt', {
+  await callMoodleApi(origin, token, 'mod_quiz_save_attempt', {
     attemptid: String(attemptId),
     ...indexedNameValuePairs('data', pairs),
   });
@@ -350,10 +364,11 @@ export async function saveQuizAttempt(
  * 事前に saveQuizAttempt で保存済みの回答が対象になる（このAPI自体には回答データを渡さない）。
  */
 export async function finishQuizAttempt(
+  origin: string,
   token: string,
   attemptId: number,
 ): Promise<{ state: string }> {
-  const data = await callMoodleApi<{ state: string }>(token, 'mod_quiz_process_attempt', {
+  const data = await callMoodleApi<{ state: string }>(origin, token, 'mod_quiz_process_attempt', {
     attemptid: String(attemptId),
     finishattempt: '1',
     timeup: '0',
@@ -365,18 +380,25 @@ export async function finishQuizAttempt(
 // 課題提出（書き込み系）
 // ---------------------------------------------------------------------------
 
-async function startAssignSubmission(token: string, assignmentId: number): Promise<void> {
-  await callMoodleApi(token, 'mod_assign_start_submission', { assignid: String(assignmentId) });
+async function startAssignSubmission(
+  origin: string,
+  token: string,
+  assignmentId: number,
+): Promise<void> {
+  await callMoodleApi(origin, token, 'mod_assign_start_submission', {
+    assignid: String(assignmentId),
+  });
 }
 
 /** テキストのみの下書き保存。plugindataにファイル指定はしない。mod_assign_save_submission。 */
 export async function saveAssignTextDraft(
+  origin: string,
   token: string,
   assignmentId: number,
   text: string,
 ): Promise<{ warnings: unknown[] }> {
-  await startAssignSubmission(token, assignmentId);
-  return callMoodleApi(token, 'mod_assign_save_submission', {
+  await startAssignSubmission(origin, token, assignmentId);
+  return callMoodleApi(origin, token, 'mod_assign_save_submission', {
     assignmentid: String(assignmentId),
     'plugindata[onlinetext_editor][text]': text,
     'plugindata[onlinetext_editor][format]': '1',
@@ -385,8 +407,9 @@ export async function saveAssignTextDraft(
 }
 
 /** ファイル添付先の空draft area itemidを発行する。core_files_get_unused_draft_itemid。 */
-export async function getUnusedDraftItemId(token: string): Promise<number> {
+export async function getUnusedDraftItemId(origin: string, token: string): Promise<number> {
   const data = await callMoodleApi<{ itemid: number }>(
+    origin,
     token,
     'core_files_get_unused_draft_itemid',
     {},
@@ -400,6 +423,7 @@ export async function getUnusedDraftItemId(token: string): Promise<number> {
  * 実データでの疎通確認済み（MIGRATION_NOTES参照）。
  */
 export async function uploadFileToDraftArea(
+  origin: string,
   token: string,
   itemId: number,
   fileName: string,
@@ -411,7 +435,7 @@ export async function uploadFileToDraftArea(
   form.append('itemid', String(itemId));
   form.append('file_1', new Blob([fileBytes], { type: contentType }), fileName);
 
-  const res = await fetch(`${BASE}${UPLOAD_ENDPOINT}`, { method: 'POST', body: form });
+  const res = await fetch(`${moodleBase(origin)}${UPLOAD_ENDPOINT}`, { method: 'POST', body: form });
   if (res.status !== 200) {
     throw new UpstreamError(`Moodle upload error: statusCode=${res.status}`);
   }
@@ -423,14 +447,15 @@ export async function uploadFileToDraftArea(
 
 /** draft area にアップロード済みのファイルを提出物として紐付ける。mod_assign_save_submission。 */
 export async function saveAssignFileSubmission(
+  origin: string,
   token: string,
   assignmentId: number,
   draftItemId: number,
 ): Promise<{ warnings: unknown[] }> {
-  await startAssignSubmission(token, assignmentId);
-  return callMoodleApi(token, 'mod_assign_save_submission', {
+  await startAssignSubmission(origin, token, assignmentId);
+  return callMoodleApi(origin, token, 'mod_assign_save_submission', {
     assignmentid: String(assignmentId),
-    'plugindata[assignsubmission_file_filemanager]': String(draftItemId),
+    'plugindata[files_filemanager]': String(draftItemId),
   });
 }
 
@@ -439,10 +464,11 @@ export async function saveAssignFileSubmission(
  * 呼び出し前に save_assignment_draft / upload_assignment_file で内容を保存しておくこと。
  */
 export async function submitAssignmentForGrading(
+  origin: string,
   token: string,
   assignmentId: number,
 ): Promise<{ warnings: unknown[] }> {
-  return callMoodleApi(token, 'mod_assign_submit_for_grading', {
+  return callMoodleApi(origin, token, 'mod_assign_submit_for_grading', {
     assignmentid: String(assignmentId),
     acceptsubmissionstatement: '1',
   });
@@ -475,10 +501,12 @@ interface RawResource {
 
 /** コース内の「ファイル」リソース一覧。mod_resource_get_resources_by_courses。 */
 export async function getCourseResources(
+  origin: string,
   token: string,
   courseId: number,
 ): Promise<MoodleCourseFile[]> {
   const data = await callMoodleApi<{ resources: RawResource[] }>(
+    origin,
     token,
     'mod_resource_get_resources_by_courses',
     { 'courseids[0]': String(courseId) },
@@ -499,7 +527,9 @@ export async function getCourseResources(
   return out;
 }
 
-const WEBSERVICE_PLUGINFILE_PREFIX = `${BASE}/webservice/pluginfile.php/`;
+function pluginfilePrefix(origin: string): string {
+  return `${moodleBase(origin)}/webservice/pluginfile.php/`;
+}
 
 /**
  * 通常のMoodle Webログイン(ユーザー名/パスワード→セッションCookie)。
@@ -507,7 +537,7 @@ const WEBSERVICE_PLUGINFILE_PREFIX = `${BASE}/webservice/pluginfile.php/`;
  * （実データ確認済み: file.phpはtoken非対応でCookie必須、逆にwebservice/pluginfile.phpは
  * token必須でCookieのみでは`missingparam`エラーになる）。セッションは永続化しない。
  */
-async function moodleWebLogin(username: string, password: string): Promise<string> {
+async function moodleWebLogin(origin: string, username: string, password: string): Promise<string> {
   const jar: Record<string, string> = {};
   const collectCookies = (res: Response) => {
     const headers = res.headers as Headers & { getSetCookie?: () => string[] };
@@ -518,7 +548,7 @@ async function moodleWebLogin(username: string, password: string): Promise<strin
     }
   };
 
-  let res = await fetch(`${BASE}/login/index.php`);
+  let res = await fetch(`${moodleBase(origin)}/login/index.php`);
   collectCookies(res);
   const html = await res.text();
   const tokenMatch = html.match(/name="logintoken" value="([^"]+)"/);
@@ -526,7 +556,7 @@ async function moodleWebLogin(username: string, password: string): Promise<strin
     throw new UpstreamError('Moodle web login error: logintoken not found');
   }
 
-  res = await fetch(`${BASE}/login/index.php`, {
+  res = await fetch(`${moodleBase(origin)}/login/index.php`, {
     method: 'POST',
     redirect: 'manual',
     headers: {
@@ -553,10 +583,10 @@ export async function downloadMoodleFile(
   token: string,
   credential: Credential,
 ): Promise<Response> {
-  if (fileUrl.startsWith(WEBSERVICE_PLUGINFILE_PREFIX)) {
+  if (fileUrl.startsWith(pluginfilePrefix(credential.moodleOrigin))) {
     const sep = fileUrl.includes('?') ? '&' : '?';
     return fetch(`${fileUrl}${sep}token=${token}`);
   }
-  const cookie = await moodleWebLogin(credential.id, credential.password);
+  const cookie = await moodleWebLogin(credential.moodleOrigin, credential.id, credential.password);
   return fetch(fileUrl, { headers: { Cookie: cookie } });
 }

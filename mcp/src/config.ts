@@ -9,6 +9,8 @@ export interface Config {
   portalId: string;
   /** 大学ポータルのログインパスワード。 */
   portalPassword: string;
+  /** Moodle 接続先ホスト名。未設定なら Moodle 系ツールは使えない。 */
+  moodleOrigin: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -16,10 +18,11 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const appOrigin = env.AITAPP_APP_ORIGIN ?? 'http://localhost:5173';
   const portalId = env.AITAPP_ID ?? '';
   const portalPassword = env.AITAPP_PASSWORD ?? '';
+  const moodleOrigin = env.AITAPP_MOODLE_ORIGIN ?? '';
   if (!portalId || !portalPassword) {
     throw new Error(
       'AITAPP_ID / AITAPP_PASSWORD が未設定です。MCPサーバー起動時の環境変数で渡してください。',
     );
   }
-  return { workerUrl, appOrigin, portalId, portalPassword };
+  return { workerUrl, appOrigin, portalId, portalPassword, moodleOrigin };
 }
