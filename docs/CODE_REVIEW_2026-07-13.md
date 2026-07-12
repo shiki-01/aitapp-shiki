@@ -171,3 +171,79 @@ Opus 3体 + Codex による並列解析を Fable が統合。前回同様コー�
 
 **着手順序案**: (1) S5 `saveQuizAttempt` の成否検証 → S1/S2 の不可逆ガード、(2) C1 logout の KV 削除 ＋ C9 no-store、(3) 視点1 の暗号/署名テスト導入。
 
+---
+
+# 第3弾: 投資調査6 + 再偵察3 (テスト/無料枠/Tauri/ロギング/TZ・401/依存 + 攻撃者/運用/UX)
+
+Opus 9体を Fable が統合。コード変更・大学サーバーアクセスなし。
+
+## 新規発見の具体バグ
+
+| ID | 内容 | 場所 | 重要度 |
+|---|---|---|---|
+| N1 | 締切なしMoodle課題(`duedate=0`)が「1970/1/1・期限切れ」と誤表示され、ホーム「これからの課題」から無言で消える | `access.ts:167` + `Home.svelte:70` | 高 |
+| N2 | mid-session 401で詰む: 上流失効時 session cookie自体は有効なので「起動時me()失敗→/login」が発動せず、各画面に汎用エラーが出たまま再ログイン導線なし(手動logoutまで回復不能)。MFA破綻時も同じ | `+page.svelte:18` + api.browser.ts | 高 |
+| N3 | schedule年推定が `now=new Date()`(Worker=UTC)基準。JST 00:00-08:59は前日扱いで年末年始に年が1年ズレ/切替9時間遅延 | `parse.ts:665` | 中 |
+| N4 | 課題説明(`intro`)がUI非表示 / シラバス0件がエラー赤字化 / 時間割の土曜・7限欠落 | 各view | 中 |
+
+## 投資調査6体
+
+- **テスト**: 0件・CI無し。暗号往復・cookie署名/改竄・detect・csrf・parser土台はネット不要で即テスト可。実HTML依存パーサはfixture採取要。`closeKamokuDivs`等は未exportでテスト不可。推奨: worker→Vitest(node)、mcp→bun test。
+- **無料枠**: `429/backoff/quota`ハンドリング皆無。KV write発火はlogin/再ログイン/token更新の3点のみ(原則遵守)。急所: `reloginLcam`が差分チェックなしで毎回write＋write先行のため、上流再ログイン成功でもKV write失敗だけで有効リクエストを500で落とす。schedule subreq=`3+2W`(W≥24超過)、quiz startは`MAX_PAGES=50`単独で上限接近。枠超過は可視の汎用500。
+- **Tauri(第4未レビュー)**: CSP=null × 未サニタイズ`{@html}` × 任意path/method中継の三重が最大懸念。生パスワードをOSキーチェーン保存、添付一時ファイル掃除なし。良好: パスワードのログ漏れなし、Mutex健全。
+- **ロギング/エラー透過**: `onError`が`err.message`をクライアント表示。上流Moodleの`JSON.stringify(data)`全体(access.ts:444)やexception文字列・内部パーサ名がUI/ログに透過。相関ID・構造化ログ・ログレベル全欠如。良好: cookie/token/password直接埋め込みなし。
+- **TZ/401/文字コード**: N2・N3上表。文字コードは現経路では無害と確定(正常系UTF-8、Shift_JISエラーページはstatus≠200でパース前throw、detectマーカーはASCIIで生存)。
+- **要確認台帳+依存**: 最優先の未検証は A1成績評点(誤表示)・A4アンケート失敗レスポンス未観測(誤送信)・A2 detect実ログインページ未観測。依存はTS5/6分裂は実行時無害・lockドリフト無し(否定的結果)、MCP SDKがExpress5フルスタックを引き込む攻撃面、esbuild0.21.5/cookie0.6.0等dev依存に低〜中候補=要オンライン確認。
+
+## 再偵察3体
+
+- **攻撃者**: 「二層confirm」は実質単層(MCP層とWorker層が同一のLLM供給文字列を判定、MCPがそのまま転送=注入1回で両層突破)。`start`/`draft`は合言葉すら不要な不可逆経路。書き込み制御面は`web/`に無くMCP+LLM単独。悪意ある設問HTML/連絡添付→LLM→不可逆確定のE2E連鎖、全学配布連絡経由なら多学生協調発火→授業評価汚染・受験機会DoS。session cookieは失効不能なwrite用bearer。スクレイピング×機械速度×Cloudflare出口IPで大学検知→アカウント凍結=存続リスク。マルチテナント越境は実経路なし(健全)。
+- **運用ライフサイクル**: secretローテーション=全ユーザー同時ロックアウト(鍵バージョン欄なし・dual-key復号なし)。wrangler.tomlにKV idプレースホルダcommit済み＋env分離なしでサイレントにlocalhost化。KVに削除経路もTTLも無く孤児state無期限残留。MFA一斉導入時に破綻を検知する導線なし。CLAUDE.md乖離で将来エージェントが提出機能をスコープ違反と誤判断する火種。
+- **表示・UX**: N1・N4に加え、ホームが3API握り潰しで取得失敗と0件が区別不能、Sheet(全モーダル基盤)にフォーカストラップ・スクロールロックなし、エラーに`aria-live`なし、お知らせ検索がロード済み分のみで11件目以降に到達不能。
+
+---
+
+# 第4弾: 別軸の投資調査6 + 再偵察3 (非同期整合/型安全/HTTP/入力fuzzing/ランタイム互換/パースロジック + レジリエンス/プライバシー/DX)
+
+Opus 9体を Fable が統合。コード変更・大学サーバーアクセスなし。今回は「200 OKで中身が異常」系と「単一情報源の欠如」が共通テーマ。
+
+## 新規発見の具体バグ
+
+| ID | 内容 | 場所 | 重要度 |
+|---|---|---|---|
+| P1 | Moodleが200でHTML(メンテ/WAF/ログインリダイレクト)を返すと`res.json()`がSyntaxError→**502でなく500**(4箇所)。実運用で最も起きやすいトリガ | `moodle/access.ts:60,111,150,442` | 高 |
+| P2 | `duedate`欠損で`new Date(NaN).toISOString()`がRangeError→**`/api/assignments`全体が500**(N1の欠損版) | `moodle/access.ts:167` | 高 |
+| P3 | pluginfileダウンロードが`?token=`付き＋`redirect:follow`のまま。別ホストへ30xすると**永続tokenが第三者ログ/Refererに漏れうる** | `moodle/access.ts:586` | 高 |
+| P4 | ファイルproxyの`content-length`透過 × Workersのgzip自動展開で不整合→**DL破損**の可能性 | `router.ts:543,658` | 中 |
+| P5 | シラバス詳細`url`が`startsWith('/')`のみの弱検証。同一ホスト内path/query汚染＋不正文字で500(400で弾けず) | `router.ts:594` + `syllabus/access.ts:103` | 中 |
+| P6 | quiz `getAllAttemptQuestions`がvisited管理なしで`nextpage`循環時に設問重複計上 / `木`→`'thurstay'`タイポで木曜欠落の可能性 | `moodle/access.ts:301` / `parse.ts:534` | 低〜中 |
+
+## 投資調査6体
+
+- **intra-request非同期整合**: 単一リクエスト内は逐次await・request-scoped stateで**健全**(floating promise/stream二重消費/KV不整合なし=否定的結果)。残る注意は失効リトライの副作用再実行境界とMoodle系エラー変換の非対称のみ。
+- **型安全性・上流形状崩れ耐性**: P1・P2。上流↔worker境界にZod等ランタイム検証が皆無(MCP入力のみZod)。`getUnusedDraftItemId`のitemid欠損で`"undefined"`提出、`canattempt`欠損で受験可否誤表示。良好: HTMLパーサ層は`?? []`ガード徹底でgraceful。
+- **HTTPプロトコル**: P3・P4。上流非200を一律502に潰し404/403/429/503の区別喪失。getFileのCookie付きfollow、login 302のSet-Cookie取りこぼし、Range/HEAD非対応、preflight max-age未設定。良好: moodleWebLoginのmanual redirect・ストリームpipe・CORS設定は健全。
+- **入力検証fuzzing(全エンドポイント網羅)**: **body経路の注入(CRLF/param汚染/SSRF)はURLSearchParamsのencodeで構造的封殺**(良好な否定的結果)。残る生挿入面はP5。極端値は`count`上限欠如・quiz `answers`無検証・upload無サイズ制限。JSON `null` bodyで400のはずが500。
+- **ビルド/ランタイム互換**: クリティカルな非互換なし(workerはNode API不使用でWeb標準のみ、workerd適合性高い=良好)。唯一の共有依存点`getSetCookie()`は3ランタイム対応済みだが未対応時に空配列で無音破綻。`TextDecoder`はutf-8のみで健全(将来Shift_JIS明示デコードはworkerdで落ちる)。FormDataアップロードは要実行確認。
+- **ステートフルパース・業務ロジック**: 概ね健全(無限ループ・大量取りこぼしなし、上限ガード/型チェックで歯止め)。P6に加え、連絡詳細ファイルURLの`no`がコンテナ単位でリセットされ複数コンテナ時に番号ズレ、アンケート`dt`順序依存(存在チェックで誤送信は防止・表示はズレうる)、成績subjectヒューリスティックの誤爆(科目名が「前期」等だと欠落)。
+
+## 再偵察3体
+
+- **レジリエンス(非悪意の上流変化)**: **fetchにタイムアウト皆無**(上流遅延でschedule/quizが扇状にsubrequest/CPU上限超過→切断)、**サイレント0件と構造破壊が区別不能**(セレクタ名変更→NotFoundError握り潰し→「連絡0件の健全アカウント」と同一表示で誰も気づけない)、**位置index/魔法数パース(`c===6/7/10`)が1行ずれで空でなく誤データ**(他人の科目名が教員欄に)、壊れHTML補正が上流の"修正"で逆に失効、固定errorcode/Strutsトークン文字列が失効判定の単一障害点、複合経路の部分成功を無音で完成品化(schedule途中週失敗で切り詰め)。
+- **プライバシー/データ最小化**: 「中心は綺麗・周縁が漏れる」。**サーバ側KVは本文PIIを保持せず最小化は優秀**(肯定所見)だが、①第三者PII(教員氏名・ふりがな・連絡本文)が最小化・同意なしに外部LLMコンテキストへ ②成績含みの添付がローカル一時領域に掃除なし堆積(＋MCP経由でLLMへ) ③学籍番号(uid)がTauriの正常系stderrに平文出力。書き込みにはconfirmガードがあるのに読み取りPII外部送信は無ゲートの非対称。
+- **コントリビュータDX・保守性**: 既知バグの構造的根因を発掘。**1機能追加で最大13ファイルを手動同期**(web/mcp/workerの型が3つの手書きコピーで既に非対称)、router.tsは683行に8個のcopy-paste body検証、401リトライは3重コピー、**confirm合言葉がworker検証とmcpガードで別リテラル重複**(防御強化改修そのものが地雷)、`MoodleTokenError`だけonErrorのroutingから漏れ(#4の根因)。C/D/EはS8/#8/#4/#5の構造要因で、契約型の単一情報源化で一括是正すべき。
+
+## 第4弾 総括(Fableの構造所見)
+
+1. **「200 OKで中身が異常」に今回のバグが集中**: `res.json()`がHTMLで500(P1)、silent 0件が構造破壊を隠蔽(レジリエンス)、位置ずれで誤データ、`duedate`欠損/0で誤判定(P2/N1)。HTTPステータスを信じる設計の穴。
+2. **「単一情報源の欠如」がバグの構造根因**: 型3コピー・confirm重複・error taxonomy。個別修正でなく契約集約で複数バグが一括で片付く(DX偵察の中核発見)。
+3. **否定的結果が厚く土台は健全**: intra-request整合・body注入封殺・ランタイム互換・KV最小化・ページングは掘った上で健全と確定。
+4. **新規具体バグ7件**(P1〜P6, N1〜N4)はいずれも静的に確定。
+
+**第4弾込みの着手優先度**:
+1. `res.json()`をtry/catchで502化 ＋ `duedate`を`Number.isFinite`ガード(P1/P2/N1 ── 実運用で最も起きる500と誤表示を除去)
+2. pluginfileを`redirect:manual`＋同一origin検証、content-length/gzip整合(P3/P4 ── token漏れ・DL破損)
+3. fetch共通タイムアウト ＋ silent0件/構造破壊の分離(レジリエンス)
+4. 契約型の単一情報源化(DX構造根因、S8/#4/#5/#8を一括是正)
+5. シラバス`url`検証強化(P5)・`thurstay`タイポ(P6)
+
