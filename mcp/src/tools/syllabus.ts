@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { WorkerClient } from '../client';
+import type { ToolClient } from '../tool-client';
 import type { SyllabusFilters, SyllabusListItem, SyllabusDetail } from '../types';
 
 function json(data: unknown) {
@@ -26,7 +26,7 @@ const searchFields = {
   folder: z.string().optional(),
 };
 
-export function registerSyllabusTools(server: McpServer, client: WorkerClient): void {
+export function registerSyllabusTools(server: McpServer, client: ToolClient): void {
   server.registerTool(
     'syllabus_get_filters',
     {

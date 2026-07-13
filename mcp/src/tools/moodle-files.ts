@@ -1,13 +1,14 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { WorkerClient } from '../client';
+import type { ToolClient } from '../tool-client';
 import type { MoodleCourseFile } from '../types';
+import { downloadedFileContent } from './download-content';
 
 function json(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
 }
 
-export function registerMoodleFileTools(server: McpServer, client: WorkerClient): void {
+export function registerMoodleFileTools(server: McpServer, client: ToolClient): void {
   server.registerTool(
     'moodle_get_course_files',
     {
@@ -33,8 +34,9 @@ export function registerMoodleFileTools(server: McpServer, client: WorkerClient)
       description:
         'moodle_get_course_filesが返すfileUrl、またはmoodle_get_quiz_info/moodle_start_quiz_attempt/' +
         'moodle_answer_quiz_questionが返す設問HTML中に含まれる音声・動画・添付ファイルの' +
-        'URL（pluginfile.php/file.php等の絶対URL）をローカルの一時ディレクトリへ保存し、' +
-        'ファイルパスを返す。返ったパスはRead等でそのまま開ける。' +
+        'URL（pluginfile.php/file.php等の絶対URL）を取得する。' +
+        'ローカル(stdio)実行時は一時ディレクトリへ保存しパスを返す（Read等でそのまま開ける）。' +
+        'リモート(HTTP)実行時はファイル内容を直接返す。' +
         'LCAM連絡の添付ファイルはlcam_download_notice_attachmentを使う（このツールはMoodle専用）。',
       inputSchema: {
         fileUrl: z.string().describe('cms.aitech.ac.jp配下のファイルの絶対URL'),
@@ -43,7 +45,7 @@ export function registerMoodleFileTools(server: McpServer, client: WorkerClient)
     },
     async ({ fileUrl, fileName }) => {
       const res = await client.downloadMoodleFile(fileUrl, fileName);
-      return json(res);
+      return downloadedFileContent(res);
     },
   );
 }

@@ -5,13 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
+    "dev:sandbox": "wrangler dev --port 8788 --persist-to .wrangler/sandbox-state --var MOODLE_ORIGIN_OVERRIDE:moodle.shiki-01.com",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@hono/mcp": "^0.3.1",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "hono": "^4.6.3",
-    "node-html-parser": "^6.1.13"
+    "node-html-parser": "^6.1.13",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260703.1",

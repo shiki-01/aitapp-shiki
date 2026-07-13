@@ -1,13 +1,13 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { WorkerClient } from '../client';
+import type { ToolClient } from '../tool-client';
 import type { MoodleQuizInfo, MoodleQuizStart } from '../types';
 
 function json(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
 }
 
-export function registerQuizTools(server: McpServer, client: WorkerClient): void {
+export function registerQuizTools(server: McpServer, client: ToolClient): void {
   server.registerTool(
     'moodle_get_quiz_info',
     {
@@ -57,8 +57,14 @@ export function registerQuizTools(server: McpServer, client: WorkerClient): void
         '本提出(moodle_finish_quiz_attempt)はしないため、何度でも上書き保存・修正できる。' +
         'attemptIdはmoodle_start_quiz_attemptが返したattempt.idを使う。answersは、' +
         'moodle_start_quiz_attemptが返した各questionのhtmlに含まれるinput/select要素のname属性を' +
-        'キー、選択・入力する値を値とするオブジェクト（例: ラジオボタンなら選択肢のvalue、' +
-        'テキストならその内容）。',
+        'キー、選択・入力する値を値とするオブジェクト。型別の値の作り方: ' +
+        'multichoice(ラジオ)は選択肢のvalue(=index)を `q...:{slot}_answer` に; ' +
+        'match(セレクト)は各 `q...:{slot}_sub{n}` に選択肢value; ' +
+        'ordering(並び替え)は `q...:{slot}_response_{qid}` に、正しい順序の `ordering_item_{hash}` ' +
+        '(各liのid)をカンマ区切りで連結した文字列を指定する。' +
+        '`_:sequencecheck` はサーバ側が自動付与するので渡さなくてよい。1回のcallで回答する設問は、' +
+        'その設問の入力欄を全て(match の全 `_sub{n}` 等)含めること。' +
+        '返り値の unsavedSlots が空でなければ、その slot は保存に失敗している(name/valueが不正)ので見直す。',
       inputSchema: {
         attemptId: z.number().int(),
         answers: z
@@ -67,7 +73,11 @@ export function registerQuizTools(server: McpServer, client: WorkerClient): void
       },
     },
     async ({ attemptId, answers }) => {
-      const res = await client.request<{ ok: boolean }>('/api/moodle/quiz/answer', {
+      const res = await client.request<{
+        ok: boolean;
+        answeredSlots: number[];
+        unsavedSlots: number[];
+      }>('/api/moodle/quiz/answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ attemptId, answers }),

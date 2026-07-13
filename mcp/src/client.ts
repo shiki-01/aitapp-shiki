@@ -3,10 +3,11 @@
 // ここでは「session cookie を保持し、401なら1回だけ再ログインしてリトライする」
 // という transport 層の責務だけを持つ（直列化・keep-alive・自動復旧はしない）。
 
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { Config } from './config';
+import type { ToolClient, DownloadedFile } from './tool-client';
 import { loadCachedCookie, saveCachedCookie } from './session';
 import { SESSION_COOKIE_NAME } from './constants';
 
@@ -29,7 +30,7 @@ function extractSessionCookie(res: Response): string | undefined {
   return pair?.startsWith(`${SESSION_COOKIE_NAME}=`) ? pair : undefined;
 }
 
-export class WorkerClient {
+export class WorkerClient implements ToolClient {
   private cookie: string | undefined;
   private loginInFlight: Promise<void> | undefined;
 
@@ -59,13 +60,13 @@ export class WorkerClient {
     const cookie = extractSessionCookie(res);
     if (!cookie) throw new ApiError(res.status, 'login succeeded but no session cookie was returned');
     this.cookie = cookie;
-    await saveCachedCookie(this.config.portalId, cookie);
+    await saveCachedCookie(this.config.portalId, this.config.workerUrl, cookie);
   }
 
   /** ログイン処理を多重起動しないための直列化（同一プロセス内のみ）。 */
   private async ensureLogin(): Promise<void> {
     if (this.cookie) return;
-    const cached = await loadCachedCookie(this.config.portalId);
+    const cached = await loadCachedCookie(this.config.portalId, this.config.workerUrl);
     if (cached) {
       this.cookie = cached;
       return;
@@ -121,7 +122,7 @@ export class WorkerClient {
   async downloadAttachment(
     relativePath: string,
     suggestedName: string,
-  ): Promise<{ path: string; contentType: string | null }> {
+  ): Promise<DownloadedFile> {
     const id = this.fileId(relativePath);
     let res = await this.rawRequest(`/api/file/${id}`);
     if (res.status === 401) {
@@ -138,7 +139,7 @@ export class WorkerClient {
     const path = join(dir, safeName);
     const buf = Buffer.from(await res.arrayBuffer());
     await writeFile(path, buf);
-    return { path, contentType: res.headers.get('content-type') };
+    return { fileName: safeName, path, contentType: res.headers.get('content-type') };
   }
 
   /**
@@ -149,7 +150,7 @@ export class WorkerClient {
   async downloadMoodleFile(
     fileUrl: string,
     suggestedName: string,
-  ): Promise<{ path: string; contentType: string | null }> {
+  ): Promise<DownloadedFile> {
     const path = `/api/moodle/file?url=${encodeURIComponent(fileUrl)}`;
     let res = await this.rawRequest(path);
     if (res.status === 401) {
@@ -166,6 +167,12 @@ export class WorkerClient {
     const savedPath = join(dir, safeName);
     const buf = Buffer.from(await res.arrayBuffer());
     await writeFile(savedPath, buf);
-    return { path: savedPath, contentType: res.headers.get('content-type') };
+    return { fileName: safeName, path: savedPath, contentType: res.headers.get('content-type') };
+  }
+
+  /** ローカル実行専用: MCPサーバーと同じマシン上のファイルを読む（課題アップロード用）。 */
+  async readLocalFile(filePath: string): Promise<{ bytes: Uint8Array; name: string }> {
+    const buf = await readFile(filePath);
+    return { bytes: new Uint8Array(buf), name: basename(filePath) };
   }
 }

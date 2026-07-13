@@ -2,10 +2,16 @@ name = "aitapp-worker"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 
+# 本番URL。Custom Domain（DNS・証明書はデプロイ時に自動設定）。
+# workers.dev の既定URL（aitapp-worker.kishintorii.workers.dev）も併存する。
+routes = [
+  { pattern = "aitapp.shiki-01.com", custom_domain = true }
+]
+
 # Workers KV: ユーザー状態を 1 ユーザー 1 key で保持する。
 # `wrangler kv namespace create USER_KV` で作成し、出力された id を埋める。
 kv_namespaces = [
-  { binding = "USER_KV", id = "REPLACE_WITH_KV_ID", preview_id = "REPLACE_WITH_PREVIEW_KV_ID" }
+  { binding = "USER_KV", id = "171403a15680458abc9da653d4931403", preview_id = "365e6244b925476b9fecea11cf792e24" }
 ]
 
 [vars]
@@ -18,3 +24,19 @@ SCHEDULE_WEEKS = "8"
 # シークレットは vars に書かず wrangler secret で投入する:
 #   wrangler secret put CRED_KEY        # credential 暗号化鍵（AES-GCM）
 #   wrangler secret put SESSION_SECRET  # session cookie 署名鍵（HMAC-SHA256）
+#
+# /mcp（Streamable HTTP MCP サーバー）を有効にする場合は追加で:
+#   wrangler secret put MCP_TOKEN              # /mcp の Bearer トークン
+#   wrangler secret put AITAPP_ID              # 大学ポータルのログインID
+#   wrangler secret put AITAPP_PASSWORD        # 大学ポータルのパスワード
+#   wrangler secret put AITAPP_MOODLE_ORIGIN   # 例: cms.aitech.ac.jp（未設定ならMoodle系ツール無効）
+#   （LCAMとMoodleのアカウントが別の場合のみ）
+#   wrangler secret put AITAPP_MOODLE_ID
+#   wrangler secret put AITAPP_MOODLE_PASSWORD
+# 未設定なら /mcp は 404 を返すだけで、既存 API に影響しない。
+
+# /mcp が ../mcp/src のツール実装を取り込む際、zod / MCP SDK を worker 側の
+# node_modules に一本化する（mcp/node_modules との二重バンドルを防ぐ）。
+[alias]
+"zod" = "./node_modules/zod"
+"@modelcontextprotocol/sdk" = "./node_modules/@modelcontextprotocol/sdk"

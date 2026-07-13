@@ -1,13 +1,13 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { WorkerClient } from '../client';
+import type { ToolClient } from '../tool-client';
 import type { EnqueteList, EnqueteAnswerForm } from '../types';
 
 function json(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
 }
 
-export function registerEnqueteTools(server: McpServer, client: WorkerClient): void {
+export function registerEnqueteTools(server: McpServer, client: ToolClient): void {
   server.registerTool(
     'lcam_list_enquetes',
     {

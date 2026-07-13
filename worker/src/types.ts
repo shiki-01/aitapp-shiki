@@ -13,6 +13,19 @@ export interface Env {
   SCHEDULE_WEEKS?: string;
   /** ローカル開発時に Moodle 接続先を強制的に上書きする（`.dev.vars` 専用、本番では未設定）。 */
   MOODLE_ORIGIN_OVERRIDE?: string;
+
+  // ---- /mcp（Streamable HTTP MCP サーバー）用。全て未設定なら /mcp は無効（404）。 ----
+  /** /mcp の Bearer トークン。wrangler secret put MCP_TOKEN。 */
+  MCP_TOKEN?: string;
+  /** /mcp が使う大学ポータルのログインID。wrangler secret put AITAPP_ID。 */
+  AITAPP_ID?: string;
+  /** /mcp が使う大学ポータルのパスワード。wrangler secret put AITAPP_PASSWORD。 */
+  AITAPP_PASSWORD?: string;
+  /** /mcp が使う Moodle 接続先ホスト名（例 cms.aitech.ac.jp）。未設定なら Moodle 系ツール無効。 */
+  AITAPP_MOODLE_ORIGIN?: string;
+  /** Moodle 専用資格情報（LCAM とアカウントが別の場合のみ。両方揃ったときだけ使う）。 */
+  AITAPP_MOODLE_ID?: string;
+  AITAPP_MOODLE_PASSWORD?: string;
 }
 
 /** AES-GCM 暗号文（base64）。 */

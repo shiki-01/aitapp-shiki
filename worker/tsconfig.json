@@ -15,7 +15,16 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
-    "noEmit": true
+    "noEmit": true,
+    // ../mcp/src のツール実装を取り込む際、zod / MCP SDK の型を worker 側の
+    // node_modules に一本化する（二重解決による型不一致を防ぐ。wrangler.toml の
+    // [alias] と対応させ、バンドル時も単一コピーにする）。
+    "baseUrl": ".",
+    "paths": {
+      "zod": ["./node_modules/zod"],
+      "zod/*": ["./node_modules/zod/*"],
+      "@modelcontextprotocol/sdk/*": ["./node_modules/@modelcontextprotocol/sdk/dist/esm/*"]
+    }
   },
   "include": ["src/**/*.ts"]
 }

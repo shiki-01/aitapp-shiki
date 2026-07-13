@@ -1,7 +1,17 @@
 # aitapp-mcp
 
 `worker/` が提供するREST APIを、Claude Code等のMCPクライアントからツールとして
-使えるようにする、ローカル実行専用のMCPサーバー（stdio transport）。
+使えるようにするMCPサーバー。実行形態は2つあり、ツール実装（`src/tools/*`）は共通:
+
+- **stdio（ローカル実行、このディレクトリ）**: `bun run src/index.ts`。
+  ダウンロードはローカル一時ファイルへ保存、`filePath` でのアップロードが使える。
+- **Streamable HTTP（リモート実行）**: デプロイした worker の `/mcp` エンドポイント
+  （`worker/src/mcp/`）。資格情報は worker のシークレット、認証は
+  `Authorization: Bearer <MCP_TOKEN>`。セットアップはリポジトリ直下の README を参照。
+  **注意: デプロイ版は LCAM が Cloudflare の egress IP を拒否するため `lcam_*` ツールは
+  使えない**（Moodle・シラバス系は動く。`MIGRATION_NOTES.md` §13.1）。
+
+以下はstdio（ローカル実行）の説明。
 
 スクレイピング・CSRF・暗号化・透過再ログインのロジックは一切持たない。
 `worker/` を呼び出す薄いクライアントであり、`worker/` の認証情報永続化の仕組み

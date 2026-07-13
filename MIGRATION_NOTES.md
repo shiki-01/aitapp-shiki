@@ -705,3 +705,60 @@ id/password を Moodle にも使う（後方互換。既存 KV credential は op
 トークンが mcptest のものであること（`mdl_external_tokens`）、そのトークンで
 `/api/moodle/quiz/info` が通ること、`moodleId` 未指定の従来ログインも引き続き
 動くことを確認済み。
+
+## 13. 本番デプロイ（workers.dev）と /mcp リモートMCP 化
+
+2026-07-14 実施。`aitapp-worker` を Cloudflare へデプロイし
+（本番URL: **https://aitapp.shiki-01.com**（Custom Domain）。既定URL
+https://aitapp-worker.kishintorii.workers.dev も併存。
+KV: USER_KV=171403a15680458abc9da653d4931403 /
+preview=365e6244b925476b9fecea11cf792e24）、同じ worker に MCP Streamable HTTP
+エンドポイント `/mcp` を追加した。
+
+### 13.1 【重要な制約】LCAM は Cloudflare の egress IP を拒否する
+
+デプロイした worker からの LCAM (`lcam.aitech.ac.jp`) へのリクエストは、
+**全て LiveCampus 自身のエラーページ（`SC_error`、「サーバ内部でエラーが発生
+いたしました (Internal Server Error : 500)」）になる**。切り分け結果:
+
+- ヘッダ非依存: UA/Sec-Fetch/Accept 一式・UAのみ・ヘッダ全く無し、のいずれも 500。
+- ローカルIPからは、`--http1.1` + `Accept-Encoding: gzip` + `cf-worker` +
+  `cf-ew-via` + `cdn-loop` を付けても 200（= CF が付与するヘッダや HTTP 版数は無関係）。
+- `wrangler dev`（ローカル実行）は同一コード・同一 fetch 実装（workerd）で成功する
+  （= TLS フィンガープリント説も否定）。
+- 同 worker から Moodle (`cms.aitech.ac.jp`) とシラバス (`syllabus.aitech.ac.jp`)
+  へは正常に 200 が返る。
+- LCAM の応答ヘッダに `x-cdn: Served-By-Zenedge`（Oracle系 WAF）があり、
+  **送信元 IP（Cloudflare データセンター帯）に基づく拒否**と結論づけた。
+
+帰結:
+
+- デプロイ版 worker では **LCAM 系（連絡・時間割・予定・成績・アンケート・添付）は動かない**。
+  `/api/auth/login` も LCAM 検証を含むため、ブラウザ/Tauri からデプロイ版への
+  ログイン自体が失敗する（Moodle/シラバスの API は login 前提のため巻き添えで使えない）。
+- LCAM を含む全機能はローカル実行（`wrangler dev` + stdio MCP）で従来どおり動く。
+- 回避するには LCAM 向けリクエストだけ非 Cloudflare の egress（例: 自宅サーバー経由の
+  中継 proxy）を通す必要がある。**未実装（要検討）**。
+
+### 13.2 /mcp（リモートMCP）の設計
+
+- transport: MCP Streamable HTTP（`@hono/mcp` の `StreamableHTTPTransport`）。
+  リクエスト毎に `McpServer` を生成する stateless 運用（DO 不使用の制約に適合）。
+- ツール実装は `mcp/src/tools/*` を worker と stdio 版で共用する。tools が依存するのは
+  `mcp/src/tool-client.ts` の `ToolClient` インターフェースのみ（Node 依存なし）。
+  - stdio 版: `mcp/src/client.ts`（HTTP + ローカル一時ファイル保存）
+  - worker 版: `worker/src/mcp/self-client.ts`（`app.fetch` への in-process dispatch +
+    base64 返却、上限 10MB）
+- 認証: `Authorization: Bearer <MCP_TOKEN>`（SHA-256 ダイジェスト比較）。
+  `MCP_TOKEN`/`AITAPP_ID`/`AITAPP_PASSWORD` 未設定なら `/mcp` は 404。
+- 資格情報は worker シークレット（`AITAPP_ID`/`AITAPP_PASSWORD`/`AITAPP_MOODLE_ORIGIN` 等）。
+  内部呼び出し（`X-Aitapp-Internal: MCP_TOKEN` ヘッダ）に限り、認証ミドルウェアが
+  env 資格情報から state をブートストラップする（`/api/auth/login` 不要）。これは
+  (1) KV の negative cache（write 前の read miss が最大60秒残る）回避、
+  (2) LCAM 不達環境でも Moodle/シラバスを動かす、(3) シークレット変更の即時反映、のため。
+- session cookie は dispatch の度に `SESSION_SECRET` で自己署名（永続化しない）。
+- zod / MCP SDK は `wrangler.toml [alias]` + `tsconfig paths` で worker 側
+  node_modules に一本化（mcp/node_modules との二重バンドル・型不一致を防ぐ）。
+- 検証済み（本番 /mcp 経由）: `initialize` / `tools/list` / `moodle_list_assignments`
+  （実データ取得）/ `syllabus_get_filters`。`lcam_get_timetable` は §13.1 のとおり
+  上流 500 エラーになる。

@@ -1,15 +1,20 @@
-import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { WorkerClient } from '../client';
+import type { ToolClient } from '../tool-client';
 import type { Assignment } from '../types';
 
 function json(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
 }
 
-export function registerAssignmentTools(server: McpServer, client: WorkerClient): void {
+function fromBase64(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+export function registerAssignmentTools(server: McpServer, client: ToolClient): void {
   server.registerTool(
     'moodle_list_assignments',
     {
@@ -60,18 +65,49 @@ export function registerAssignmentTools(server: McpServer, client: WorkerClient)
         '【注意】これは実際にMoodle上で課題のファイル提出用draft areaにファイルを' +
         'アップロードし、提出物として紐付ける(mod_assign_save_submission)書き込み操作。' +
         '本提出(moodle_submit_assignment)はしないため、再度呼び出せばファイルを差し替えられる。' +
-        'filePathはこのMCPサーバーが動作しているマシン上のローカルファイルパス。' +
+        'ローカル(stdio)実行時はfilePath(MCPサーバーが動作しているマシン上のパス)を使う。' +
+        'リモート(HTTP)実行時はfilePathは使えないため、fileBase64とfileNameで内容を直接渡す。' +
         `usermaxuploadfilesize(約128MB)を超えるファイルはアップロードできない。`,
       inputSchema: {
         assignmentId: z.number().int(),
-        filePath: z.string().describe('アップロードするローカルファイルの絶対パス'),
+        filePath: z
+          .string()
+          .optional()
+          .describe('アップロードするローカルファイルの絶対パス（ローカル実行時のみ）'),
+        fileBase64: z
+          .string()
+          .optional()
+          .describe('ファイル内容のbase64（filePathが使えないリモート実行時に使う）'),
+        fileName: z.string().optional().describe('fileBase64使用時のファイル名（拡張子を含める）'),
       },
     },
-    async ({ assignmentId, filePath }) => {
-      const bytes = await readFile(filePath);
+    async ({ assignmentId, filePath, fileBase64, fileName }) => {
+      let bytes: Uint8Array;
+      let name: string;
+      if (filePath) {
+        if (!client.readLocalFile) {
+          return json({
+            ok: false,
+            error:
+              'unsupported: リモート(HTTP)実行ではfilePathを読めません。' +
+              'fileBase64とfileNameでファイル内容を直接渡してください。',
+          });
+        }
+        ({ bytes, name } = await client.readLocalFile(filePath));
+      } else if (fileBase64 && fileName) {
+        bytes = fromBase64(fileBase64);
+        name = fileName;
+      } else {
+        return json({
+          ok: false,
+          error: 'filePath か、fileBase64+fileName のどちらかを指定してください。',
+        });
+      }
       const form = new FormData();
       form.append('assignmentId', String(assignmentId));
-      form.append('file', new Blob([bytes]), basename(filePath));
+      // Uint8Array の generics(ArrayBufferLike)が BlobPart と合わないため ArrayBuffer に切り出す。
+      const part = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+      form.append('file', new Blob([part]), name);
       const res = await client.request<{ warnings: unknown[] }>('/api/moodle/assignment/upload', {
         method: 'POST',
         body: form,

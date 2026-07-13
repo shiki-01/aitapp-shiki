@@ -12,11 +12,22 @@ interface CachedSession {
 }
 
 const CACHE_DIR = join(homedir(), '.config', 'aitapp-mcp');
-const CACHE_FILE = join(CACHE_DIR, 'session.json');
 
-export async function loadCachedCookie(portalId: string): Promise<string | undefined> {
+// session cookie は worker が署名し worker の KV に紐づくため、接続先 worker ごとに
+// キャッシュファイルを分ける。同一ポータルIDでも別 worker（例: 本番用 8787 と
+// サンドボックス用 8788）を同時に使うと、単一ファイルでは互いの cookie を上書きし
+// 不要な再ログインを招くため、workerUrl をファイル名に含めて完全に分離する。
+function cacheFileFor(workerUrl: string): string {
+  const scope = workerUrl.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'default';
+  return join(CACHE_DIR, `session-${scope}.json`);
+}
+
+export async function loadCachedCookie(
+  portalId: string,
+  workerUrl: string,
+): Promise<string | undefined> {
   try {
-    const raw = await readFile(CACHE_FILE, 'utf8');
+    const raw = await readFile(cacheFileFor(workerUrl), 'utf8');
     const parsed = JSON.parse(raw) as CachedSession;
     if (parsed.portalId === portalId && parsed.cookie) return parsed.cookie;
   } catch {
@@ -25,10 +36,15 @@ export async function loadCachedCookie(portalId: string): Promise<string | undef
   return undefined;
 }
 
-export async function saveCachedCookie(portalId: string, cookie: string): Promise<void> {
+export async function saveCachedCookie(
+  portalId: string,
+  workerUrl: string,
+  cookie: string,
+): Promise<void> {
   await mkdir(CACHE_DIR, { recursive: true });
-  await writeFile(CACHE_FILE, JSON.stringify({ portalId, cookie } satisfies CachedSession), {
+  const file = cacheFileFor(workerUrl);
+  await writeFile(file, JSON.stringify({ portalId, cookie } satisfies CachedSession), {
     mode: 0o600,
   });
-  await chmod(CACHE_FILE, 0o600);
+  await chmod(file, 0o600);
 }

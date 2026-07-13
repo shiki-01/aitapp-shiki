@@ -341,22 +341,69 @@ export async function startQuizAttempt(
   };
 }
 
+/** `answers` のキー（`q{usage}:{slot}_...`）から回答対象の slot 番号を集める。 */
+function answeredSlotsOf(answers: Record<string, string>): Set<number> {
+  const slots = new Set<number>();
+  for (const name of Object.keys(answers)) {
+    const m = name.match(/^q\d+:(\d+)_/);
+    if (m) slots.add(Number(m[1]));
+  }
+  return slots;
+}
+
+/**
+ * 回答する slot について、設問HTMLから `_:sequencecheck` の name/value を取り出す。
+ * これを同梱しないと mod_quiz_save_attempt は成功を返しつつ回答を黙って破棄する。
+ * 回答しない slot には触れない（送ると既存回答が消える恐れがあるため）。
+ */
+function sequenceChecksFor(
+  questions: RawQuizQuestion[],
+  answeredSlots: Set<number>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const q of questions) {
+    if (!answeredSlots.has(q.slot)) continue;
+    const m = q.html.match(/name="(q\d+:\d+_:sequencecheck)"\s+value="(\d+)"/);
+    if (m) out[m[1]] = m[2];
+  }
+  return out;
+}
+
 /**
  * 回答を一時保存する（本提出はしない）。mod_quiz_save_attempt。
  * `answers` は設問HTML中のinput/select要素のname属性→値。
+ * 型別の値: multichoice(radio)は選択肢のindex(`_answer`)、match(select)は各`_sub{n}`に
+ * 選択肢value、ordering は `_response_{qid}` に `ordering_item_{hash}` を正しい順でカンマ連結。
+ * `_:sequencecheck` は当関数がライブHTMLから自動同梱するため呼び出し側は渡さなくてよい。
+ * 返り値の unsavedSlots は、保存後に再取得しても未回答(notyetanswered)のままだった slot。
+ * 空でなければ、指定した name/value が Moodle の期待と一致していない（保存に失敗した）ことを示す。
  */
 export async function saveQuizAttempt(
   origin: string,
   token: string,
   attemptId: number,
   answers: Record<string, string>,
-): Promise<{ ok: boolean }> {
-  const pairs = Object.entries(answers).map(([name, value]) => ({ name, value }));
+): Promise<{ ok: boolean; answeredSlots: number[]; unsavedSlots: number[] }> {
+  const answeredSlots = answeredSlotsOf(answers);
+
+  // ライブHTMLから sequencecheck を取得して必ず同梱する（保存が破棄される主因の対策）。
+  const before = await getAllAttemptQuestions(origin, token, attemptId);
+  const seqChecks = sequenceChecksFor(before, answeredSlots);
+
+  const merged = { ...seqChecks, ...answers };
+  const pairs = Object.entries(merged).map(([name, value]) => ({ name, value }));
   await callMoodleApi(origin, token, 'mod_quiz_save_attempt', {
     attemptid: String(attemptId),
     ...indexedNameValuePairs('data', pairs),
   });
-  return { ok: true };
+
+  // 保存が実際に反映されたかを検証する（{ok:true} の偽陽性を防ぐ）。
+  const after = await getAllAttemptQuestions(origin, token, attemptId);
+  const stillUnanswered = new Set(
+    after.filter((q) => /\bnotyetanswered\b/.test(q.html)).map((q) => q.slot),
+  );
+  const unsavedSlots = [...answeredSlots].filter((s) => stillUnanswered.has(s)).sort((a, b) => a - b);
+  return { ok: unsavedSlots.length === 0, answeredSlots: [...answeredSlots].sort((a, b) => a - b), unsavedSlots };
 }
 
 /**

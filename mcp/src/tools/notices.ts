@@ -1,13 +1,14 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { WorkerClient } from '../client';
+import type { ToolClient } from '../tool-client';
 import type { Notice, NoticeDetail } from '../types';
+import { downloadedFileContent } from './download-content';
 
 function json(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
 }
 
-export function registerNoticeTools(server: McpServer, client: WorkerClient): void {
+export function registerNoticeTools(server: McpServer, client: ToolClient): void {
   server.registerTool(
     'lcam_list_notices',
     {
@@ -58,8 +59,9 @@ export function registerNoticeTools(server: McpServer, client: WorkerClient): vo
     {
       title: 'LCAM連絡の添付ファイルをダウンロード',
       description:
-        'lcam_get_notice_detailのfilesに含まれる添付ファイルをローカルの一時ディレクトリへ保存し、' +
-        'ファイルパスを返す。返ったパスはRead等でそのまま開ける。' +
+        'lcam_get_notice_detailのfilesに含まれる添付ファイルを取得する。' +
+        'ローカル(stdio)実行時は一時ディレクトリへ保存しパスを返す（Read等でそのまま開ける）。' +
+        'リモート(HTTP)実行時はファイル内容を直接返す。' +
         'Moodle側のファイルはmoodle_download_fileを使う（このツールはLCAM連絡の添付専用）。',
       inputSchema: {
         path: z.string().describe('lcam_get_notice_detailのfilesの値（相対パス）'),
@@ -68,7 +70,7 @@ export function registerNoticeTools(server: McpServer, client: WorkerClient): vo
     },
     async ({ path, fileName }) => {
       const res = await client.downloadAttachment(path, fileName);
-      return json(res);
+      return downloadedFileContent(res);
     },
   );
 }

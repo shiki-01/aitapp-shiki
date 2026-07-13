@@ -11,10 +11,10 @@ Workers をサーバーサイド proxy（BFF）として挟み、ログインを
 ## 構成
 
 ```
-worker/   Cloudflare Workers + Hono + TypeScript（BFF / 上流 proxy）
+worker/   Cloudflare Workers + Hono + TypeScript（BFF / 上流 proxy。/mcp でリモートMCPも提供）
 web/      SvelteKit（Svelte 5）SPA（Cloudflare Pages 配信 / Tauriのフロントとしても共用）
 tauri/    PC版デスクトップアプリ（Tauri + Rust。web/のビルド成果物を表示する）
-mcp/      ローカル実行のMCPサーバー（Claude Code等から worker/ をツールとして呼ぶ）
+mcp/      MCPサーバー（stdioローカル実行。ツール実装は worker/ の /mcp と共用）
 vendor/aitapp  移植元 Dart 実装（git submodule）
 ```
 
@@ -86,6 +86,47 @@ SESSION_SECRET=別のローカル用ランダム文字列
 bunx wrangler dev      # http://localhost:8787
 bunx wrangler deploy   # 本番へ
 ```
+
+> **【重要な制約】LCAM は Cloudflare の egress IP を拒否する**: デプロイした worker からの
+> `lcam.aitech.ac.jp` へのアクセスは WAF（Zenedge）に拒否され、常に 500 になる
+> （Moodle・シラバスは正常）。そのため**デプロイ版では LCAM 系機能と
+> `/api/auth/login`（LCAM 検証を含む）が動かない**。LCAM を含む全機能を使う場合は
+> ローカル実行（`wrangler dev`）を使う。詳細は `MIGRATION_NOTES.md` §13.1。
+
+## セットアップ（/mcp リモートMCP）
+
+worker には MCP Streamable HTTP エンドポイント `/mcp` があり、デプロイすると
+Claude Code 等からクラウド経由でツールを使える（ローカルの `mcp/` を起動しなくてよい）。
+単一ユーザー前提で、資格情報は worker のシークレットに置く。
+
+```sh
+cd worker
+bunx wrangler secret put MCP_TOKEN              # /mcp のBearerトークン（例: openssl rand -base64 48）
+bunx wrangler secret put AITAPP_ID              # 大学ポータルのログインID
+bunx wrangler secret put AITAPP_PASSWORD        # 大学ポータルのパスワード
+bunx wrangler secret put AITAPP_MOODLE_ORIGIN   # 例: cms.aitech.ac.jp
+# LCAMとMoodleのアカウントが別の場合のみ:
+#   bunx wrangler secret put AITAPP_MOODLE_ID
+#   bunx wrangler secret put AITAPP_MOODLE_PASSWORD
+```
+
+未設定の間 `/mcp` は 404 を返すだけで、既存 API に影響しない。
+
+Claude Code への登録:
+
+```sh
+claude mcp add --transport http aitapp-cloud \
+  https://<worker-origin>/mcp \
+  --header "Authorization: Bearer <MCP_TOKEN>"
+```
+
+制約:
+
+- 上記のとおり **LCAM 系ツール（`lcam_*`）はデプロイ版では上流に拒否され使えない**
+  （Moodle 系・シラバス系は動作確認済み）。
+- ファイルダウンロード系ツールはローカル実行と異なりパスではなく内容そのもの
+  （base64、上限10MB）を返す。`moodle_upload_assignment_file` は `filePath` の代わりに
+  `fileBase64` + `fileName` を使う。
 
 ## セットアップ（web）
 
@@ -175,10 +216,11 @@ Keychainが「常に許可」を保持できず`restore_session`のキーチェ�
   （TauriのwebviewはWorkerと別サイト扱いになり `SameSite=Strict` cookieが送れないため）
 - 添付ファイル: browser版は `<a target=_blank>`、desktop版は一時ファイルに保存しOS既定アプリで開く
 
-## セットアップ（mcp）
+## セットアップ（mcp / stdioローカル実行）
 
-Claude Code等のMCPクライアントから `worker/` のAPIをツールとして使うための、
-ローカル実行専用サーバー。詳細は [`mcp/README.md`](mcp/README.md) を参照。
+Claude Code等のMCPクライアントから `worker/` のAPIをツールとして使うための
+stdio サーバー。クラウド経由で使う場合は上記の「/mcp リモートMCP」を使う
+（ツール実装は共通）。詳細は [`mcp/README.md`](mcp/README.md) を参照。
 
 ```sh
 cd mcp

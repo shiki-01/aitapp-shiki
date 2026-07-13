@@ -64,6 +64,7 @@ import {
   UpstreamError,
   ValidationError,
 } from './upstream/errors';
+import { handleMcpRequest } from './mcp/handler';
 
 type Variables = { userId: string; state: UserState };
 
@@ -108,7 +109,37 @@ app.use('/api/*', async (c, next) => {
   if (!payload) {
     return c.json({ error: 'unauthorized' }, 401);
   }
-  const state = await readState(c.env, payload.uid);
+  let state = await readState(c.env, payload.uid);
+
+  // /mcp からの内部呼び出し（X-Aitapp-Internal: MCP_TOKEN）は、env の資格情報で state を
+  // ブートストラップ/上書きする。目的:
+  //   - 初回呼び出し時に /api/auth/login を経由せず state を確立する（KV の negative cache
+  //     による write 直後の read miss にも影響されない）
+  //   - LCAM が Worker の egress IP を拒否する環境でも、Moodle/シラバス系は動かせる
+  //     （lcamCookies は null のままにし、必要になった時点で withLcamRelogin が試行する）
+  //   - シークレット変更が即時反映される（credential は常に env から再構成）
+  const internal =
+    Boolean(c.env.MCP_TOKEN) && c.req.header('X-Aitapp-Internal') === c.env.MCP_TOKEN;
+  if (
+    internal &&
+    c.env.AITAPP_ID &&
+    c.env.AITAPP_PASSWORD &&
+    payload.uid === c.env.AITAPP_ID
+  ) {
+    const hasMoodleCred = Boolean(c.env.AITAPP_MOODLE_ID && c.env.AITAPP_MOODLE_PASSWORD);
+    const credential = await encryptCredential(c.env.CRED_KEY, {
+      id: c.env.AITAPP_ID,
+      password: c.env.AITAPP_PASSWORD,
+      moodleOrigin: c.env.AITAPP_MOODLE_ORIGIN ?? '',
+      ...(hasMoodleCred
+        ? { moodleId: c.env.AITAPP_MOODLE_ID, moodlePassword: c.env.AITAPP_MOODLE_PASSWORD }
+        : {}),
+    });
+    state = state
+      ? { ...state, credential }
+      : { lcamCookies: null, moodleToken: null, credential };
+  }
+
   if (!state) {
     return c.json({ error: 'no state' }, 401);
   }
@@ -679,6 +710,11 @@ app.get('/api/file/:id', async (c) => {
   if (cl) headers.set('content-length', cl);
   return new Response(upstream.body, { status: upstream.status, headers });
 });
+
+// ---- /mcp（MCP Streamable HTTP。ツールは自身の /api/* へ in-process dispatch する） ----
+app.all('/mcp', (c) =>
+  handleMcpRequest(c, (req) => Promise.resolve(app.fetch(req, c.env, c.executionCtx))),
+);
 
 // ---- エラーハンドラ ----
 app.onError((err, c) => {
