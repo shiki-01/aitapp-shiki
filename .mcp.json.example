@@ -7,7 +7,10 @@
         "AITAPP_WORKER_URL": "http://localhost:8787",
         "AITAPP_APP_ORIGIN": "http://localhost:5173",
         "AITAPP_ID": "your-portal-id",
-        "AITAPP_PASSWORD": "your-portal-password"
+        "AITAPP_PASSWORD": "your-portal-password",
+        "AITAPP_MOODLE_ORIGIN": "cms.aitech.ac.jp",
+        "AITAPP_MOODLE_ID": "(optional) moodle-id-if-different-from-portal",
+        "AITAPP_MOODLE_PASSWORD": "(optional) moodle-password-if-different-from-portal"
       }
     }
   }

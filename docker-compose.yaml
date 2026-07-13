@@ -3,6 +3,7 @@ services:
     image: mariadb:10
     container_name: moodle-db
     restart: always
+    mem_limit: 300m
     environment:
       MYSQL_RANDOM_ROOT_PASSWORD: "1"
       MYSQL_DATABASE: moodle
@@ -10,16 +11,20 @@ services:
       MYSQL_PASSWORD: moodlepass
     volumes:
       - db_data:/var/lib/mysql
+      - ./mariadb/conf.d:/etc/mysql/conf.d:ro
 
   moodle:
     image: bitnamilegacy/moodle:latest
     container_name: moodle-app
     restart: always
+    mem_limit: 600m
     depends_on:
       - db
     ports:
-      - "8080:8080"
-      - "8443:8443"
+      # Cloudflare Tunnel (--network host の cloudflared) 経由でのみ公開するため
+      # ホストの localhost にだけバインドする（直接のインターネット露出を防ぐ）
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8443:8443"
     environment:
       BITNAMI_DEBUG: "true"
       MOODLE_USERNAME: admin

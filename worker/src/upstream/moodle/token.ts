@@ -22,7 +22,13 @@ export async function withMoodleToken<T>(
   const moodleOrigin = cred.moodleOrigin;
 
   async function refreshToken(): Promise<string> {
-    const token = await getMoodleToken(moodleOrigin, cred.id, cred.password);
+    // Moodle 専用資格情報があればそちらを、なければ LCAM と同じ id/password を使う。
+    const useMoodleCred = Boolean(cred.moodleId && cred.moodlePassword);
+    const token = await getMoodleToken(
+      moodleOrigin,
+      useMoodleCred ? cred.moodleId! : cred.id,
+      useMoodleCred ? cred.moodlePassword! : cred.password,
+    );
     state.moodleToken = token;
     await writeState(env, userId, state);
     return token;

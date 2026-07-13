@@ -11,6 +11,13 @@ export interface Config {
   portalPassword: string;
   /** Moodle 接続先ホスト名。未設定なら Moodle 系ツールは使えない。 */
   moodleOrigin: string;
+  /**
+   * Moodle 専用のログインID/パスワード（LCAM とアカウントが別の場合のみ設定）。
+   * 両方が非空のときだけ worker に渡す。未設定なら portalId/portalPassword が
+   * Moodle にも使われる（従来挙動）。
+   */
+  moodleId: string;
+  moodlePassword: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -19,10 +26,12 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const portalId = env.AITAPP_ID ?? '';
   const portalPassword = env.AITAPP_PASSWORD ?? '';
   const moodleOrigin = env.AITAPP_MOODLE_ORIGIN ?? '';
+  const moodleId = env.AITAPP_MOODLE_ID ?? '';
+  const moodlePassword = env.AITAPP_MOODLE_PASSWORD ?? '';
   if (!portalId || !portalPassword) {
     throw new Error(
       'AITAPP_ID / AITAPP_PASSWORD が未設定です。MCPサーバー起動時の環境変数で渡してください。',
     );
   }
-  return { workerUrl, appOrigin, portalId, portalPassword, moodleOrigin };
+  return { workerUrl, appOrigin, portalId, portalPassword, moodleOrigin, moodleId, moodlePassword };
 }

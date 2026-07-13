@@ -46,6 +46,10 @@ export class WorkerClient {
         id: this.config.portalId,
         password: this.config.portalPassword,
         moodleOrigin: this.config.moodleOrigin,
+        // Moodle 専用資格情報は両方揃っているときだけ渡す（片方だけなら無視される）。
+        ...(this.config.moodleId && this.config.moodlePassword
+          ? { moodleId: this.config.moodleId, moodlePassword: this.config.moodlePassword }
+          : {}),
       }),
     });
     if (!res.ok) {

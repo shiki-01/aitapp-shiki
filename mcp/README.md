@@ -19,10 +19,18 @@ bun install
 
 | 変数 | 必須 | 説明 |
 |---|---|---|
-| `AITAPP_ID` | ○ | 大学ポータルのログインID |
-| `AITAPP_PASSWORD` | ○ | 大学ポータルのログインパスワード |
+| `AITAPP_ID` | ○ | 大学ポータル(LCAM)のログインID |
+| `AITAPP_PASSWORD` | ○ | 大学ポータル(LCAM)のログインパスワード |
 | `AITAPP_WORKER_URL` | - | `worker/` のベースURL。既定値 `http://localhost:8787` |
 | `AITAPP_APP_ORIGIN` | - | `worker/` の `APP_ORIGIN` と一致させるOrigin値。既定値 `http://localhost:5173` |
+| `AITAPP_MOODLE_ORIGIN` | - | Moodle接続先ホスト名（例 `cms.aitech.ac.jp`）。未設定ならMoodle系ツールは使えない |
+| `AITAPP_MOODLE_ID` | - | Moodle専用ログインID。LCAMとMoodleのアカウントが別の場合のみ設定 |
+| `AITAPP_MOODLE_PASSWORD` | - | Moodle専用ログインパスワード。`AITAPP_MOODLE_ID` とセットで指定したときだけ有効（片方だけなら無視され、LCAMのID/パスワードがMoodleにも使われる） |
+
+Moodleへの認証は、ログイン時に一度だけID/パスワードで `login/token.php` から
+トークンを取得し、以後はそのトークンだけで動く（失効時のみ保存済み資格情報で
+自動再取得）。トークンを直接渡す方式は、失効時に手動での再登録が必要になり
+自動再取得が効かなくなるため採用していない。
 
 `worker/` をデプロイ済みならそのURLを、まだ動作確認中なら `worker/` を
 `bun run dev`（`wrangler dev`）で起動してローカルを指す。接続先はこの環境変数
@@ -42,7 +50,8 @@ bun install
         "AITAPP_WORKER_URL": "http://localhost:8787",
         "AITAPP_APP_ORIGIN": "http://localhost:5173",
         "AITAPP_ID": "your-portal-id",
-        "AITAPP_PASSWORD": "your-portal-password"
+        "AITAPP_PASSWORD": "your-portal-password",
+        "AITAPP_MOODLE_ORIGIN": "cms.aitech.ac.jp"
       }
     }
   }

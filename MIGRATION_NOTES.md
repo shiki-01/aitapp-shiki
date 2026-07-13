@@ -630,3 +630,78 @@ Claude in Chrome を使った同一Moodleサイトの解答自動化に関する
   `moodleBase(origin)` ヘルパー＋全関数に `origin: string` 引数を追加する形に変更した
   （`downloadMoodleFile` のみ、既に受け取っている `credential.moodleOrigin` から
   自己完結で origin を得られるためシグネチャ変更なし）。
+
+### 12.8 サンドボックス（moodle.shiki-01.com）での全9設問タイプ実地検証と環境構築メモ
+
+サンドボックス（Oracle Cloud 上の Bitnami Moodle、コース `test` courseId=2 の
+9問クイズ）で、`get_quiz_info` → `start_quiz_attempt` → `answer_quiz_question`
+（全9問を1回の呼び出しで一括保存）→ `finish_quiz_attempt` の一連を実行し、
+**自動採点対象の8問すべて正解（mark 1.00）、essay は「要評定」**
+（`mod_quiz_get_attempt_review` で確認）となることを検証した。§12.3 で未検証だった
+qtype を含む全パターン: `multichoice`（単一選択/複数選択）、`gapselect`、
+`shortanswer`、`ordering`、`match`、`ddimageortext`、`ddwtos`、`essay`。
+
+- `mod_quiz_save_attempt` の `answers` には、各設問の `qX:N_:sequencecheck`
+  （HTML中の hidden input、value=1）も含めて渡す必要がある。worker/MCP は
+  answers をそのまま透過する設計（自動補完しない）なので、呼び出し元（LLM）が
+  HTML から拾って含めること。
+- `ddimageortext` はドロップゾーンの座標・正解対応が設問 HTML に含まれない
+  （AMD JS が別途取得する）。place番号→choice番号の対応は HTML からは判別できない
+  ため、正確に解くには背景画像の目視かあてずっぽうになる。今回はサンドボックスの
+  DB（`mdl_qtype_ddimageortext_drops`/`_drags`）で正解対応を確認して回答した。
+- `ordering` の回答は `qX:N_response_M` に `ordering_item_<md5>` の
+  カンマ区切りを並べ替え後の順で渡す（HTML の `<li>` id をそのまま利用）。
+
+**`webservice/rest/server.php` が常に 403 を返した問題の根本原因と修正**（前回
+セッションからの持ち越し。Cloudflare/Tunnel/Apache は全て無罪だった）:
+
+1. `webserviceprotocols` が未設定（有効なプロトコルが1つもない状態）だった
+   → `php admin/cli/cfg.php --name=webserviceprotocols --set=rest`
+2. `enablemobilewebservice=0` だった（`mdl_external_services` の行は enabled=1 で
+   不整合。`login/token.php` でのトークン発行だけは通るのが紛らわしい）
+   → `--name=enablemobilewebservice --set=1`
+3. どのロールにも `webservice/rest:use` capability がなかった（管理UIから
+   モバイルサービスを有効化すると自動付与されるが、CLI 設定では付与されない）
+   → 認証済みユーザーロール(id=7)に `assign_capability()` で付与
+
+なお `docker exec`（root）で Moodle CLI を実行すると moodledata 内に root 所有の
+キャッシュができ `invalid_dataroot_permissions` になる。`docker exec -u daemon` で
+実行するか、実行後に `chown -R daemon:daemon /bitnami/moodledata` すること。
+
+**サンドボックス運用メモ**:
+
+- 外部公開は Cloudflare Tunnel `moodle-tunnel-v2`（ID `9b4e9125-…`）。Oracle 側で
+  `cloudflare/cloudflared:latest` コンテナ（`--network host`、
+  `/home/ubuntu/cloudflared` に config.yml と credentials JSON、ingress は
+  `moodle.shiki-01.com → http://localhost:8080`）として稼働。credentials JSON は
+  コンテナ内の非rootユーザーが読める必要がある（600 だと permission denied）。
+- ホストの 443 は sshd が使用している（外部ネットワークのポート22ブロック対策）。
+  そのため moodle コンテナの compose から `443:8443`・`80:8080` の
+  ホストバインドを削除した（トンネル経由は 8080 のみで足りる）。443 バインドが
+  残っていると sshd と衝突して moodle-app が起動できない。
+- 作業ネットワークによっては外向きポート22が全遮断される（`~/.ssh/config` の
+  github.com → ssh.github.com:443 と同じ事情）。SSH 不通のときはまず
+  これを疑う（インスタンス停止と誤診しやすい）。
+- ローカル検証時、過去の `wrangler dev` プロセスが 8787 を掴んだまま残っていると
+  新しいプロセスが 8788 に逃げ、`.dev.vars` 変更（`MOODLE_ORIGIN_OVERRIDE` 等）が
+  反映されていない旧プロセスが応答し続ける。検証前に 8787 の残骸を kill すること。
+
+### 12.9 Moodle 専用資格情報の分離（LCAM とアカウントが別の場合）
+
+§12.7 までは LCAM と Moodle が同一 ID/パスワードを共有する前提だったが、別アカウント
+運用（サンドボックス等）に対応するため、ログインに任意項目 `moodleId` /
+`moodlePassword` を追加した。**両方が非空のときだけ** Moodle のトークン取得
+（初回・失効時の再取得とも）に使い、揃っていなければ従来どおり LCAM の
+id/password を Moodle にも使う（後方互換。既存 KV credential は optional 扱いで
+そのまま動く）。MCP 側は `AITAPP_MOODLE_ID` / `AITAPP_MOODLE_PASSWORD` で渡す。
+
+「ID/パスワードではなくトークンを直接渡す」案は不採用とした。トークンは KV に
+キャッシュされ `login/token.php` はログイン時と失効時しか呼ばれないため効率面の
+得はほぼなく、一方でトークン直渡しは失効時に `withMoodleToken` の自動再取得が
+効かなくなり手動再登録が必要になるため。
+
+検証: サンドボックスに LCAM とは別パスワードのユーザー `mcptest` を作成し、
+`id=x26049xx`（LCAM）+ `moodleId=mcptest` でログイン → `moodle:true`、発行された
+トークンが mcptest のものであること（`mdl_external_tokens`）、そのトークンで
+`/api/moodle/quiz/info` が通ること、`moodleId` 未指定の従来ログインも引き続き
+動くことを確認済み。

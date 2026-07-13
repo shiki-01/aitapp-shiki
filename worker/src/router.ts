@@ -125,7 +125,13 @@ const MOODLE_ORIGIN_PATTERN =
 app.post('/api/auth/login', async (c) => {
   if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
 
-  let bodyIn: { id?: string; password?: string; moodleOrigin?: string };
+  let bodyIn: {
+    id?: string;
+    password?: string;
+    moodleOrigin?: string;
+    moodleId?: string;
+    moodlePassword?: string;
+  };
   try {
     bodyIn = await c.req.json();
   } catch {
@@ -141,6 +147,12 @@ app.post('/api/auth/login', async (c) => {
     return c.json({ error: 'invalid moodleOrigin' }, 400);
   }
 
+  // Moodle 専用資格情報（LCAM とアカウントが別の場合）。両方揃ったときだけ採用し、
+  // 揃っていなければ LCAM の id/password を Moodle にも使う（従来挙動）。
+  const moodleId = (bodyIn.moodleId ?? '').trim();
+  const moodlePassword = (bodyIn.moodlePassword ?? '').trim();
+  const hasMoodleCred = Boolean(moodleId && moodlePassword);
+
   // LCAM(SP) ログインで認証情報を検証しつつ上流 Cookie を確立する。
   const initial = await getCookie();
   const { body: loginBody, cookies } = await loginLcam(id, password, initial);
@@ -152,14 +164,23 @@ app.post('/api/auth/login', async (c) => {
   let moodleToken: string | null = null;
   if (moodleOrigin) {
     try {
-      moodleToken = await getMoodleToken(moodleOrigin, id, password);
+      moodleToken = await getMoodleToken(
+        moodleOrigin,
+        hasMoodleCred ? moodleId : id,
+        hasMoodleCred ? moodlePassword : password,
+      );
     } catch {
       moodleToken = null;
     }
   }
 
   // credential を即暗号化して保存。平文は browser に返さない。
-  const credential = await encryptCredential(c.env.CRED_KEY, { id, password, moodleOrigin });
+  const credential = await encryptCredential(c.env.CRED_KEY, {
+    id,
+    password,
+    moodleOrigin,
+    ...(hasMoodleCred ? { moodleId, moodlePassword } : {}),
+  });
   const state: UserState = { lcamCookies: cookies, moodleToken, credential };
   await writeState(c.env, id, state);
 

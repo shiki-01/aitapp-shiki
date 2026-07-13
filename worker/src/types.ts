@@ -46,4 +46,11 @@ export interface Credential {
   password: string;
   /** Moodle 接続先ホスト名。未設定（空文字）なら Moodle 系機能は使わない。 */
   moodleOrigin: string;
+  /**
+   * Moodle 専用の ID/パスワード（LCAM と Moodle のアカウントが別の場合に使う）。
+   * 両方が非空のときだけ有効。未設定なら id/password をそのまま Moodle にも使う。
+   * 過去に保存された credential には存在しないため optional。
+   */
+  moodleId?: string;
+  moodlePassword?: string;
 }
