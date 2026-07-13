@@ -9,15 +9,15 @@ function json(data: unknown) {
 
 export function registerNoticeTools(server: McpServer, client: WorkerClient): void {
   server.registerTool(
-    'list_notices',
+    'lcam_list_notices',
     {
-      title: '連絡一覧の取得',
+      title: 'LCAM連絡一覧の取得',
       description:
         'LCAMの連絡一覧をtypeで指定して先頭からcount件取得する。' +
         'type=common: 学内連絡（全学向けの掲示・事務連絡）。' +
         'type=class: 授業連絡（担当科目の教員からの連絡。「課題」の告知がここに' +
-        '書かれることもあるが、Moodleのlist_assignmentsとは別物）。' +
-        '出典を指定せず単に「課題」と聞かれた場合は、type=classとlist_assignmentsの' +
+        '書かれることもあるが、Moodleのmoodle_list_assignmentsとは別物）。' +
+        '出典を指定せず単に「課題」と聞かれた場合は、type=classとmoodle_list_assignmentsの' +
         '両方を確認し、どちらの結果かを明示して両方提示する。' +
         '「LCAMの」「授業連絡の」等と出典を指定された場合はこちらのみを使う。',
       inputSchema: {
@@ -34,12 +34,12 @@ export function registerNoticeTools(server: McpServer, client: WorkerClient): vo
   );
 
   server.registerTool(
-    'get_notice_detail',
+    'lcam_get_notice_detail',
     {
-      title: '連絡詳細の取得',
+      title: 'LCAM連絡詳細の取得',
       description:
-        '連絡の詳細本文を取得する。indexはlist_noticesが返した各要素のindexを使う。' +
-        '添付ファイルがある場合はfilesにファイル名→パスが入り、download_notice_attachmentへ渡せる。',
+        'LCAMの連絡の詳細本文を取得する。indexはlcam_list_noticesが返した各要素のindexを使う。' +
+        '添付ファイルがある場合はfilesにファイル名→パスが入り、lcam_download_notice_attachmentへ渡せる。',
       inputSchema: {
         type: z.enum(['common', 'class']).default('common'),
         index: z.number().int().min(0),
@@ -54,15 +54,16 @@ export function registerNoticeTools(server: McpServer, client: WorkerClient): vo
   );
 
   server.registerTool(
-    'download_notice_attachment',
+    'lcam_download_notice_attachment',
     {
-      title: '連絡の添付ファイルをダウンロード',
+      title: 'LCAM連絡の添付ファイルをダウンロード',
       description:
-        'get_notice_detailのfilesに含まれる添付ファイルをローカルの一時ディレクトリへ保存し、' +
-        'ファイルパスを返す。返ったパスはRead等でそのまま開ける。',
+        'lcam_get_notice_detailのfilesに含まれる添付ファイルをローカルの一時ディレクトリへ保存し、' +
+        'ファイルパスを返す。返ったパスはRead等でそのまま開ける。' +
+        'Moodle側のファイルはmoodle_download_fileを使う（このツールはLCAM連絡の添付専用）。',
       inputSchema: {
-        path: z.string().describe('get_notice_detailのfilesの値（相対パス）'),
-        fileName: z.string().describe('get_notice_detailのfilesのキー（保存時のファイル名に使う）'),
+        path: z.string().describe('lcam_get_notice_detailのfilesの値（相対パス）'),
+        fileName: z.string().describe('lcam_get_notice_detailのfilesのキー（保存時のファイル名に使う）'),
       },
     },
     async ({ path, fileName }) => {

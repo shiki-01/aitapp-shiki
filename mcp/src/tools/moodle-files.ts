@@ -9,13 +9,13 @@ function json(data: unknown) {
 
 export function registerMoodleFileTools(server: McpServer, client: WorkerClient): void {
   server.registerTool(
-    'get_course_files',
+    'moodle_get_course_files',
     {
       title: 'Moodleコース内「ファイル」リソース一覧の取得',
       description:
         '指定したcourseIdのMoodleコースに置かれている「ファイル」リソース' +
         '（課題やクイズの参考資料として案内されることが多い、例: 単語帳・配布資料）の' +
-        '一覧をfileUrlとともに取得する（参照のみ）。fileUrlはdownload_moodle_fileへ渡せる。',
+        '一覧をfileUrlとともに取得する（参照のみ）。fileUrlはmoodle_download_fileへ渡せる。',
       inputSchema: { courseId: z.number().int() },
     },
     async ({ courseId }) => {
@@ -27,14 +27,15 @@ export function registerMoodleFileTools(server: McpServer, client: WorkerClient)
   );
 
   server.registerTool(
-    'download_moodle_file',
+    'moodle_download_file',
     {
       title: 'Moodle上のファイルをダウンロード',
       description:
-        'get_course_filesが返すfileUrl、またはget_quiz_info/start_quiz_attempt/' +
-        'answer_quiz_questionが返す設問HTML中に含まれる音声・動画・添付ファイルの' +
+        'moodle_get_course_filesが返すfileUrl、またはmoodle_get_quiz_info/moodle_start_quiz_attempt/' +
+        'moodle_answer_quiz_questionが返す設問HTML中に含まれる音声・動画・添付ファイルの' +
         'URL（pluginfile.php/file.php等の絶対URL）をローカルの一時ディレクトリへ保存し、' +
-        'ファイルパスを返す。返ったパスはRead等でそのまま開ける。',
+        'ファイルパスを返す。返ったパスはRead等でそのまま開ける。' +
+        'LCAM連絡の添付ファイルはlcam_download_notice_attachmentを使う（このツールはMoodle専用）。',
       inputSchema: {
         fileUrl: z.string().describe('cms.aitech.ac.jp配下のファイルの絶対URL'),
         fileName: z.string().describe('保存時のファイル名（拡張子を含める）'),

@@ -8,10 +8,10 @@ function json(data: unknown) {
 
 export function registerTimetableTools(server: McpServer, client: WorkerClient): void {
   server.registerTool(
-    'get_timetable',
+    'lcam_get_timetable',
     {
-      title: '時間割の取得',
-      description: '登録済みの週間時間割を取得する。',
+      title: 'LCAM時間割の取得',
+      description: 'LCAMに登録済みの週間時間割を取得する。',
     },
     async () => {
       const res = await client.request<{ timetable: TimetableEntry[] }>('/api/timetable');
@@ -20,10 +20,10 @@ export function registerTimetableTools(server: McpServer, client: WorkerClient):
   );
 
   server.registerTool(
-    'get_schedule',
+    'lcam_get_schedule',
     {
-      title: '予定（休講・補講等）の取得',
-      description: '今後数週間分の授業予定（休講・補講・行事等）を日付ごとに取得する。',
+      title: 'LCAM予定（休講・補講等）の取得',
+      description: 'LCAMから今後数週間分の授業予定（休講・補講・行事等）を日付ごとに取得する。',
     },
     async () => {
       const res = await client.request<{ schedule: ScheduleDay[] }>('/api/schedule');

@@ -9,7 +9,7 @@ function json(data: unknown) {
 
 export function registerQuizTools(server: McpServer, client: WorkerClient): void {
   server.registerTool(
-    'get_quiz_info',
+    'moodle_get_quiz_info',
     {
       title: 'Moodleクイズ一覧・受験可否の取得',
       description:
@@ -27,15 +27,15 @@ export function registerQuizTools(server: McpServer, client: WorkerClient): void
   );
 
   server.registerTool(
-    'start_quiz_attempt',
+    'moodle_start_quiz_attempt',
     {
-      title: 'クイズ受験の開始（実書き込み・試行回数を消費）',
+      title: 'Moodleクイズ受験の開始（実書き込み・試行回数を消費）',
       description:
         '【注意】これは実際にMoodle上でクイズの新規受験(attempt)を開始する書き込み操作。' +
         '呼び出した時点で許容試行回数(attemptsAllowed)を1回消費し、取り消せない。' +
-        'get_quiz_infoでcanAttemptがtrueであることを確認し、ユーザーが受験を開始する意思を' +
+        'moodle_get_quiz_infoでcanAttemptがtrueであることを確認し、ユーザーが受験を開始する意思を' +
         '明示的に示した場合のみ呼び出すこと。成功すると設問一覧(questions、各要素にHTML)が' +
-        '返るので、内容を解析してanswer_quiz_questionで回答する。',
+        '返るので、内容を解析してmoodle_answer_quiz_questionで回答する。',
       inputSchema: { quizId: z.number().int() },
     },
     async ({ quizId }) => {
@@ -49,14 +49,14 @@ export function registerQuizTools(server: McpServer, client: WorkerClient): void
   );
 
   server.registerTool(
-    'answer_quiz_question',
+    'moodle_answer_quiz_question',
     {
-      title: 'クイズ回答の一時保存（実書き込み）',
+      title: 'Moodleクイズ回答の一時保存（実書き込み）',
       description:
         '【注意】これは実際にMoodle上でクイズ回答を一時保存(mod_quiz_save_attempt)する書き込み操作。' +
-        '本提出(finish_quiz_attempt)はしないため、何度でも上書き保存・修正できる。' +
-        'attemptIdはstart_quiz_attemptが返したattempt.idを使う。answersは、' +
-        'start_quiz_attemptが返した各questionのhtmlに含まれるinput/select要素のname属性を' +
+        '本提出(moodle_finish_quiz_attempt)はしないため、何度でも上書き保存・修正できる。' +
+        'attemptIdはmoodle_start_quiz_attemptが返したattempt.idを使う。answersは、' +
+        'moodle_start_quiz_attemptが返した各questionのhtmlに含まれるinput/select要素のname属性を' +
         'キー、選択・入力する値を値とするオブジェクト（例: ラジオボタンなら選択肢のvalue、' +
         'テキストならその内容）。',
       inputSchema: {
@@ -77,14 +77,14 @@ export function registerQuizTools(server: McpServer, client: WorkerClient): void
   );
 
   server.registerTool(
-    'finish_quiz_attempt',
+    'moodle_finish_quiz_attempt',
     {
-      title: 'クイズ受験の確定（実書き込み・取り消し不可）',
+      title: 'Moodleクイズ受験の確定（実書き込み・取り消し不可）',
       description:
         '【重要な注意】これはMoodle上でクイズの受験を確定(mod_quiz_process_attempt, ' +
-        'finishattempt=1)する最終操作であり、取り消し不可。事前にanswer_quiz_questionで' +
+        'finishattempt=1)する最終操作であり、取り消し不可。事前にmoodle_answer_quiz_questionで' +
         '保存した回答が対象になる（このツール自体には回答データを渡さない）。' +
-        '必ず: (1) answer_quiz_questionで全設問への回答を保存済みであることを確認し、' +
+        '必ず: (1) moodle_answer_quiz_questionで全設問への回答を保存済みであることを確認し、' +
         '(2) 回答内容をユーザーに明示的に見せて、(3) 「このまま受験を確定してよいか」の' +
         '同意を得た上で、confirmに厳密に"CONFIRM_FINISH_ATTEMPT"という文字列を渡した' +
         'ときのみ実行すること。それ以外のconfirm値ではAPIを呼ばずエラーを返す。',

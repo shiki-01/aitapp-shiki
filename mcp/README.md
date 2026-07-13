@@ -63,38 +63,50 @@ Moodleへの認証は、ログイン時に一度だけID/パスワードで `log
 
 ## 提供ツール
 
+ツール名は上流システムごとのプレフィックスで分類している。
+
+- `lcam_*`: LCAM（連絡・時間割・予定・成績・アンケート）
+- `moodle_*`: Moodle（課題・クイズ・コースファイル）
+- `syllabus_*`: シラバス検索システム
+
 | ツール | 対応するworker API |
 |---|---|
-| `list_notices` | `GET /api/notices` |
-| `get_notice_detail` | `GET /api/notices/detail` |
-| `download_notice_attachment` | `GET /api/file/:id`（連絡の添付ファイルのみ対応） |
-| `get_timetable` | `GET /api/timetable` |
-| `get_schedule` | `GET /api/schedule` |
-| `list_assignments` | `GET /api/assignments`（Moodle） |
-| `save_assignment_draft` | `POST /api/moodle/assignment/draft`（Moodle・実書き込み） |
-| `upload_assignment_file` | `POST /api/moodle/assignment/upload`（Moodle・実書き込み） |
-| `submit_assignment` | `POST /api/moodle/assignment/submit`（Moodle・実書き込み・取り消し不可） |
-| `get_quiz_info` | `GET /api/moodle/quiz/info`（Moodle） |
-| `start_quiz_attempt` | `POST /api/moodle/quiz/start`（Moodle・実書き込み・試行回数を消費） |
-| `answer_quiz_question` | `POST /api/moodle/quiz/answer`（Moodle・実書き込み） |
-| `finish_quiz_attempt` | `POST /api/moodle/quiz/finish`（Moodle・実書き込み・取り消し不可） |
-| `get_course_files` | `GET /api/moodle/resources`（Moodleコース内「ファイル」リソース一覧） |
-| `download_moodle_file` | `GET /api/moodle/file`（Moodle上のファイル・設問中の音声等をダウンロード） |
-| `get_syllabus_filters` | `GET /api/syllabus/filters` |
-| `search_syllabus` | `GET /api/syllabus/search` |
-| `get_syllabus_detail` | `GET /api/syllabus/detail` |
+| `lcam_list_notices` | `GET /api/notices` |
+| `lcam_get_notice_detail` | `GET /api/notices/detail` |
+| `lcam_download_notice_attachment` | `GET /api/file/:id`（連絡の添付ファイルのみ対応） |
+| `lcam_get_timetable` | `GET /api/timetable` |
+| `lcam_get_schedule` | `GET /api/schedule` |
+| `lcam_get_grades` | `GET /api/performance` |
+| `lcam_list_enquetes` | `GET /api/enquetes` |
+| `lcam_get_enquete_questions` | `GET /api/enquetes/questions` |
+| `lcam_save_class_enquete_answer_draft` | `POST /api/enquetes/answer`（実書き込み） |
+| `lcam_submit_class_enquete_final` | `POST /api/enquetes/submit`（実書き込み・取り消し困難） |
+| `moodle_list_assignments` | `GET /api/assignments` |
+| `moodle_save_assignment_draft` | `POST /api/moodle/assignment/draft`（実書き込み） |
+| `moodle_upload_assignment_file` | `POST /api/moodle/assignment/upload`（実書き込み） |
+| `moodle_submit_assignment` | `POST /api/moodle/assignment/submit`（実書き込み・取り消し不可） |
+| `moodle_get_quiz_info` | `GET /api/moodle/quiz/info` |
+| `moodle_start_quiz_attempt` | `POST /api/moodle/quiz/start`（実書き込み・試行回数を消費） |
+| `moodle_answer_quiz_question` | `POST /api/moodle/quiz/answer`（実書き込み） |
+| `moodle_finish_quiz_attempt` | `POST /api/moodle/quiz/finish`（実書き込み・取り消し不可） |
+| `moodle_get_course_files` | `GET /api/moodle/resources`（コース内「ファイル」リソース一覧） |
+| `moodle_download_file` | `GET /api/moodle/file`（Moodle上のファイル・設問中の音声等をダウンロード） |
+| `syllabus_get_filters` | `GET /api/syllabus/filters` |
+| `syllabus_search` | `GET /api/syllabus/search` |
+| `syllabus_get_detail` | `GET /api/syllabus/detail` |
 
 Moodle課題・シラバスには現状ダウンロード可能な添付URLがworker APIから
-返されないため、LCAM連絡の添付ダウンロードは`download_notice_attachment`、
-Moodle側（コースファイル・設問中の音声等）は`download_moodle_file`と使い分ける
-（`upload_assignment_file`は逆方向、ローカルファイルをMoodleへアップロードする
-書き込みツール）。`download_moodle_file`はMoodleの2種類のファイルURL形式
+返されないため、LCAM連絡の添付ダウンロードは`lcam_download_notice_attachment`、
+Moodle側（コースファイル・設問中の音声等）は`moodle_download_file`と使い分ける
+（`moodle_upload_assignment_file`は逆方向、ローカルファイルをMoodleへアップロードする
+書き込みツール）。`moodle_download_file`はMoodleの2種類のファイルURL形式
 （`webservice/pluginfile.php`のtoken認証、レガシー`file.php`の都度Webログイン）を
 自動判別する。詳細は`MIGRATION_NOTES.md`12.5節を参照。
 
-クイズ・課題提出系のうち`finish_quiz_attempt`・`submit_assignment`は取り消し不可の操作で、
+クイズ・課題提出系のうち`moodle_finish_quiz_attempt`・`moodle_submit_assignment`は取り消し不可の操作で、
 `confirm`に専用の文字列（`CONFIRM_FINISH_ATTEMPT` / `CONFIRM_SUBMIT_ASSIGNMENT`）を渡した
-場合のみ実行される。詳細・実データ検証状況は`MIGRATION_NOTES.md`の12節を参照。
+場合のみ実行される。詳細・実データ検証状況は`MIGRATION_NOTES.md`の12節を参照
+（MIGRATION_NOTES内のツール名は改名前の当時のもの）。
 
 ## 認証・再ログインの挙動
 

@@ -8,9 +8,9 @@ function json(data: unknown) {
 
 export function registerPerformanceTools(server: McpServer, client: WorkerClient): void {
   server.registerTool(
-    'get_grades',
+    'lcam_get_grades',
     {
-      title: '成績情報の取得',
+      title: 'LCAM成績情報の取得',
       description:
         'LCAMの成績情報(科目名・教員・年度・学期・単位数・評価)を取得する。' +
         '履修中で未評価の科目はinProgress=trueでgradeは空になる。',

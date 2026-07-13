@@ -28,7 +28,7 @@ const searchFields = {
 
 export function registerSyllabusTools(server: McpServer, client: WorkerClient): void {
   server.registerTool(
-    'get_syllabus_filters',
+    'syllabus_get_filters',
     {
       title: 'シラバス検索用フィルタの取得',
       description:
@@ -45,10 +45,10 @@ export function registerSyllabusTools(server: McpServer, client: WorkerClient): 
   );
 
   server.registerTool(
-    'search_syllabus',
+    'syllabus_search',
     {
       title: 'シラバス検索',
-      description: '条件に合致する科目のシラバス一覧を検索する。detailを見るにはget_syllabus_detailを使う。',
+      description: '条件に合致する科目のシラバス一覧を検索する。detailを見るにはsyllabus_get_detailを使う。',
       inputSchema: searchFields,
     },
     async (params) => {
@@ -60,13 +60,13 @@ export function registerSyllabusTools(server: McpServer, client: WorkerClient): 
   );
 
   server.registerTool(
-    'get_syllabus_detail',
+    'syllabus_get_detail',
     {
       title: 'シラバス詳細の取得',
       description:
-        'search_syllabusの結果に含まれるurlを指定してシラバス詳細を取得する。' +
-        '検索状態の再現のためsearch_syllabusと同じ検索条件を一緒に渡すこと。',
-      inputSchema: { url: z.string().describe('search_syllabusの結果のurl'), ...searchFields },
+        'syllabus_searchの結果に含まれるurlを指定してシラバス詳細を取得する。' +
+        '検索状態の再現のためsyllabus_searchと同じ検索条件を一緒に渡すこと。',
+      inputSchema: { url: z.string().describe('syllabus_searchの結果のurl'), ...searchFields },
     },
     async ({ url, ...context }) => {
       const res = await client.request<{ detail: SyllabusDetail }>(

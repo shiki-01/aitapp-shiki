@@ -9,9 +9,9 @@ function json(data: unknown) {
 
 export function registerEnqueteTools(server: McpServer, client: WorkerClient): void {
   server.registerTool(
-    'list_enquetes',
+    'lcam_list_enquetes',
     {
-      title: 'アンケート一覧の取得',
+      title: 'LCAMアンケート一覧の取得',
       description:
         'LCAMのアンケート一覧をtypeで指定して取得する(提出状況・提出期間など)。' +
         'type=class: 授業アンケート（各授業内で回答する小規模な調査）。' +
@@ -30,13 +30,13 @@ export function registerEnqueteTools(server: McpServer, client: WorkerClient): v
   );
 
   server.registerTool(
-    'get_enquete_questions',
+    'lcam_get_enquete_questions',
     {
-      title: '授業アンケートの設問を取得',
+      title: 'LCAM授業アンケートの設問を取得',
       description:
-        'list_enquetesが返す授業アンケート(type=class)の設問一覧を取得する（参照のみ、送信は行わない）。' +
-        'indexはlist_enquetesの結果内での0始まりの並び順。answerTypeが"text"の設問のみ' +
-        'save_class_enquete_answer_draftで回答できる。',
+        'lcam_list_enquetesが返す授業アンケート(type=class)の設問一覧を取得する（参照のみ、送信は行わない）。' +
+        'indexはlcam_list_enquetesの結果内での0始まりの並び順。answerTypeが"text"の設問のみ' +
+        'lcam_save_class_enquete_answer_draftで回答できる。',
       inputSchema: {
         index: z.number().int().min(0),
       },
@@ -50,22 +50,22 @@ export function registerEnqueteTools(server: McpServer, client: WorkerClient): v
   );
 
   server.registerTool(
-    'save_class_enquete_answer_draft',
+    'lcam_save_class_enquete_answer_draft',
     {
-      title: '授業アンケートの回答を一時保存（実書き込み）',
+      title: 'LCAM授業アンケートの回答を一時保存（実書き込み）',
       description:
         '【注意】これは大学のLCAMシステムに実際に回答を一時保存(tempSaveAction)する書き込み操作。' +
         '実データでの動作は確認済みだが、誤って実行すると本物の課題/アンケートに下書きが残る。' +
-        'get_enquete_questionsで設問(answerType="text"のもの)を確認し、' +
+        'lcam_get_enquete_questionsで設問(answerType="text"のもの)を確認し、' +
         'ユーザーから明示的な同意を得てから、confirmに厳密に"CONFIRM_SUBMIT"という文字列を' +
         '渡したときのみ実行される。それ以外の値ではAPIを呼ばずエラーを返す。' +
         '最終提出(確認画面を経由した提出)には未対応で、一時保存までしか行わない' +
         '(一時保存は取り消し・再保存が可能)。',
       inputSchema: {
-        index: z.number().int().min(0).describe('list_enquetesの結果内での0始まりの並び順'),
+        index: z.number().int().min(0).describe('lcam_list_enquetesの結果内での0始まりの並び順'),
         answers: z
           .record(z.string(), z.string())
-          .describe('設問index(文字列、get_enquete_questionsのindexと対応)→回答文字列'),
+          .describe('設問index(文字列、lcam_get_enquete_questionsのindexと対応)→回答文字列'),
         confirm: z
           .string()
           .describe('実行するには厳密に "CONFIRM_SUBMIT" を渡す。ユーザーの明示的な同意なしに渡さないこと。'),
@@ -90,30 +90,30 @@ export function registerEnqueteTools(server: McpServer, client: WorkerClient): v
   );
 
   server.registerTool(
-    'submit_class_enquete_final',
+    'lcam_submit_class_enquete_final',
     {
-      title: '授業アンケートの最終提出（実書き込み・取り消し困難）',
+      title: 'LCAM授業アンケートの最終提出（実書き込み・取り消し困難）',
       description:
         '【重要な注意】これは大学のLCAMシステムに授業アンケートの回答を本登録（最終提出）する操作。' +
-        'save_class_enquete_answer_draft(一時保存)と違い、確認画面を経由した本登録であり、' +
+        'lcam_save_class_enquete_answer_draft(一時保存)と違い、確認画面を経由した本登録であり、' +
         '取り消しには別途LCAM上での「回答取消」操作が必要になる(自動では取り消さない)。' +
         '実データで動作確認済み。' +
-        '必ず: (1) get_enquete_questionsで設問を確認し、(2) 回答内容をユーザーに明示的に見せて、' +
+        '必ず: (1) lcam_get_enquete_questionsで設問を確認し、(2) 回答内容をユーザーに明示的に見せて、' +
         '(3) 「最終提出してよいか」の同意を都度得た上で、confirmに厳密に' +
         '"CONFIRM_FINAL_SUBMIT"という文字列を渡したときのみ実行すること。' +
-        'save_class_enquete_answer_draftで過去に同意を得ていても、このツールの実行には' +
+        'lcam_save_class_enquete_answer_draftで過去に同意を得ていても、このツールの実行には' +
         '改めて同意を得ること（一時保存と最終提出は別の同意が必要）。' +
         'それ以外のconfirm値ではAPIを呼ばずエラーを返す。',
       inputSchema: {
-        index: z.number().int().min(0).describe('list_enquetesの結果内での0始まりの並び順'),
+        index: z.number().int().min(0).describe('lcam_list_enquetesの結果内での0始まりの並び順'),
         answers: z
           .record(z.string(), z.string())
-          .describe('設問index(文字列、get_enquete_questionsのindexと対応)→回答文字列'),
+          .describe('設問index(文字列、lcam_get_enquete_questionsのindexと対応)→回答文字列'),
         confirm: z
           .string()
           .describe(
             '実行するには厳密に "CONFIRM_FINAL_SUBMIT" を渡す。' +
-              'save_class_enquete_answer_draftのCONFIRM_SUBMITとは別物であり、' +
+              'lcam_save_class_enquete_answer_draftのCONFIRM_SUBMITとは別物であり、' +
               'このツール専用に改めてユーザーの明示的な同意を得てから渡すこと。',
           ),
       },

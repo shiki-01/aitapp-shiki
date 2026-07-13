@@ -143,7 +143,7 @@ export class WorkerClient {
 
   /**
    * Moodle上のファイル(コースの資料・設問中の音声等)をローカル一時ディレクトリへ保存し、
-   * パスを返す。`fileUrl` は get_course_files の fileUrl、または設問HTML中の
+   * パスを返す。`fileUrl` は moodle_get_course_files の fileUrl、または設問HTML中の
    * pluginfile.php/file.php の絶対URLをそのまま渡す。
    */
   async downloadMoodleFile(
