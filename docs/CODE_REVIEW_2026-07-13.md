@@ -247,3 +247,62 @@ Opus 9体を Fable が統合。コード変更・大学サーバーアクセス�
 4. 契約型の単一情報源化(DX構造根因、S8/#4/#5/#8を一括是正)
 5. シラバス`url`検証強化(P5)・`thurstay`タイポ(P6)
 
+---
+
+# 第5弾: 1〜4弾の統合と隣接問題(連鎖 / 修正地雷 / 未検査領域)
+
+1〜4弾(36エージェント)を統合し、周辺の別問題を4体で追加探索して Fable が統合。コード変更・大学サーバーアクセスなし。
+
+## 統合: 8つの構造テーマ
+
+- **A. 不可逆書き込みの制御が脆い**: 二層confirmが実は単層 / start・draftは合言葉不要で不可逆 / S1二重消費 / S2下書き即提出 / S5失敗隠蔽 / S6宣誓文無条件同意
+- **B. 「200 OKなのに中身が異常」を信じる**: P1 res.json→500 / silent 0件が構造破壊を隠蔽 / 位置indexパース1行ずれ誤データ / N1・P2 duedate
+- **C. 情報が残留し失効できない**: C1 logout非KV削除 / session期限なし(失効不能bearer) / no-store欠如 / 添付一時ファイル残存 / secretローテーション全ユーザーロックアウト / KV TTL無し孤児state
+- **D. 上流変化への脆さ**: fetchタイムアウト皆無 / 固定errorcode・Struts文字列・固定ラベルが単一障害点 / 壊れHTML補正が上流"修正"で失効 / 部分成功の無音切り詰め
+- **E. 単一情報源の欠如=バグの構造根因**: 型3手書きコピー非対称 / confirm合言葉別リテラル重複 / MoodleTokenErrorがonError漏れ / 1機能追加13ファイル同期
+- **F. 無料枠・スケール脆弱性**: 429/backoffなし / reloginのwrite先行 / schedule subreq `3+2W` / KV write増幅
+- **G. プライバシーは中心綺麗・周縁漏れ**: KV最小化◎ だが第三者PII→外部LLM無同意 / 添付ローカル残存 / uid正常系ログ
+- **H. 観測性・運用の空白**: 相関ID・構造化ログ・ログレベル皆無 / エラー透過 / MFA破綻検知導線なし
+
+## 新規の隣接問題(1〜4弾に無し)
+
+| # | 問題 | 重要度 |
+|---|---|---|
+| W1 | ブラウザ版(Pages)にセキュリティヘッダ機構が完全欠如(`_headers`もCSP metaも無く、`{@html}`XSS #1の多層防御・クリックジャッキング・MIMEスニッフィング対策ゼロ) | 高 |
+| B1 | **ビルド/型チェックが一度も実行されていない**(36体すべて静的読解、node_modules未インストール、typecheck 0回)。全指摘の土台が未検証 | 最高 |
+| B2 | vendor/aitapp未チェックアウトで「Dartから取る」大原則が一度も検証されていない | 高 |
+| B3 | LICENSE完全欠如 / モバイル→SPA移植でPWA・オフライン・manifest・SWが消失した退行 | 中 |
+| H1 | `.mcp.json`のポータルパスワード平文(AES-GCM暗号化がMCP経路で相殺) / docker-compose実パスワード平文 / `.gitignore`に`.dev.vars`・`.mcp.json`記載欠落 | 中〜高 |
+
+良好(隣接の否定的結果): git全履歴に実秘密混入なし / 鍵はキーチェーン・wrangler secretに分離 / package.json scripts全て実在 / 死蔵コードは`canLoginLcam`1件のみ / 第2作業ディレクトリは無関係。
+
+## 複合リスク(単体和より危険な5連鎖)
+
+**最重要の洞察: N2(mid-session 401で回復導線なし)が"増幅器"** で、多数の中severity障害を「一時的失敗」から「手動logoutまで詰む恒久障害」へ格上げする。
+
+- **連鎖A**: schedule往復 × relogin write先行 × KV枯渇 × N2 = 使うほど自壊・詰んだら抜けられない(上流健全なのにアプリだけ500で原因不可視)
+- **連鎖B**: 注入源(連絡/設問HTML) × 単層confirm × start/draft合言葉なし = LLM単独でユーザー無関与に受験機会・成績破壊
+- **連鎖C**: Moodle 200-HTML(P1) × 固定errorcode × 非リトライ × N2 = 一時障害が恒久500に化ける
+- **連鎖D**: iat無し × logout非KV削除 × chmod無効(Win) = 取り消し不能なwrite用bearer(被害持続=鍵ローテーションまで無限)
+- **連鎖E**: start二重消費(S1) × save常にok(S5) × finish注入 = 失敗が三重に隠蔽され成績だけ白紙確定
+
+## 修正時の地雷(着手前に必読)
+
+- **C1(logout KV削除)は罠**: CLAUDE.md「即時失効スコープ外」に抵触＋me()がKV非依存なので「me成功だが全データ401」=N2詰みを自作。単独導入禁止(me KV依存化＋browser 401導線とセット必須)
+- **#3 allowlist**: dev Moodle(`moodle.shiki-01.com`)は`.aitech.ac.jp`外。本番`cms.aitech.ac.jp`と両方入れないとdev全壊。影響面はMCP経路のみ
+- **#2 iat検証の一斉ロックアウトは実は軽い**: MCP/Tauriはcredentialで自動復旧、影響はwebのみ。窓=30日でMax-Ageと一致させれば既存cookie挙動不変
+- **P1 res.json**: 必ず`UpstreamError(502)`にし`NotFoundError`にしない(新silent-0件を作らない)
+- **契約集約**: 13ファイル同時・ロールバック困難。個別バグ修正とテスト導入の後の独立PRに
+
+### 安全な最初の一手トップ5(順序付き)
+
+1. **#4** MoodleTokenErrorをonErrorにルーティング(enabling fix、エラー写像の土台)
+2. **C9** no-storeをfile系2本に限定付与(syllabusは公開データなので付けない)
+3. **P2+P1** duedateを`Number.isFinite`ガード＋res.jsonをtry→502化
+4. **#2** verifySessionにiat検証(窓=30日固定)
+5. **#3** moodleOrigin allowlist(cms.aitech.ac.jp＋moodle.shiki-01.com両方)
+
+## 第5弾 総括
+
+全体は**「中心は堅牢・周縁が脆い」**の一貫パターン。個別バグの山は少数の構造根因(①HTTP status/上流形状を信じる ②単一情報源の欠如 ③N2という回復導線の穴 ④write先行/非リトライ)に収束し、**安全な最初の一手トップ5 + N2導線 + confirmのout-of-band化**の少数修正で5連鎖のほとんどが断てる。**ただし全指摘の大前提=「ビルドが通る」(B1)がまだ未検証**なのが最大の空白。
+
