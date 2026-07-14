@@ -754,6 +754,11 @@ id/password を Moodle にも使う（後方互換。既存 KV credential は op
 - `mod_quiz_get_quizzes_by_courses` の応答にはコースIDしか入らないため、教科単位の
   グルーピング用に `core_enrol_get_users_courses`（+`core_webservice_get_site_info`、
   計 +2 subrequest）でコース名を解決し `courseName` として返す（課題版と揃えた）。
+- 進行中（`inprogress`）の受験があると `mod_quiz_start_attempt` は
+  `attemptstillinprogress` エラーになり、かつ既存ツールでは進行中 attempt の ID を
+  取得する手段が無く再開できなかった。既に取得している受験履歴から
+  `inProgressAttemptId`（複数あれば最新）を返し、`answer_quiz_question` /
+  `finish_quiz_attempt` で再開・確定できるようにした。
 
 ## 13. 本番デプロイ（workers.dev）と /mcp リモートMCP 化
 

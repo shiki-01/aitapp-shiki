@@ -486,6 +486,12 @@ export interface MoodleQuizWithStatus {
   finishedAttempts: number | null;
   /** 進行中（開始したが未確定）の受験数。null = 未取得 */
   inProgressAttempts: number | null;
+  /**
+   * 進行中の受験の attemptId（複数あれば最新）。moodle_answer_quiz_question /
+   * moodle_finish_quiz_attempt にそのまま渡して再開できる（新規開始は
+   * attemptstillinprogress エラーになるため、進行中があればこちらを使う）。
+   */
+  inProgressAttemptId: number | null;
   /** 1回以上受験を完了済みか。null = 未取得 */
   finished: boolean | null;
   /** 最後に受験を完了した日時（ISO）。 */
@@ -516,6 +522,7 @@ export interface QuizStatusResult {
 const MAX_ATTEMPT_STATUS_LOOKUPS = 20;
 
 interface RawUserAttempt {
+  id?: number;
   state?: string;
   timefinish?: number;
 }
@@ -576,6 +583,7 @@ export async function getQuizzesWithStatus(
   for (const q of list) {
     let finishedAttempts: number | null = null;
     let inProgressAttempts: number | null = null;
+    let inProgressAttemptId: number | null = null;
     let lastFinishedAt: string | null = null;
     if (statusIncluded) {
       const res = await callMoodleApi<{ attempts?: RawUserAttempt[] }>(
@@ -586,8 +594,10 @@ export async function getQuizzesWithStatus(
       );
       const attempts = res.attempts ?? [];
       const finishedList = attempts.filter((a) => a.state === 'finished');
+      const inProgressList = attempts.filter((a) => a.state === 'inprogress');
       finishedAttempts = finishedList.length;
-      inProgressAttempts = attempts.filter((a) => a.state === 'inprogress').length;
+      inProgressAttempts = inProgressList.length;
+      inProgressAttemptId = inProgressList.at(-1)?.id ?? null;
       const lastFinish = Math.max(0, ...finishedList.map((a) => a.timefinish ?? 0));
       lastFinishedAt = lastFinish ? new Date(lastFinish * 1000).toISOString() : null;
     }
@@ -602,6 +612,7 @@ export async function getQuizzesWithStatus(
       attemptsAllowed: q.attempts,
       finishedAttempts,
       inProgressAttempts,
+      inProgressAttemptId,
       finished: finishedAttempts === null ? null : finishedAttempts > 0,
       lastFinishedAt,
     });

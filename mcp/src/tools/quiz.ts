@@ -24,7 +24,10 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
         '確認・定期チェックにはこれを使う。テストは課題(mod_assign)とは別物なので、課題側は' +
         'moodle_get_assignment_submission_statusで確認する（両方の確認を求められたら両方呼ぶ）。' +
         'デフォルトで全受講コースが対象（courseId不要）。finished=trueで受験完了' +
-        '(finishedAttempts回)、inProgressAttempts>0は開始したが未確定の受験あり。' +
+        '(finishedAttempts回)、inProgressAttempts>0は開始したが未確定の受験あり' +
+        '（そのattemptはinProgressAttemptIdをmoodle_answer_quiz_question / ' +
+        'moodle_finish_quiz_attemptに渡して再開・確定できる。進行中があるときに' +
+        'moodle_start_quiz_attemptで新規開始するとエラーになる）。' +
         '期限はtimeClose（nullは期限なし）。timeOpenが未来のテストはまだ受験開始できない。' +
         'デフォルトでは受験期限超過済みのテストは含まれない（includeClosed=trueで含める）。' +
         '対象テストが多いと statusIncluded=false で受験状況がnullのまま返るので、その場合は ' +

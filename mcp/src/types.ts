@@ -122,6 +122,8 @@ export interface MoodleQuizWithStatus {
   /** null = 未取得（statusIncluded: false のとき） */
   finishedAttempts: number | null;
   inProgressAttempts: number | null;
+  /** 進行中の受験の attemptId（answer/finish で再開に使う）。 */
+  inProgressAttemptId: number | null;
   finished: boolean | null;
   lastFinishedAt: string | null;
 }
