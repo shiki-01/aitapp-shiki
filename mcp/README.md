@@ -93,6 +93,7 @@ Moodleへの認証は、ログイン時に一度だけID/パスワードで `log
 | `lcam_get_enquete_questions` | `GET /api/enquetes/questions` |
 | `lcam_save_class_enquete_answer_draft` | `POST /api/enquetes/answer`（実書き込み） |
 | `lcam_submit_class_enquete_final` | `POST /api/enquetes/submit`（実書き込み・取り消し困難） |
+| `moodle_list_courses` | `GET /api/moodle/courses`（受講中コース一覧。quiz/files系が要求するcourseIdの取得起点） |
 | `moodle_list_assignments` | `GET /api/assignments` |
 | `moodle_save_assignment_draft` | `POST /api/moodle/assignment/draft`（実書き込み） |
 | `moodle_upload_assignment_file` | `POST /api/moodle/assignment/upload`（実書き込み） |

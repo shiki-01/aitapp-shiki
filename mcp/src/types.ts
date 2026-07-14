@@ -122,6 +122,13 @@ export interface MoodleQuizStart {
   questions: MoodleQuizQuestion[];
 }
 
+export interface MoodleCourse {
+  id: number;
+  fullName: string;
+  shortName: string;
+  visible: boolean;
+}
+
 export interface MoodleCourseFile {
   name: string;
   courseModuleId: number;

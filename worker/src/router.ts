@@ -43,6 +43,7 @@ import {
   saveAssignFileSubmission,
   submitAssignmentForGrading,
   getCourseResources,
+  getUserCourses,
   downloadMoodleFile,
 } from './upstream/moodle/access';
 import { withMoodleToken } from './upstream/moodle/token';
@@ -554,6 +555,16 @@ app.post('/api/moodle/assignment/submit', async (c) => {
     submitAssignmentForGrading(moodleOrigin, token, bodyIn.assignmentId as number),
   );
   return c.json(result);
+});
+
+// ---- GET /api/moodle/courses（受講中コース一覧） ----
+app.get('/api/moodle/courses', async (c) => {
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const courses = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    getUserCourses(moodleOrigin, token),
+  );
+  return c.json({ courses });
 });
 
 // ---- GET /api/moodle/resources?courseId=（コース内「ファイル」リソース一覧） ----

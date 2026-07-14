@@ -118,6 +118,44 @@ export async function getMoodleToken(
   return data.token;
 }
 
+export interface MoodleCourse {
+  id: number;
+  fullName: string;
+  shortName: string;
+  visible: boolean;
+}
+
+interface RawSiteInfo {
+  userid: number;
+}
+interface RawUserCourse {
+  id: number;
+  fullname: string;
+  shortname: string;
+  visible?: number;
+}
+
+/**
+ * 受講中コース一覧。core_webservice_get_site_info で自ユーザーの userid を取り、
+ * core_enrol_get_users_courses で取得する（Mobile app 用標準関数、読み取りのみ）。
+ * quiz/resources 系ツールが要求する courseId の取得起点になる。
+ */
+export async function getUserCourses(origin: string, token: string): Promise<MoodleCourse[]> {
+  const site = await callMoodleApi<RawSiteInfo>(origin, token, 'core_webservice_get_site_info', {});
+  const courses = await callMoodleApi<RawUserCourse[]>(
+    origin,
+    token,
+    'core_enrol_get_users_courses',
+    { userid: String(site.userid) },
+  );
+  return (courses ?? []).map((course) => ({
+    id: course.id,
+    fullName: course.fullname,
+    shortName: course.shortname,
+    visible: course.visible !== 0,
+  }));
+}
+
 interface MoodleAssignmentRaw {
   id: number;
   name: string;

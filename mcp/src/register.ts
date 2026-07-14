@@ -10,6 +10,7 @@ import { registerPerformanceTools } from './tools/performance';
 import { registerEnqueteTools } from './tools/enquetes';
 import { registerQuizTools } from './tools/quiz';
 import { registerMoodleFileTools } from './tools/moodle-files';
+import { registerMoodleCourseTools } from './tools/courses';
 
 export function createAitappServer(client: ToolClient): McpServer {
   const server = new McpServer({ name: 'aitapp-mcp', version: '1.0.0' });
@@ -19,6 +20,7 @@ export function createAitappServer(client: ToolClient): McpServer {
   registerSyllabusTools(server, client);
   registerPerformanceTools(server, client);
   registerEnqueteTools(server, client);
+  registerMoodleCourseTools(server, client);
   registerQuizTools(server, client);
   registerMoodleFileTools(server, client);
   return server;
