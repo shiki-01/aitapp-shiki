@@ -230,7 +230,7 @@ export interface MoodleQuizInfo {
   timeClose: string | null;
   timeLimitSeconds: number; // 0 = 無制限
   attemptsAllowed: number; // 0 = 無制限
-  canAttempt: boolean;
+  canAttempt: boolean | null; // null = 未取得（対象クイズ数が多く受験可否の問い合わせを省略した）
   preventAccessReasons: string[];
 }
 
@@ -249,26 +249,68 @@ interface RawQuizAccessInfo {
   preventaccessreasons?: string[];
 }
 
-/** クイズ一覧＋受験可否情報。mod_quiz_get_quizzes_by_courses + mod_quiz_get_quiz_access_information。 */
+/**
+ * 受験可否（mod_quiz_get_quiz_access_information）を問い合わせるクイズ数の上限。
+ * この関数はクイズ1件につき1 subrequest を消費し、Workers 無料プランの
+ * 1リクエストあたり subrequest 上限（50。KV read やトークン再取得も同枠）を
+ * クイズ数の多い科目（語学系など）で超過した実績があるため、余裕をみて抑える。
+ */
+const MAX_ACCESS_INFO_LOOKUPS = 20;
+
+export interface QuizInfoFilter {
+  quizId?: number;
+  /** クイズ名の部分一致（大文字小文字を区別しない）。 */
+  nameFilter?: string;
+}
+
+export interface QuizInfoResult {
+  quizzes: MoodleQuizInfo[];
+  /** false のとき canAttempt/preventAccessReasons は未取得（quizId/nameFilter で絞り込んで再取得する）。 */
+  accessInfoIncluded: boolean;
+}
+
+/**
+ * クイズ一覧＋受験可否情報。mod_quiz_get_quizzes_by_courses（一覧は常に1コール）に、
+ * filter 適用後のクイズ数が MAX_ACCESS_INFO_LOOKUPS 以下の場合のみ
+ * mod_quiz_get_quiz_access_information（1件1コール。バッチAPIは存在しない）を重ねる。
+ * 超える場合は canAttempt: null のまま返し、呼び出し側に絞り込みを促す。
+ */
 export async function getQuizInfoByCourse(
   origin: string,
   token: string,
   courseId: number,
-): Promise<MoodleQuizInfo[]> {
+  filter?: QuizInfoFilter,
+): Promise<QuizInfoResult> {
   const quizzes = await callMoodleApi<{ quizzes: RawQuiz[] }>(
     origin,
     token,
     'mod_quiz_get_quizzes_by_courses',
     { 'courseids[0]': String(courseId) },
   );
+  let list = quizzes.quizzes ?? [];
+  if (filter?.quizId !== undefined) {
+    list = list.filter((q) => q.id === filter.quizId);
+  }
+  if (filter?.nameFilter) {
+    const needle = filter.nameFilter.toLowerCase();
+    list = list.filter((q) => q.name.toLowerCase().includes(needle));
+  }
+  const accessInfoIncluded = list.length <= MAX_ACCESS_INFO_LOOKUPS;
+
   const out: MoodleQuizInfo[] = [];
-  for (const q of quizzes.quizzes ?? []) {
-    const access = await callMoodleApi<RawQuizAccessInfo>(
-      origin,
-      token,
-      'mod_quiz_get_quiz_access_information',
-      { quizid: String(q.id) },
-    );
+  for (const q of list) {
+    let canAttempt: boolean | null = null;
+    let preventAccessReasons: string[] = [];
+    if (accessInfoIncluded) {
+      const access = await callMoodleApi<RawQuizAccessInfo>(
+        origin,
+        token,
+        'mod_quiz_get_quiz_access_information',
+        { quizid: String(q.id) },
+      );
+      canAttempt = access.canattempt;
+      preventAccessReasons = access.preventaccessreasons ?? [];
+    }
     out.push({
       id: q.id,
       courseId: q.course,
@@ -278,11 +320,11 @@ export async function getQuizInfoByCourse(
       timeClose: q.timeclose ? new Date(q.timeclose * 1000).toISOString() : null,
       timeLimitSeconds: q.timelimit,
       attemptsAllowed: q.attempts,
-      canAttempt: access.canattempt,
-      preventAccessReasons: access.preventaccessreasons ?? [],
+      canAttempt,
+      preventAccessReasons,
     });
   }
-  return out;
+  return { quizzes: out, accessInfoIncluded };
 }
 
 export interface MoodleQuizAttempt {

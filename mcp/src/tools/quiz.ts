@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolClient } from '../tool-client';
-import type { MoodleQuizInfo, MoodleQuizStart } from '../types';
+import type { MoodleQuizInfoResponse, MoodleQuizStart } from '../types';
 
 function json(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
@@ -15,14 +15,26 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
       description:
         '指定したcourseIdのMoodleクイズ一覧を、受験可否(canAttempt)・受験不可の理由' +
         '(preventAccessReasons)・制限時間(timeLimitSeconds)・許容試行回数(attemptsAllowed)' +
-        'とともに取得する（参照のみ）。',
-      inputSchema: { courseId: z.number().int() },
+        'とともに取得する（参照のみ）。クイズ数が多い科目では受験可否は取得されず' +
+        'canAttemptがnullになる(accessInfoIncluded: false)ので、その場合は一覧から対象を見つけ、' +
+        'quizIdまたはnameFilter(クイズ名の部分一致)で絞り込んで再取得する。',
+      inputSchema: {
+        courseId: z.number().int(),
+        quizId: z.number().int().optional().describe('特定クイズのIDで絞り込む'),
+        nameFilter: z
+          .string()
+          .optional()
+          .describe('クイズ名の部分一致で絞り込む（大文字小文字を区別しない）'),
+      },
     },
-    async ({ courseId }) => {
-      const res = await client.request<{ quizzes: MoodleQuizInfo[] }>(
-        `/api/moodle/quiz/info?courseId=${courseId}`,
+    async ({ courseId, quizId, nameFilter }) => {
+      const params = new URLSearchParams({ courseId: String(courseId) });
+      if (quizId !== undefined) params.set('quizId', String(quizId));
+      if (nameFilter !== undefined) params.set('nameFilter', nameFilter);
+      const res = await client.request<MoodleQuizInfoResponse>(
+        `/api/moodle/quiz/info?${params.toString()}`,
       );
-      return json(res.quizzes);
+      return json(res);
     },
   );
 

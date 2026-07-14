@@ -415,16 +415,33 @@ app.get('/api/assignments', async (c) => {
   return c.json({ assignments });
 });
 
-// ---- GET /api/moodle/quiz/info?courseId=（クイズ一覧・受験可否） ----
+// ---- GET /api/moodle/quiz/info?courseId=[&quizId=][&nameFilter=]（クイズ一覧・受験可否） ----
+// 受験可否はクイズ1件1 subrequestのため、絞り込み後の件数が上限以下のときだけ取得する
+// （超えるとWorkersのsubrequest上限に達するため。quizId/nameFilterで絞り込んで再取得させる）。
 app.get('/api/moodle/quiz/info', async (c) => {
   const courseId = parseInt(c.req.query('courseId') ?? '', 10);
   if (Number.isNaN(courseId)) return c.json({ error: 'courseId required' }, 400);
+  const quizIdRaw = c.req.query('quizId');
+  const quizId = quizIdRaw !== undefined ? parseInt(quizIdRaw, 10) : undefined;
+  if (quizId !== undefined && Number.isNaN(quizId)) {
+    return c.json({ error: 'invalid quizId' }, 400);
+  }
+  const nameFilter = c.req.query('nameFilter') || undefined;
   const userId = c.get('userId');
   const state = c.get('state');
-  const quizzes = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
-    getQuizInfoByCourse(moodleOrigin, token, courseId),
+  const result = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    getQuizInfoByCourse(moodleOrigin, token, courseId, { quizId, nameFilter }),
   );
-  return c.json({ quizzes });
+  return c.json(
+    result.accessInfoIncluded
+      ? result
+      : {
+          ...result,
+          note:
+            'クイズ数が多いため受験可否(canAttempt/preventAccessReasons)は取得していない。' +
+            'quizId または nameFilter で対象を絞り込んで再取得すること。',
+        },
+  );
 });
 
 // ---- POST /api/moodle/quiz/start（受験開始。試行回数を1回消費する） ----

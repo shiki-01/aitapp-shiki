@@ -92,6 +92,12 @@ export interface Assignment {
   courseName: string;
 }
 
+export interface MoodleQuizInfoResponse {
+  quizzes: MoodleQuizInfo[];
+  accessInfoIncluded: boolean;
+  note?: string;
+}
+
 export interface MoodleQuizInfo {
   id: number;
   courseId: number;
@@ -101,7 +107,8 @@ export interface MoodleQuizInfo {
   timeClose: string | null;
   timeLimitSeconds: number;
   attemptsAllowed: number;
-  canAttempt: boolean;
+  /** null = 未取得（対象クイズ数が多いため。quizId/nameFilterで絞り込んで再取得する） */
+  canAttempt: boolean | null;
   preventAccessReasons: string[];
 }
 
