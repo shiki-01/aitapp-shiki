@@ -475,6 +475,8 @@ export async function getQuizInfoByCourse(
 export interface MoodleQuizWithStatus {
   id: number;
   courseId: number;
+  /** コース名（core_enrol_get_users_courses から解決。見つからなければ null）。 */
+  courseName: string | null;
   name: string;
   timeOpen: string | null; // null = 開始日時なし
   timeClose: string | null; // null = 受験期限なし
@@ -564,6 +566,11 @@ export async function getQuizzesWithStatus(
       (b.timeclose * 1000 || Number.MAX_SAFE_INTEGER),
   );
 
+  // 教科単位のグルーピング用にコース名を解決する（+2 subrequest。
+  // mod_quiz_get_quizzes_by_courses の応答にはコースIDしか入らないため）。
+  const courses = list.length > 0 ? await getUserCourses(origin, token) : [];
+  const courseNameById = new Map(courses.map((c) => [c.id, c.fullName]));
+
   const statusIncluded = list.length <= MAX_ATTEMPT_STATUS_LOOKUPS;
   const out: MoodleQuizWithStatus[] = [];
   for (const q of list) {
@@ -587,6 +594,7 @@ export async function getQuizzesWithStatus(
     out.push({
       id: q.id,
       courseId: q.course,
+      courseName: courseNameById.get(q.course) ?? null,
       name: q.name,
       timeOpen: q.timeopen ? new Date(q.timeopen * 1000).toISOString() : null,
       timeClose: q.timeclose ? new Date(q.timeclose * 1000).toISOString() : null,

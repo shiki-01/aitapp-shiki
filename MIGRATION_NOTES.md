@@ -751,6 +751,9 @@ id/password を Moodle にも使う（後方互換。既存 KV credential は op
   デフォルトで期限（`timeclose`）超過分を除外する挙動は §12.10 と同じ。
   期限なし（`timeclose=0`）は除外しない。`timeopen` が未来（受験開始前）のものも返す
   （期限が近いのに未開始、を検知させるため）。
+- `mod_quiz_get_quizzes_by_courses` の応答にはコースIDしか入らないため、教科単位の
+  グルーピング用に `core_enrol_get_users_courses`（+`core_webservice_get_site_info`、
+  計 +2 subrequest）でコース名を解決し `courseName` として返す（課題版と揃えた）。
 
 ## 13. 本番デプロイ（workers.dev）と /mcp リモートMCP 化
 

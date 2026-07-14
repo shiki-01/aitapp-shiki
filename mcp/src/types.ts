@@ -113,6 +113,7 @@ export interface AssignmentStatusResponse {
 export interface MoodleQuizWithStatus {
   id: number;
   courseId: number;
+  courseName: string | null;
   name: string;
   timeOpen: string | null;
   timeClose: string | null;
