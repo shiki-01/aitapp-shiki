@@ -88,8 +88,25 @@ export interface Assignment {
   description: string;
   dueDate: string;
   dueEpochMs: number;
+  cutoffDate: string | null;
+  cutoffEpochMs: number;
   courseId: number;
   courseName: string;
+}
+
+/** 課題＋提出状況（GET /api/moodle/assignment/status）。 */
+export interface AssignmentWithStatus extends Assignment {
+  /** 'submitted' | 'new'(未提出) | 'draft' | 'reopened'。null = 未取得 */
+  submissionStatus: string | null;
+  /** null = 未取得（statusIncluded: false のとき） */
+  submitted: boolean | null;
+  gradingStatus: string | null;
+  submittedAt: string | null;
+}
+export interface AssignmentStatusResponse {
+  assignments: AssignmentWithStatus[];
+  statusIncluded: boolean;
+  note?: string;
 }
 
 export interface MoodleQuizInfoResponse {

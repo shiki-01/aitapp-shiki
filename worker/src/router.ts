@@ -33,6 +33,7 @@ import type { EnqueteType } from './upstream/lcam/access';
 import {
   getMoodleToken,
   getMoodleAssignments,
+  getAssignmentsWithStatus,
   getQuizInfoByCourse,
   startQuizAttempt,
   getAttemptQuestions,
@@ -416,6 +417,49 @@ app.get('/api/assignments', async (c) => {
     getMoodleAssignments(moodleOrigin, token),
   );
   return c.json({ assignments });
+});
+
+// ---- GET /api/moodle/assignment/status（課題一覧＋提出状況・参照のみ） ----
+// クエリ: assignmentId / courseId / nameFilter / dueWithinDays / includePastDue。
+// 提出状況は課題1件1 subrequestのため、絞り込み後の件数が上限以下のときだけ取得する
+// （quiz/info の受験可否と同じパターン。超えたら絞り込んで再取得させる）。
+app.get('/api/moodle/assignment/status', async (c) => {
+  const parseIntQuery = (name: string): number | undefined | 'invalid' => {
+    const raw = c.req.query(name);
+    if (raw === undefined) return undefined;
+    const n = parseInt(raw, 10);
+    return Number.isNaN(n) ? 'invalid' : n;
+  };
+  const assignmentId = parseIntQuery('assignmentId');
+  if (assignmentId === 'invalid') return c.json({ error: 'invalid assignmentId' }, 400);
+  const courseId = parseIntQuery('courseId');
+  if (courseId === 'invalid') return c.json({ error: 'invalid courseId' }, 400);
+  const dueWithinDays = parseIntQuery('dueWithinDays');
+  if (dueWithinDays === 'invalid') return c.json({ error: 'invalid dueWithinDays' }, 400);
+  const nameFilter = c.req.query('nameFilter') || undefined;
+  const includePastDue = ['1', 'true'].includes(c.req.query('includePastDue') ?? '');
+
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const result = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    getAssignmentsWithStatus(moodleOrigin, token, {
+      assignmentId,
+      courseId,
+      nameFilter,
+      dueWithinDays,
+      includePastDue,
+    }),
+  );
+  return c.json(
+    result.statusIncluded
+      ? result
+      : {
+          ...result,
+          note:
+            '対象の課題数が多いため提出状況(submissionStatus/submitted等)は取得していない。' +
+            'assignmentId / courseId / nameFilter / dueWithinDays で対象を絞り込んで再取得すること。',
+        },
+  );
 });
 
 // ---- GET /api/moodle/quiz/info?courseId=[&quizId=][&nameFilter=]（クイズ一覧・受験可否） ----

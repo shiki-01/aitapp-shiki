@@ -86,6 +86,9 @@ export interface MoodleAssignment {
   description: string;
   dueDate: string; // ISO
   dueEpochMs: number;
+  /** 提出受付終了日時（cutoffdate）。未設定なら null。 */
+  cutoffDate: string | null;
+  cutoffEpochMs: number; // 0 = 未設定
   courseId: number;
   courseName: string;
 }
@@ -161,6 +164,7 @@ interface MoodleAssignmentRaw {
   name: string;
   intro: string;
   duedate: number;
+  cutoffdate?: number;
 }
 interface MoodleCourseRaw {
   id: number;
@@ -203,18 +207,155 @@ export async function getMoodleAssignments(
   for (const course of data.courses ?? []) {
     for (const a of course.assignments ?? []) {
       const epochMs = a.duedate * 1000;
+      const cutoffEpochMs = (a.cutoffdate ?? 0) * 1000;
       out.push({
         id: a.id,
         name: a.name,
         description: a.intro,
         dueDate: new Date(epochMs).toISOString(),
         dueEpochMs: epochMs,
+        cutoffDate: cutoffEpochMs ? new Date(cutoffEpochMs).toISOString() : null,
+        cutoffEpochMs,
         courseId: course.id,
         courseName: course.fullname,
       });
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// 課題の提出状況（参照のみ）
+// ---------------------------------------------------------------------------
+
+export interface AssignSubmissionStatus {
+  /** 'submitted' | 'new'(未提出) | 'draft'(下書きのみ) | 'reopened'(再提出要求) */
+  submissionStatus: string | null;
+  /** null = 未取得（statusIncluded: false のとき） */
+  submitted: boolean | null;
+  /** 'graded' | 'notgraded' 等 */
+  gradingStatus: string | null;
+  /** 提出済みの場合の最終更新日時（ISO） */
+  submittedAt: string | null;
+}
+
+interface RawSubmissionStatus {
+  lastattempt?: {
+    submission?: { status?: string; timemodified?: number };
+    teamsubmission?: { status?: string; timemodified?: number };
+    gradingstatus?: string;
+  };
+}
+
+/**
+ * 課題1件の提出状況。mod_assign_get_submission_status（実データで応答形状確認済み）。
+ * 個人提出は lastattempt.submission、チーム提出課題は teamsubmission に入る。
+ */
+export async function getAssignSubmissionStatus(
+  origin: string,
+  token: string,
+  assignmentId: number,
+): Promise<AssignSubmissionStatus> {
+  const data = await callMoodleApi<RawSubmissionStatus>(
+    origin,
+    token,
+    'mod_assign_get_submission_status',
+    { assignid: String(assignmentId) },
+  );
+  const attempt = data.lastattempt;
+  const submission = attempt?.submission ?? attempt?.teamsubmission;
+  const status = submission?.status ?? null;
+  const submitted = status === 'submitted';
+  const timeModified = submission?.timemodified ?? 0;
+  return {
+    submissionStatus: status,
+    submitted,
+    gradingStatus: attempt?.gradingstatus ?? null,
+    submittedAt: submitted && timeModified ? new Date(timeModified * 1000).toISOString() : null,
+  };
+}
+
+/**
+ * 提出状況（mod_assign_get_submission_status）を問い合わせる課題数の上限。
+ * クイズの MAX_ACCESS_INFO_LOOKUPS と同じ理由（課題1件につき1 subrequest 消費、
+ * Workers 無料プランの subrequest 上限対策）で抑える。
+ */
+const MAX_SUBMISSION_STATUS_LOOKUPS = 20;
+
+export interface AssignmentStatusFilter {
+  assignmentId?: number;
+  courseId?: number;
+  /** 課題名の部分一致（大文字小文字を区別しない）。 */
+  nameFilter?: string;
+  /** 締切（dueDate）が今からN日以内の課題のみ（締切なしの課題は除外）。 */
+  dueWithinDays?: number;
+  /** true で締切超過済みの課題も含める（assignmentId 指定時は常に含める）。 */
+  includePastDue?: boolean;
+}
+
+export type AssignmentWithStatus = MoodleAssignment & AssignSubmissionStatus;
+
+export interface AssignmentStatusResult {
+  assignments: AssignmentWithStatus[];
+  /** false のとき submissionStatus 等は未取得（絞り込んで再取得する）。 */
+  statusIncluded: boolean;
+}
+
+/** 提出の実質的な締切（cutoffdate があればそちらが受付終了）。0 = 締切なし。 */
+function effectiveDeadlineMs(a: MoodleAssignment): number {
+  return Math.max(a.dueEpochMs, a.cutoffEpochMs);
+}
+
+/**
+ * 課題一覧＋提出状況。mod_assign_get_assignments（常に1コール）に、filter 適用後の
+ * 件数が MAX_SUBMISSION_STATUS_LOOKUPS 以下の場合のみ mod_assign_get_submission_status
+ * （1件1コール。バッチAPIは存在しない）を重ねる。超える場合は submissionStatus: null の
+ * まま返し、呼び出し側に絞り込みを促す（クイズの受験可否と同じパターン）。
+ * デフォルトでは締切超過済み（due/cutoff の遅い方が過去）の課題を除外する。
+ * 締切なし（duedate=0）の課題は除外しない。
+ */
+export async function getAssignmentsWithStatus(
+  origin: string,
+  token: string,
+  filter?: AssignmentStatusFilter,
+): Promise<AssignmentStatusResult> {
+  let list = await getMoodleAssignments(origin, token);
+  if (filter?.assignmentId !== undefined) {
+    list = list.filter((a) => a.id === filter.assignmentId);
+  }
+  if (filter?.courseId !== undefined) {
+    list = list.filter((a) => a.courseId === filter.courseId);
+  }
+  if (filter?.nameFilter) {
+    const needle = filter.nameFilter.toLowerCase();
+    list = list.filter((a) => a.name.toLowerCase().includes(needle));
+  }
+  const now = Date.now();
+  if (!filter?.includePastDue && filter?.assignmentId === undefined) {
+    list = list.filter((a) => {
+      const deadline = effectiveDeadlineMs(a);
+      return deadline === 0 || deadline >= now;
+    });
+  }
+  if (filter?.dueWithinDays !== undefined) {
+    const limit = now + filter.dueWithinDays * 24 * 60 * 60 * 1000;
+    list = list.filter((a) => a.dueEpochMs !== 0 && a.dueEpochMs <= limit);
+  }
+  list.sort((a, b) => (a.dueEpochMs || Number.MAX_SAFE_INTEGER) - (b.dueEpochMs || Number.MAX_SAFE_INTEGER));
+
+  const statusIncluded = list.length <= MAX_SUBMISSION_STATUS_LOOKUPS;
+  const empty: AssignSubmissionStatus = {
+    submissionStatus: null,
+    submitted: null,
+    gradingStatus: null,
+    submittedAt: null,
+  };
+  const out: AssignmentWithStatus[] = [];
+  for (const a of list) {
+    const status = statusIncluded ? await getAssignSubmissionStatus(origin, token, a.id) : empty;
+    out.push({ ...a, ...status });
+  }
+  return { assignments: out, statusIncluded };
 }
 
 // ---------------------------------------------------------------------------

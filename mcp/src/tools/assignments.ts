@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolClient } from '../tool-client';
-import type { Assignment } from '../types';
+import type { Assignment, AssignmentStatusResponse } from '../types';
 
 function json(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
@@ -30,6 +30,55 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
     async () => {
       const res = await client.request<{ assignments: Assignment[] }>('/api/assignments');
       return json(res.assignments);
+    },
+  );
+
+  server.registerTool(
+    'moodle_get_assignment_submission_status',
+    {
+      title: 'Moodle課題の提出状況・締切の確認',
+      description:
+        'Moodle課題が提出済みかどうかを締切とともに確認する（参照のみ）。' +
+        '「未提出の課題があるか」「今日・今週締切の課題はどれか」の確認・定期チェックにはこれを使う。' +
+        'submissionStatusは submitted(提出済) / new(未提出) / draft(下書きのみ・本提出はまだ) / ' +
+        'reopened(再提出要求)。締切は dueDate、cutoffDate(提出受付終了)があればそちらが最終期限。' +
+        'デフォルトでは締切超過済みの課題は含まれない（includePastDue=trueで含める）。' +
+        '対象課題が多いと statusIncluded=false で提出状況がnullのまま返るので、その場合は ' +
+        'courseId / nameFilter / dueWithinDays / assignmentId で絞り込んで再取得する。',
+      inputSchema: {
+        assignmentId: z
+          .number()
+          .int()
+          .optional()
+          .describe('特定課題のID（moodle_list_assignmentsが返すid）で絞り込む'),
+        courseId: z.number().int().optional().describe('コースIDで絞り込む'),
+        nameFilter: z
+          .string()
+          .optional()
+          .describe('課題名の部分一致で絞り込む（大文字小文字を区別しない）'),
+        dueWithinDays: z
+          .number()
+          .int()
+          .optional()
+          .describe('締切(dueDate)が今からN日以内の課題のみ（締切なしの課題は除外される）'),
+        includePastDue: z
+          .boolean()
+          .optional()
+          .describe('trueで締切超過済みの課題も含める（デフォルトfalse）'),
+      },
+    },
+    async ({ assignmentId, courseId, nameFilter, dueWithinDays, includePastDue }) => {
+      const params = new URLSearchParams();
+      if (assignmentId !== undefined) params.set('assignmentId', String(assignmentId));
+      if (courseId !== undefined) params.set('courseId', String(courseId));
+      if (nameFilter !== undefined) params.set('nameFilter', nameFilter);
+      if (dueWithinDays !== undefined) params.set('dueWithinDays', String(dueWithinDays));
+      if (includePastDue) params.set('includePastDue', '1');
+      const qs = params.toString();
+      const res = await client.request<AssignmentStatusResponse>(
+        `/api/moodle/assignment/status${qs ? `?${qs}` : ''}`,
+      );
+      return json(res);
     },
   );
 

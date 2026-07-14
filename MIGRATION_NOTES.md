@@ -528,7 +528,8 @@ core_files_get_unused_draft_itemid / webservice/upload.php (POST multipart, REST
     （下書きを許可する設定）の課題でのみ、`submit_assignment` が意味のある
     `draft → submitted` の状態遷移を行うことを確認した。本番 `cms.aitech.ac.jp` の
     実課題がどちらの設定かは課題ごとに異なるため、`submit_assignment` 呼び出し前に
-    現在のステータスを確認できるとよい（未実装、スコープ外）。
+    現在のステータスを確認できるとよい（→ §12.10 の
+    `moodle_get_assignment_submission_status` として後日実装済み）。
   - 上記を踏まえ `submissiondrafts=1` のテスト課題で `save_assignment_draft`
     （オンラインテキスト）→ 別課題で `upload_assignment_file`（ファイル、`files_filemanager`
     修正後）→ `submit_assignment` の一連が正常に完了し、`mod_assign_get_submission_status`
@@ -705,6 +706,32 @@ id/password を Moodle にも使う（後方互換。既存 KV credential は op
 トークンが mcptest のものであること（`mdl_external_tokens`）、そのトークンで
 `/api/moodle/quiz/info` が通ること、`moodleId` 未指定の従来ログインも引き続き
 動くことを確認済み。
+
+### 12.10 課題の提出状況確認（`mod_assign_get_submission_status`・参照のみ）
+
+2026-07-14 実装。「未提出の課題があるか・期日はいつか」の定期チェック用に、
+`GET /api/moodle/assignment/status` と MCP ツール
+`moodle_get_assignment_submission_status` を追加した。
+
+- 一覧は既存の `mod_assign_get_assignments`（常に1コール）を流用し、
+  `cutoffdate`（提出受付終了）を `cutoffDate` として返すようにした（`duedate` 超過後も
+  `cutoffdate` までは遅延提出できるため、実質的な最終期限は両者の遅い方）。
+- 提出状況は `mod_assign_get_submission_status`（`assignid` 指定・1件1 subrequest）。
+  応答の `lastattempt.submission.status`（チーム提出課題は `teamsubmission`）が
+  `submitted` / `new` / `draft` / `reopened`。`gradingstatus`・`timemodified` も返す。
+  本番 `cms.aitech.ac.jp`（実データ・読み取りのみ）で応答形状を確認済み。
+  `submitted` 以外の値はサンドボックス §12.3 の `draft → submitted` 遷移検証で確認済み。
+- subrequest 上限対策はクイズ受験可否（`MAX_ACCESS_INFO_LOOKUPS`）と同じパターン:
+  filter（`assignmentId` / `courseId` / `nameFilter` / `dueWithinDays` /
+  `includePastDue`）適用後の件数が `MAX_SUBMISSION_STATUS_LOOKUPS`（20）以下の
+  ときだけ取得し、超えたら `statusIncluded: false` で絞り込みを促す。
+- デフォルトでは締切超過済み（due/cutoff の遅い方が過去）の課題を除外する
+  （履修全体では課題60件でも、締切前に絞れば通常は数件で上限に収まる）。
+  締切なし（`duedate=0`）は除外しない。`assignmentId` 指定時は過去分も返す。
+- 検証: ローカル wrangler dev（`MOODLE_ORIGIN_OVERRIDE:cms.aitech.ac.jp`）で
+  デフォルト/`dueWithinDays`/`includePastDue`（60件→`statusIncluded:false`）/
+  `assignmentId`（締切超過分）/`nameFilter`/不正パラメータの各応答と、
+  stdio MCP 経由のツール呼び出しを実データで確認済み。
 
 ## 13. 本番デプロイ（workers.dev）と /mcp リモートMCP 化
 
