@@ -7,7 +7,9 @@
   ダウンロードはローカル一時ファイルへ保存、`filePath` でのアップロードが使える。
 - **Streamable HTTP（リモート実行）**: デプロイした worker の `/mcp` エンドポイント
   （`worker/src/mcp/`）。資格情報は worker のシークレット、認証は
-  `Authorization: Bearer <MCP_TOKEN>`。セットアップはリポジトリ直下の README を参照。
+  `Authorization: Bearer <MCP_TOKEN>`（ヘッダを設定できないクライアント、
+  例えばスマホの Claude アプリのカスタムコネクタ向けには `/mcp/<MCP_TOKEN>` の
+  URL 埋め込み方式もある）。セットアップはリポジトリ直下の README を参照。
   **注意: デプロイ版は LCAM が Cloudflare の egress IP を拒否するため `lcam_*` ツールは
   使えない**（Moodle・シラバス系は動く。`MIGRATION_NOTES.md` §13.1）。
 

@@ -1,5 +1,7 @@
 // /mcp エンドポイント（MCP Streamable HTTP, stateless）。
-// 認証: Authorization: Bearer <MCP_TOKEN>。単一ユーザー前提で、資格情報は
+// 認証: Authorization: Bearer <MCP_TOKEN>、またはカスタムヘッダを設定できない
+// クライアント（スマホの Claude アプリのカスタムコネクタ等）向けに URL パスへの
+// トークン埋め込み（/mcp/<MCP_TOKEN>）。単一ユーザー前提で、資格情報は
 // worker のシークレット（AITAPP_ID 等）から取る。リクエストごとに McpServer を
 // 生成する stateless 運用（Durable Objects 不使用の制約に適合）。
 
@@ -26,6 +28,7 @@ async function safeEqual(a: string, b: string): Promise<boolean> {
 export async function handleMcpRequest<E extends { Bindings: Env }>(
   c: Context<E>,
   dispatch: Dispatch,
+  pathToken?: string,
 ): Promise<Response> {
   const { MCP_TOKEN, AITAPP_ID, AITAPP_PASSWORD } = c.env;
   // 未設定なら機能ごと無効（存在も明かさない）。
@@ -33,7 +36,8 @@ export async function handleMcpRequest<E extends { Bindings: Env }>(
     return c.json({ error: 'not found' }, 404);
   }
   const auth = c.req.header('Authorization') ?? '';
-  const token = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length) : '';
+  const headerToken = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length) : '';
+  const token = headerToken || pathToken || '';
   if (!token || !(await safeEqual(token, MCP_TOKEN))) {
     return c.json({ error: 'unauthorized' }, 401);
   }

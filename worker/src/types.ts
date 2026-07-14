@@ -15,7 +15,7 @@ export interface Env {
   MOODLE_ORIGIN_OVERRIDE?: string;
 
   // ---- /mcp（Streamable HTTP MCP サーバー）用。全て未設定なら /mcp は無効（404）。 ----
-  /** /mcp の Bearer トークン。wrangler secret put MCP_TOKEN。 */
+  /** /mcp の認証トークン（Bearer ヘッダ / /mcp/:token の両方で使う）。wrangler secret put MCP_TOKEN。URL パスに使える文字のみで生成する。 */
   MCP_TOKEN?: string;
   /** /mcp が使う大学ポータルのログインID。wrangler secret put AITAPP_ID。 */
   AITAPP_ID?: string;

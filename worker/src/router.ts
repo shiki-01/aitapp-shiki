@@ -715,6 +715,16 @@ app.get('/api/file/:id', async (c) => {
 app.all('/mcp', (c) =>
   handleMcpRequest(c, (req) => Promise.resolve(app.fetch(req, c.env, c.executionCtx))),
 );
+// Authorization ヘッダを設定できないクライアント（スマホの Claude アプリの
+// カスタムコネクタ等）向け: トークンを URL パスに埋め込む。MCP_TOKEN は
+// パスセグメントとして安全な文字のみ（例: openssl rand -hex 32）で生成すること。
+app.all('/mcp/:token', (c) =>
+  handleMcpRequest(
+    c,
+    (req) => Promise.resolve(app.fetch(req, c.env, c.executionCtx)),
+    c.req.param('token'),
+  ),
+);
 
 // ---- エラーハンドラ ----
 app.onError((err, c) => {

@@ -101,7 +101,7 @@ Claude Code 等からクラウド経由でツールを使える（ローカル�
 
 ```sh
 cd worker
-bunx wrangler secret put MCP_TOKEN              # /mcp のBearerトークン（例: openssl rand -base64 48）
+bunx wrangler secret put MCP_TOKEN              # /mcp の認証トークン（例: openssl rand -hex 32。URLに埋め込むためパスセーフな文字のみで生成する）
 bunx wrangler secret put AITAPP_ID              # 大学ポータルのログインID
 bunx wrangler secret put AITAPP_PASSWORD        # 大学ポータルのパスワード
 bunx wrangler secret put AITAPP_MOODLE_ORIGIN   # 例: cms.aitech.ac.jp
@@ -119,6 +119,27 @@ claude mcp add --transport http aitapp-cloud \
   https://<worker-origin>/mcp \
   --header "Authorization: Bearer <MCP_TOKEN>"
 ```
+
+### スマホ（Claude アプリ）から使う
+
+スマホの Claude アプリはコネクタ（リモートMCP）に対応しているが、カスタムコネクタでは
+`Authorization` 等のカスタムヘッダを設定できない。そのためトークンを URL パスに
+埋め込んだエンドポイント `/mcp/<MCP_TOKEN>` を用意している（認証の中身はヘッダ方式と同一）。
+
+1. claude.ai（Web）の **設定 → コネクタ → カスタムコネクタを追加** で、URL に
+   `https://<worker-origin>/mcp/<MCP_TOKEN>` を登録する（コネクタはアカウント単位
+   なので、Web で追加すればスマホアプリからも使える）。
+2. スマホの Claude アプリでチャットのコネクタ一覧から有効化して使う。
+
+注意:
+
+- トークンが URL に含まれるため、URL の扱いは Bearer トークンと同等に秘匿する
+  （チャットや共有リンクに貼らない）。漏れた場合は `wrangler secret put MCP_TOKEN`
+  で新しい値に差し替えれば即座に無効化できる。
+- `MCP_TOKEN` は URL パスに使える文字だけで生成する（推奨: `openssl rand -hex 32`。
+  `base64` は `/` や `+` を含みうるため不可）。
+- スマホからの利用は必然的にデプロイ版 worker 経由になるため、下記の制約どおり
+  **LCAM 系ツール（`lcam_*`）は使えない**（Moodle 系・シラバス系は使える）。
 
 制約:
 
