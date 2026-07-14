@@ -99,6 +99,7 @@ Moodleへの認証は、ログイン時に一度だけID/パスワードで `log
 | `moodle_save_assignment_draft` | `POST /api/moodle/assignment/draft`（実書き込み） |
 | `moodle_upload_assignment_file` | `POST /api/moodle/assignment/upload`（実書き込み） |
 | `moodle_submit_assignment` | `POST /api/moodle/assignment/submit`（実書き込み・取り消し不可） |
+| `moodle_get_quiz_submission_status` | `GET /api/moodle/quiz/status`（全コースのテスト受験状況＋期限。未受験テストの定期チェック向け） |
 | `moodle_get_quiz_info` | `GET /api/moodle/quiz/info` |
 | `moodle_start_quiz_attempt` | `POST /api/moodle/quiz/start`（実書き込み・試行回数を消費。設問は要約して返す） |
 | `moodle_get_quiz_questions_html` | `GET /api/moodle/quiz/questions`（開始済みattemptの設問HTML全文。要約で足りないときのフォールバック） |

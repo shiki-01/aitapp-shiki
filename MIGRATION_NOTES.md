@@ -733,6 +733,25 @@ id/password を Moodle にも使う（後方互換。既存 KV credential は op
   `assignmentId`（締切超過分）/`nameFilter`/不正パラメータの各応答と、
   stdio MCP 経由のツール呼び出しを実データで確認済み。
 
+### 12.11 テスト（クイズ）の受験状況確認（`mod_quiz_get_user_attempts`・参照のみ）
+
+2026-07-14 実装。§12.10 の課題版と対になる、テスト（mod_quiz）の「未受験のテストが
+あるか・期限はいつか」チェック用。`GET /api/moodle/quiz/status` と MCP ツール
+`moodle_get_quiz_submission_status` を追加した。
+
+- 一覧は `mod_quiz_get_quizzes_by_courses` を **courseids 省略**で呼ぶと全受講コースの
+  クイズが1コールで返る（実データ確認済み: 5コース104件）。既存 quiz/info の
+  コース単位取得と違い、横断チェックが subrequest 1 で済む。
+- 受験状況は `mod_quiz_get_user_attempts`（`quizid` + `status=all`・1件1 subrequest）。
+  応答 `attempts[].state`（`finished` / `inprogress`）と `timefinish` から
+  `finishedAttempts` / `inProgressAttempts` / `finished` / `lastFinishedAt` を組み立てる。
+  本番 `cms.aitech.ac.jp`（実データ・読み取りのみ）で応答形状確認済み。
+- filter（`quizId` / `courseId` / `nameFilter` / `closeWithinDays` / `includeClosed`）と
+  上限パターン（`MAX_ATTEMPT_STATUS_LOOKUPS` = 20、超過時 `statusIncluded: false`）、
+  デフォルトで期限（`timeclose`）超過分を除外する挙動は §12.10 と同じ。
+  期限なし（`timeclose=0`）は除外しない。`timeopen` が未来（受験開始前）のものも返す
+  （期限が近いのに未開始、を検知させるため）。
+
 ## 13. 本番デプロイ（workers.dev）と /mcp リモートMCP 化
 
 2026-07-14 実施。`aitapp-worker` を Cloudflare へデプロイし

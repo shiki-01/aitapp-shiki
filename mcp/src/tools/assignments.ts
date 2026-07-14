@@ -38,8 +38,11 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
     {
       title: 'Moodle課題の提出状況・締切の確認',
       description:
-        'Moodle課題が提出済みかどうかを締切とともに確認する（参照のみ）。' +
+        'Moodle課題(mod_assign)が提出済みかどうかを締切とともに確認する（参照のみ）。' +
         '「未提出の課題があるか」「今日・今週締切の課題はどれか」の確認・定期チェックにはこれを使う。' +
+        'テスト（小テスト・クイズ、mod_quiz）は課題とは別物でここには含まれないため、' +
+        'テストの受験状況はmoodle_get_quiz_submission_statusで確認する' +
+        '（未提出物の総点検では両方呼ぶ）。' +
         'submissionStatusは submitted(提出済) / new(未提出) / draft(下書きのみ・本提出はまだ) / ' +
         'reopened(再提出要求)。締切は dueDate、cutoffDate(提出受付終了)があればそちらが最終期限。' +
         'デフォルトでは締切超過済みの課題は含まれない（includePastDue=trueで含める）。' +

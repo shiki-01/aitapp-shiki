@@ -34,6 +34,7 @@ import {
   getMoodleToken,
   getMoodleAssignments,
   getAssignmentsWithStatus,
+  getQuizzesWithStatus,
   getQuizInfoByCourse,
   startQuizAttempt,
   getAttemptQuestions,
@@ -458,6 +459,49 @@ app.get('/api/moodle/assignment/status', async (c) => {
           note:
             '対象の課題数が多いため提出状況(submissionStatus/submitted等)は取得していない。' +
             'assignmentId / courseId / nameFilter / dueWithinDays で対象を絞り込んで再取得すること。',
+        },
+  );
+});
+
+// ---- GET /api/moodle/quiz/status（全コースのクイズ一覧＋受験状況・参照のみ） ----
+// クエリ: quizId / courseId / nameFilter / closeWithinDays / includeClosed。
+// 受験履歴はクイズ1件1 subrequestのため、絞り込み後の件数が上限以下のときだけ取得する
+// （assignment/status と同じパターン。超えたら絞り込んで再取得させる）。
+app.get('/api/moodle/quiz/status', async (c) => {
+  const parseIntQuery = (name: string): number | undefined | 'invalid' => {
+    const raw = c.req.query(name);
+    if (raw === undefined) return undefined;
+    const n = parseInt(raw, 10);
+    return Number.isNaN(n) ? 'invalid' : n;
+  };
+  const quizId = parseIntQuery('quizId');
+  if (quizId === 'invalid') return c.json({ error: 'invalid quizId' }, 400);
+  const courseId = parseIntQuery('courseId');
+  if (courseId === 'invalid') return c.json({ error: 'invalid courseId' }, 400);
+  const closeWithinDays = parseIntQuery('closeWithinDays');
+  if (closeWithinDays === 'invalid') return c.json({ error: 'invalid closeWithinDays' }, 400);
+  const nameFilter = c.req.query('nameFilter') || undefined;
+  const includeClosed = ['1', 'true'].includes(c.req.query('includeClosed') ?? '');
+
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const result = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    getQuizzesWithStatus(moodleOrigin, token, {
+      quizId,
+      courseId,
+      nameFilter,
+      closeWithinDays,
+      includeClosed,
+    }),
+  );
+  return c.json(
+    result.statusIncluded
+      ? result
+      : {
+          ...result,
+          note:
+            '対象のクイズ数が多いため受験状況(finishedAttempts/finished等)は取得していない。' +
+            'quizId / courseId / nameFilter / closeWithinDays で対象を絞り込んで再取得すること。',
         },
   );
 });

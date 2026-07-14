@@ -6,6 +6,7 @@ import type {
   MoodleQuizInfoResponse,
   MoodleQuizQuestionHtml,
   MoodleQuizStart,
+  QuizStatusResponse,
 } from '../types';
 
 function json(data: unknown) {
@@ -13,6 +14,54 @@ function json(data: unknown) {
 }
 
 export function registerQuizTools(server: McpServer, client: ToolClient): void {
+  server.registerTool(
+    'moodle_get_quiz_submission_status',
+    {
+      title: 'Moodleテスト（小テスト/クイズ）の受験状況・締切の確認',
+      description:
+        'Moodleのテスト（小テスト・クイズ、mod_quiz）を受験済みかどうかを受験期限とともに' +
+        '確認する（参照のみ）。「未受験のテストがあるか」「今日・今週締切のテストはどれか」の' +
+        '確認・定期チェックにはこれを使う。テストは課題(mod_assign)とは別物なので、課題側は' +
+        'moodle_get_assignment_submission_statusで確認する（両方の確認を求められたら両方呼ぶ）。' +
+        'デフォルトで全受講コースが対象（courseId不要）。finished=trueで受験完了' +
+        '(finishedAttempts回)、inProgressAttempts>0は開始したが未確定の受験あり。' +
+        '期限はtimeClose（nullは期限なし）。timeOpenが未来のテストはまだ受験開始できない。' +
+        'デフォルトでは受験期限超過済みのテストは含まれない（includeClosed=trueで含める）。' +
+        '対象テストが多いと statusIncluded=false で受験状況がnullのまま返るので、その場合は ' +
+        'courseId / nameFilter / closeWithinDays / quizId で絞り込んで再取得する。',
+      inputSchema: {
+        quizId: z.number().int().optional().describe('特定テストのIDで絞り込む'),
+        courseId: z.number().int().optional().describe('コースIDで絞り込む'),
+        nameFilter: z
+          .string()
+          .optional()
+          .describe('テスト名の部分一致で絞り込む（大文字小文字を区別しない）'),
+        closeWithinDays: z
+          .number()
+          .int()
+          .optional()
+          .describe('受験期限(timeClose)が今からN日以内のテストのみ（期限なしのテストは除外される）'),
+        includeClosed: z
+          .boolean()
+          .optional()
+          .describe('trueで受験期限超過済みのテストも含める（デフォルトfalse）'),
+      },
+    },
+    async ({ quizId, courseId, nameFilter, closeWithinDays, includeClosed }) => {
+      const params = new URLSearchParams();
+      if (quizId !== undefined) params.set('quizId', String(quizId));
+      if (courseId !== undefined) params.set('courseId', String(courseId));
+      if (nameFilter !== undefined) params.set('nameFilter', nameFilter);
+      if (closeWithinDays !== undefined) params.set('closeWithinDays', String(closeWithinDays));
+      if (includeClosed) params.set('includeClosed', '1');
+      const qs = params.toString();
+      const res = await client.request<QuizStatusResponse>(
+        `/api/moodle/quiz/status${qs ? `?${qs}` : ''}`,
+      );
+      return json(res);
+    },
+  );
+
   server.registerTool(
     'moodle_get_quiz_info',
     {

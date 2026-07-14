@@ -109,6 +109,27 @@ export interface AssignmentStatusResponse {
   note?: string;
 }
 
+/** クイズ＋受験状況（GET /api/moodle/quiz/status）。 */
+export interface MoodleQuizWithStatus {
+  id: number;
+  courseId: number;
+  name: string;
+  timeOpen: string | null;
+  timeClose: string | null;
+  timeCloseEpochMs: number;
+  attemptsAllowed: number;
+  /** null = 未取得（statusIncluded: false のとき） */
+  finishedAttempts: number | null;
+  inProgressAttempts: number | null;
+  finished: boolean | null;
+  lastFinishedAt: string | null;
+}
+export interface QuizStatusResponse {
+  quizzes: MoodleQuizWithStatus[];
+  statusIncluded: boolean;
+  note?: string;
+}
+
 export interface MoodleQuizInfoResponse {
   quizzes: MoodleQuizInfo[];
   accessInfoIncluded: boolean;

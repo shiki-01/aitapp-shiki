@@ -468,6 +468,139 @@ export async function getQuizInfoByCourse(
   return { quizzes: out, accessInfoIncluded };
 }
 
+// ---------------------------------------------------------------------------
+// クイズの受験状況（参照のみ）
+// ---------------------------------------------------------------------------
+
+export interface MoodleQuizWithStatus {
+  id: number;
+  courseId: number;
+  name: string;
+  timeOpen: string | null; // null = 開始日時なし
+  timeClose: string | null; // null = 受験期限なし
+  timeCloseEpochMs: number; // 0 = 受験期限なし
+  attemptsAllowed: number; // 0 = 無制限
+  /** 完了済み受験回数。null = 未取得（statusIncluded: false のとき） */
+  finishedAttempts: number | null;
+  /** 進行中（開始したが未確定）の受験数。null = 未取得 */
+  inProgressAttempts: number | null;
+  /** 1回以上受験を完了済みか。null = 未取得 */
+  finished: boolean | null;
+  /** 最後に受験を完了した日時（ISO）。 */
+  lastFinishedAt: string | null;
+}
+
+export interface QuizStatusFilter {
+  quizId?: number;
+  courseId?: number;
+  /** クイズ名の部分一致（大文字小文字を区別しない）。 */
+  nameFilter?: string;
+  /** 受験期限（timeClose）が今からN日以内のクイズのみ（期限なしは除外）。 */
+  closeWithinDays?: number;
+  /** true で受験期限超過済みのクイズも含める（quizId 指定時は常に含める）。 */
+  includeClosed?: boolean;
+}
+
+export interface QuizStatusResult {
+  quizzes: MoodleQuizWithStatus[];
+  /** false のとき finishedAttempts 等は未取得（絞り込んで再取得する）。 */
+  statusIncluded: boolean;
+}
+
+/**
+ * 受験履歴（mod_quiz_get_user_attempts）を問い合わせるクイズ数の上限。
+ * MAX_ACCESS_INFO_LOOKUPS と同じ理由（1件1 subrequest、Workers 無料プランの上限対策）。
+ */
+const MAX_ATTEMPT_STATUS_LOOKUPS = 20;
+
+interface RawUserAttempt {
+  state?: string;
+  timefinish?: number;
+}
+
+/**
+ * クイズ一覧＋受験状況。mod_quiz_get_quizzes_by_courses を courseids 省略で呼ぶと
+ * 全受講コースのクイズが1コールで返る（実データ確認済み）。filter 適用後の件数が
+ * MAX_ATTEMPT_STATUS_LOOKUPS 以下の場合のみ mod_quiz_get_user_attempts
+ * （status=all・1件1コール）を重ねて完了/進行中の受験数を付ける。超える場合は
+ * finishedAttempts: null のまま返し、呼び出し側に絞り込みを促す
+ * （課題の getAssignmentsWithStatus と同じパターン）。
+ * デフォルトでは受験期限超過済み（timeclose が過去）のクイズを除外する。
+ * 期限なし（timeclose=0）のクイズは除外しない。
+ */
+export async function getQuizzesWithStatus(
+  origin: string,
+  token: string,
+  filter?: QuizStatusFilter,
+): Promise<QuizStatusResult> {
+  const data = await callMoodleApi<{ quizzes: RawQuiz[] }>(
+    origin,
+    token,
+    'mod_quiz_get_quizzes_by_courses',
+    {},
+  );
+  let list = data.quizzes ?? [];
+  if (filter?.quizId !== undefined) {
+    list = list.filter((q) => q.id === filter.quizId);
+  }
+  if (filter?.courseId !== undefined) {
+    list = list.filter((q) => q.course === filter.courseId);
+  }
+  if (filter?.nameFilter) {
+    const needle = filter.nameFilter.toLowerCase();
+    list = list.filter((q) => q.name.toLowerCase().includes(needle));
+  }
+  const now = Date.now();
+  if (!filter?.includeClosed && filter?.quizId === undefined) {
+    list = list.filter((q) => q.timeclose === 0 || q.timeclose * 1000 >= now);
+  }
+  if (filter?.closeWithinDays !== undefined) {
+    const limit = now + filter.closeWithinDays * 24 * 60 * 60 * 1000;
+    list = list.filter((q) => q.timeclose !== 0 && q.timeclose * 1000 <= limit);
+  }
+  list.sort(
+    (a, b) =>
+      (a.timeclose * 1000 || Number.MAX_SAFE_INTEGER) -
+      (b.timeclose * 1000 || Number.MAX_SAFE_INTEGER),
+  );
+
+  const statusIncluded = list.length <= MAX_ATTEMPT_STATUS_LOOKUPS;
+  const out: MoodleQuizWithStatus[] = [];
+  for (const q of list) {
+    let finishedAttempts: number | null = null;
+    let inProgressAttempts: number | null = null;
+    let lastFinishedAt: string | null = null;
+    if (statusIncluded) {
+      const res = await callMoodleApi<{ attempts?: RawUserAttempt[] }>(
+        origin,
+        token,
+        'mod_quiz_get_user_attempts',
+        { quizid: String(q.id), status: 'all' },
+      );
+      const attempts = res.attempts ?? [];
+      const finishedList = attempts.filter((a) => a.state === 'finished');
+      finishedAttempts = finishedList.length;
+      inProgressAttempts = attempts.filter((a) => a.state === 'inprogress').length;
+      const lastFinish = Math.max(0, ...finishedList.map((a) => a.timefinish ?? 0));
+      lastFinishedAt = lastFinish ? new Date(lastFinish * 1000).toISOString() : null;
+    }
+    out.push({
+      id: q.id,
+      courseId: q.course,
+      name: q.name,
+      timeOpen: q.timeopen ? new Date(q.timeopen * 1000).toISOString() : null,
+      timeClose: q.timeclose ? new Date(q.timeclose * 1000).toISOString() : null,
+      timeCloseEpochMs: q.timeclose * 1000,
+      attemptsAllowed: q.attempts,
+      finishedAttempts,
+      inProgressAttempts,
+      finished: finishedAttempts === null ? null : finishedAttempts > 0,
+      lastFinishedAt,
+    });
+  }
+  return { quizzes: out, statusIncluded };
+}
+
 export interface MoodleQuizAttempt {
   id: number;
   quizId: number;
