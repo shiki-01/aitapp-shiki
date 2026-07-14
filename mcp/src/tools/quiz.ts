@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolClient } from '../tool-client';
-import type { MoodleQuizInfoResponse, MoodleQuizStart } from '../types';
+import type {
+  MoodleQuizAttemptResult,
+  MoodleQuizInfoResponse,
+  MoodleQuizQuestionHtml,
+  MoodleQuizStart,
+} from '../types';
 
 function json(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
@@ -46,8 +51,12 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
         '【注意】これは実際にMoodle上でクイズの新規受験(attempt)を開始する書き込み操作。' +
         '呼び出した時点で許容試行回数(attemptsAllowed)を1回消費し、取り消せない。' +
         'moodle_get_quiz_infoでcanAttemptがtrueであることを確認し、ユーザーが受験を開始する意思を' +
-        '明示的に示した場合のみ呼び出すこと。成功すると設問一覧(questions、各要素にHTML)が' +
-        '返るので、内容を解析してmoodle_answer_quiz_questionで回答する。',
+        '明示的に示した場合のみ呼び出すこと。成功すると要約済みの設問一覧(questions)が返る。' +
+        '各設問は text(設問文)と inputs(回答入力欄のnameと選択肢等)を持ち、そのまま' +
+        'moodle_answer_quiz_questionの回答作成に使える。要約パーサ未対応の設問形式では' +
+        'inputsが汎用フィールド列挙(kind: "generic")になり、htmlに元の設問HTML全文が付くので' +
+        'それを読んで回答する。全設問の生HTMLが必要ならmoodle_get_quiz_questions_htmlで取り直せる' +
+        '(試行回数は消費しない)。',
       inputSchema: { quizId: z.number().int() },
     },
     async ({ quizId }) => {
@@ -68,14 +77,14 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
         '【注意】これは実際にMoodle上でクイズ回答を一時保存(mod_quiz_save_attempt)する書き込み操作。' +
         '本提出(moodle_finish_quiz_attempt)はしないため、何度でも上書き保存・修正できる。' +
         'attemptIdはmoodle_start_quiz_attemptが返したattempt.idを使う。answersは、' +
-        'moodle_start_quiz_attemptが返した各questionのhtmlに含まれるinput/select要素のname属性を' +
-        'キー、選択・入力する値を値とするオブジェクト。型別の値の作り方: ' +
-        'multichoice(ラジオ)は選択肢のvalue(=index)を `q...:{slot}_answer` に; ' +
-        'match(セレクト)は各 `q...:{slot}_sub{n}` に選択肢value; ' +
-        'ordering(並び替え)は `q...:{slot}_response_{qid}` に、正しい順序の `ordering_item_{hash}` ' +
-        '(各liのid)をカンマ区切りで連結した文字列を指定する。' +
+        '各設問の inputs にある name をキー、選択・入力する値を値とするオブジェクト。' +
+        'kind別の値の作り方: multichoice は inputs.name に options[].value を; ' +
+        'match は各 rows[].name にその行の options[].value を; ' +
+        'ordering は inputs.name に、正しい順序の items[].id (ordering_item_{hash}) を' +
+        'カンマ区切りで連結した文字列を指定する。generic(要約パーサ未対応)は併記のhtmlを読んで' +
+        'fields[].name に対する値を組み立てる。' +
         '`_:sequencecheck` はサーバ側が自動付与するので渡さなくてよい。1回のcallで回答する設問は、' +
-        'その設問の入力欄を全て(match の全 `_sub{n}` 等)含めること。' +
+        'その設問の入力欄を全て(match の全行 rows[].name 等)含めること。' +
         '返り値の unsavedSlots が空でなければ、その slot は保存に失敗している(name/valueが不正)ので見直す。',
       inputSchema: {
         attemptId: z.number().int(),
@@ -134,6 +143,47 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ attemptId, confirm }),
       });
+      return json(res);
+    },
+  );
+
+  server.registerTool(
+    'moodle_get_quiz_questions_html',
+    {
+      title: '開始済みクイズattemptの設問HTML全文の取得',
+      description:
+        '開始済み(進行中)のattemptの設問一覧を、Moodleが返す生HTMLのまま全件取得する' +
+        '(参照のみ・試行回数は消費しない)。attemptIdはmoodle_start_quiz_attemptが返した' +
+        'attempt.id。moodle_start_quiz_attemptの要約(inputs)で情報が足りないときや、' +
+        '要約パーサ未対応の設問形式を精査するときのフォールバック。結果は設問数によっては' +
+        '非常に大きい(実測: 20問で約29万文字)ので、まず要約で足りるか確認してから使うこと。',
+      inputSchema: { attemptId: z.number().int() },
+    },
+    async ({ attemptId }) => {
+      const res = await client.request<{ questions: MoodleQuizQuestionHtml[] }>(
+        `/api/moodle/quiz/questions?attemptId=${attemptId}`,
+      );
+      return json(res);
+    },
+  );
+
+  server.registerTool(
+    'moodle_get_quiz_attempt_result',
+    {
+      title: 'Moodleクイズ採点結果の取得',
+      description:
+        '確定済み(finished)のattemptの採点結果を取得する(参照のみ)。クイズ全体の評点' +
+        '(grade/sumGrades)と、設問ごとの正誤ステータス(status)・得点(mark/maxMark)・' +
+        '設問文(text)・正答(rightAnswer。教員がレビューでの正答表示を許可している場合のみ、' +
+        'それ以外はnull)を返す。moodle_finish_quiz_attemptで確定した後の点数確認や、' +
+        '再受験前の誤答箇所の特定に使う。進行中(inprogress)のattemptには使えず、' +
+        'Moodle側がエラーを返す。',
+      inputSchema: { attemptId: z.number().int() },
+    },
+    async ({ attemptId }) => {
+      const res = await client.request<MoodleQuizAttemptResult>(
+        `/api/moodle/quiz/result?attemptId=${attemptId}`,
+      );
       return json(res);
     },
   );

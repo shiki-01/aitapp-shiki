@@ -366,11 +366,12 @@ function isStartedAttempt(attempt: unknown): attempt is RawQuizAttempt {
   return typeof attempt === 'object' && attempt !== null && !Array.isArray(attempt);
 }
 
-/*
- * ページ内の設問一覧を全ページ分収集する。mod_quiz_get_attempt_data の `nextpage` を
- * -1（最終ページ）になるまで辿る。無限ループ防止のため上限ページ数を設ける。
+/**
+ * 開始済み（進行中）attempt の設問一覧を全ページ分収集する（参照のみ・試行回数を消費しない）。
+ * mod_quiz_get_attempt_data の `nextpage` を -1（最終ページ）になるまで辿る。
+ * 無限ループ防止のため上限ページ数を設ける。
  */
-async function getAllAttemptQuestions(
+export async function getAttemptQuestions(
   origin: string,
   token: string,
   attemptId: number,
@@ -414,7 +415,7 @@ export async function startQuizAttempt(
     throw new UpstreamError(`Moodle mod_quiz_start_attempt error: ${reason}`);
   }
   const attempt = started.attempt;
-  const questions = await getAllAttemptQuestions(origin, token, attempt.id);
+  const questions = await getAttemptQuestions(origin, token, attempt.id);
   return {
     attempt: { id: attempt.id, quizId: attempt.quiz, attemptNumber: attempt.attempt, state: attempt.state },
     questions: questions.map((q) => ({ slot: q.slot, page: q.page, type: q.type, html: q.html })),
@@ -467,7 +468,7 @@ export async function saveQuizAttempt(
   const answeredSlots = answeredSlotsOf(answers);
 
   // ライブHTMLから sequencecheck を取得して必ず同梱する（保存が破棄される主因の対策）。
-  const before = await getAllAttemptQuestions(origin, token, attemptId);
+  const before = await getAttemptQuestions(origin, token, attemptId);
   const seqChecks = sequenceChecksFor(before, answeredSlots);
 
   const merged = { ...seqChecks, ...answers };
@@ -478,7 +479,7 @@ export async function saveQuizAttempt(
   });
 
   // 保存が実際に反映されたかを検証する（{ok:true} の偽陽性を防ぐ）。
-  const after = await getAllAttemptQuestions(origin, token, attemptId);
+  const after = await getAttemptQuestions(origin, token, attemptId);
   const stillUnanswered = new Set(
     after.filter((q) => /\bnotyetanswered\b/.test(q.html)).map((q) => q.slot),
   );
@@ -501,6 +502,59 @@ export async function finishQuizAttempt(
     timeup: '0',
   });
   return { state: data.state };
+}
+
+export interface RawQuizReviewQuestion {
+  slot: number;
+  type: string;
+  page: number;
+  html: string;
+  /** Moodle の正誤ステータス表示（例: 「正解」「部分的に正解」） */
+  status?: string;
+  /** 得点の表示文字列（例: "0.83"）。未採点なら欠落する */
+  mark?: string;
+  maxmark?: number;
+}
+
+export interface RawQuizReviewAttempt {
+  id: number;
+  quiz: number;
+  attempt: number;
+  state: string;
+  sumgrades?: number | null;
+  timefinish?: number;
+}
+
+export interface QuizAttemptReview {
+  /** クイズ全体の評点（コース設定のスケールに換算済み）。未採点なら null */
+  grade: string | null;
+  attempt: RawQuizReviewAttempt;
+  questions: RawQuizReviewQuestion[];
+}
+
+/**
+ * 確定済み attempt の採点結果。mod_quiz_get_attempt_review（page=-1 で全設問・参照のみ）。
+ * 進行中（inprogress）の attempt には使えず、Moodle が exception を返す
+ * （そのまま UpstreamError として呼び出し元へ伝わる）。
+ */
+export async function getQuizAttemptReview(
+  origin: string,
+  token: string,
+  attemptId: number,
+): Promise<QuizAttemptReview> {
+  const data = await callMoodleApi<{
+    grade?: string | number;
+    attempt: RawQuizReviewAttempt;
+    questions?: RawQuizReviewQuestion[];
+  }>(origin, token, 'mod_quiz_get_attempt_review', {
+    attemptid: String(attemptId),
+    page: '-1',
+  });
+  return {
+    grade: data.grade != null ? String(data.grade) : null,
+    attempt: data.attempt,
+    questions: data.questions ?? [],
+  };
 }
 
 // ---------------------------------------------------------------------------

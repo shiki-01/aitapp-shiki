@@ -35,6 +35,8 @@ import {
   getMoodleAssignments,
   getQuizInfoByCourse,
   startQuizAttempt,
+  getAttemptQuestions,
+  getQuizAttemptReview,
   saveQuizAttempt,
   finishQuizAttempt,
   saveAssignTextDraft,
@@ -47,6 +49,7 @@ import {
   downloadMoodleFile,
 } from './upstream/moodle/access';
 import { withMoodleToken } from './upstream/moodle/token';
+import { summarizeQuizQuestions, summarizeReviewQuestion } from './upstream/moodle/quiz_parse';
 import {
   getSyllabusSession,
   getSyllabusListBody,
@@ -445,6 +448,9 @@ app.get('/api/moodle/quiz/info', async (c) => {
 });
 
 // ---- POST /api/moodle/quiz/start（受験開始。試行回数を1回消費する） ----
+// 設問は要約（設問文＋入力欄のname/選択肢）で返す。生HTMLのままでは設問数が多いと
+// MCPクライアントのツール結果上限を超えるため（実測: 20問で約29万文字）。
+// 生HTMLが必要な場合は GET /api/moodle/quiz/questions で取り直せる。
 app.post('/api/moodle/quiz/start', async (c) => {
   if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
   let bodyIn: { quizId?: number };
@@ -459,7 +465,43 @@ app.post('/api/moodle/quiz/start', async (c) => {
   const result = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
     startQuizAttempt(moodleOrigin, token, bodyIn.quizId as number),
   );
-  return c.json(result);
+  return c.json({ attempt: result.attempt, questions: summarizeQuizQuestions(result.questions) });
+});
+
+// ---- GET /api/moodle/quiz/questions?attemptId=（開始済みattemptの設問HTML全文・参照のみ） ----
+// 要約で情報が足りない設問形式のためのフォールバック。試行回数は消費しない。
+app.get('/api/moodle/quiz/questions', async (c) => {
+  const attemptId = parseInt(c.req.query('attemptId') ?? '', 10);
+  if (Number.isNaN(attemptId)) return c.json({ error: 'attemptId required' }, 400);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const questions = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    getAttemptQuestions(moodleOrigin, token, attemptId),
+  );
+  return c.json({ questions });
+});
+
+// ---- GET /api/moodle/quiz/result?attemptId=（確定済みattemptの採点結果・参照のみ） ----
+app.get('/api/moodle/quiz/result', async (c) => {
+  const attemptId = parseInt(c.req.query('attemptId') ?? '', 10);
+  if (Number.isNaN(attemptId)) return c.json({ error: 'attemptId required' }, 400);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const review = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    getQuizAttemptReview(moodleOrigin, token, attemptId),
+  );
+  return c.json({
+    attemptId: review.attempt.id,
+    quizId: review.attempt.quiz,
+    attemptNumber: review.attempt.attempt,
+    state: review.attempt.state,
+    grade: review.grade,
+    sumGrades: review.attempt.sumgrades ?? null,
+    timeFinish: review.attempt.timefinish
+      ? new Date(review.attempt.timefinish * 1000).toISOString()
+      : null,
+    questions: review.questions.map(summarizeReviewQuestion),
+  });
 });
 
 // ---- POST /api/moodle/quiz/answer（回答の一時保存） ----

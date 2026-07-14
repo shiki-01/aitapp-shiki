@@ -118,15 +118,82 @@ export interface MoodleQuizAttempt {
   attemptNumber: number;
   state: string;
 }
-export interface MoodleQuizQuestion {
+/** 生HTMLのままの設問（GET /api/moodle/quiz/questions）。 */
+export interface MoodleQuizQuestionHtml {
   slot: number;
   page: number;
   type: string;
   html: string;
 }
+
+export interface QuizChoiceOption {
+  value: string;
+  label: string;
+}
+export interface QuizQuestionInputsMultichoice {
+  kind: 'multichoice';
+  name: string;
+  options: QuizChoiceOption[];
+}
+export interface QuizQuestionInputsMatch {
+  kind: 'match';
+  rows: { name: string; text: string; options: QuizChoiceOption[] }[];
+}
+export interface QuizQuestionInputsOrdering {
+  kind: 'ordering';
+  name: string;
+  items: { id: string; text: string }[];
+}
+export interface QuizQuestionInputsGeneric {
+  kind: 'generic';
+  fields: {
+    tag: 'input' | 'select' | 'textarea';
+    type?: string;
+    name: string;
+    value?: string;
+    options?: QuizChoiceOption[];
+  }[];
+}
+export type QuizQuestionInputs =
+  | QuizQuestionInputsMultichoice
+  | QuizQuestionInputsMatch
+  | QuizQuestionInputsOrdering
+  | QuizQuestionInputsGeneric;
+
+/** 要約済みの設問（POST /api/moodle/quiz/start）。 */
+export interface MoodleQuizQuestionSummary {
+  slot: number;
+  page: number;
+  type: string;
+  text: string;
+  inputs: QuizQuestionInputs;
+  /** 要約パーサ未対応の形式のときのみ、元の設問HTML全文 */
+  html?: string;
+  note?: string;
+}
 export interface MoodleQuizStart {
   attempt: MoodleQuizAttempt;
-  questions: MoodleQuizQuestion[];
+  questions: MoodleQuizQuestionSummary[];
+}
+
+/** 採点結果（GET /api/moodle/quiz/result）。 */
+export interface MoodleQuizAttemptResult {
+  attemptId: number;
+  quizId: number;
+  attemptNumber: number;
+  state: string;
+  grade: string | null;
+  sumGrades: number | null;
+  timeFinish: string | null;
+  questions: {
+    slot: number;
+    type: string;
+    status: string;
+    mark: string | null;
+    maxMark: number | null;
+    text: string;
+    rightAnswer: string | null;
+  }[];
 }
 
 export interface MoodleCourse {
