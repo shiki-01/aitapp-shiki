@@ -3,7 +3,8 @@
 // Dart のセレクタをほぼそのまま使う。
 
 import {
-  type HTMLElement,
+  HTMLElement,
+  type Node,
   parseHtml,
   textLines,
   nodeText,
@@ -176,16 +177,115 @@ export function parseClassNotice(html: string): ClassNotice[] {
 
 // ---- 詳細 ----
 
+// ---- 連絡本文サニタイズ ----
+// 連絡本文は上流由来 HTML をそのまま {@html} で描画するため XSS の危険がある。
+// 旧実装(filterContentHtml)は色指定を除くだけでサニタイズになっていなかった。
+// node-html-parser で「許可タグ + 許可属性のみ残す」allowlist 方式に置き換え、
+// script/iframe/object/embed 等の危険要素・on* イベント属性・javascript: 等の
+// 危険スキームを全て除去する。整形用の安全なタグは残す。
+
+// 残す整形タグ。
+const ALLOWED_TAGS = new Set([
+  'p', 'br', 'hr', 'div', 'span',
+  'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'small', 'sub', 'sup',
+  'a', 'ul', 'ol', 'li', 'dl', 'dt', 'dd',
+  'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'blockquote', 'pre', 'code', 'font', 'center',
+]);
+// タグ・中身ごと丸ごと捨てる要素（テキストも残さない）。
+const DROP_WITH_CONTENT = new Set([
+  'script', 'style', 'iframe', 'object', 'embed', 'noscript', 'template',
+  'form', 'input', 'button', 'textarea', 'select', 'option', 'link', 'meta', 'base',
+]);
+// 自己完結タグ。
+const VOID_TAGS = new Set(['br', 'hr']);
+// タグごとに残す属性。ここに無い属性(on* を含む)は全て除去する。
+const ALLOWED_ATTRS: Record<string, Set<string>> = {
+  a: new Set(['href', 'title']),
+  td: new Set(['colspan', 'rowspan', 'align']),
+  th: new Set(['colspan', 'rowspan', 'align']),
+  font: new Set(['color']),
+};
+
+function escapeText(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapeAttr(s: string): string {
+  return escapeText(s).replace(/"/g, '&quot;');
+}
+
+/** href の危険スキームを弾く。相対 URL・http(s)・mailto・アンカーのみ許可。 */
+function safeUrl(value: string): string | null {
+  // 制御文字/空白(ASCII \x00-\x20, \x7f)を除去してからスキーム判定する。
+  // ブラウザは href 解決時にこれらを剥がすため、`java\tscript:` のように
+  // スキーム内へ制御文字を挟む偽装を許すと XSS になる（entity 由来の TAB/改行等も
+  // node-html-parser がデコード済みのためここで確実に除去できる）。
+  // eslint-disable-next-line no-control-regex
+  const v = value.replace(/[\u0000-\u0020\u007f]/g, '');
+  if (v === '') return null;
+  // 先頭が `scheme:` の絶対 URL は許可スキームのみ通す（javascript:/data:/vbscript: を排除）。
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(v);
+  if (scheme) {
+    const s = scheme[1].toLowerCase();
+    if (s !== 'http' && s !== 'https' && s !== 'mailto') return null;
+  }
+  return v;
+}
+
+function renderAttrs(tag: string, attributes: Record<string, string>): string {
+  const allowed = ALLOWED_ATTRS[tag];
+  if (!allowed) return '';
+  let out = '';
+  for (const [name, value] of Object.entries(attributes)) {
+    const n = name.toLowerCase();
+    if (!allowed.has(n)) continue;
+    let v = value;
+    if (n === 'href') {
+      const safe = safeUrl(v);
+      if (safe == null) continue;
+      v = safe;
+    }
+    out += ` ${n}="${escapeAttr(v)}"`;
+  }
+  return out;
+}
+
+function sanitizeNode(node: Node): string {
+  if (node instanceof HTMLElement) {
+    const tag = node.rawTagName?.toLowerCase() ?? '';
+    if (tag === '') {
+      // ルート等のラッパ要素は子だけ描画する。
+      return node.childNodes.map(sanitizeNode).join('');
+    }
+    if (DROP_WITH_CONTENT.has(tag)) return '';
+    const inner = node.childNodes.map(sanitizeNode).join('');
+    // 未許可タグは中身(サニタイズ済み)だけ残して unwrap する。
+    if (!ALLOWED_TAGS.has(tag)) return inner;
+    const attrs = renderAttrs(tag, node.attributes);
+    if (VOID_TAGS.has(tag)) return `<${tag}${attrs}>`;
+    return `<${tag}${attrs}>${inner}</${tag}>`;
+  }
+  // テキストノードはデコード済みテキストを再エスケープして安全化する。
+  const anyNode = node as unknown as { text?: string; rawText?: string };
+  return escapeText(anyNode.text ?? anyNode.rawText ?? '');
+}
+
+/** 連絡本文 HTML を allowlist でサニタイズする。 */
+function sanitizeContentHtml(html: string): string {
+  const root = parseHtml(html);
+  return root.childNodes.map(sanitizeNode).join('');
+}
+
 function filterContentHtml(rawHtml: string): string {
-  return rawHtml
-    .replace(/style="background-color: #[a-f0-9]{6};"/g, '')
-    .replace(/style="color: #[a-f0-9]{6};"/g, '')
-    .replace(/background-color: #[a-f0-9]{6};/g, '')
-    .replace(/color: #[a-f0-9]{6};/g, '')
-    .replace(
-      /(http(s)?:\/\/[a-zA-Z0-9-.!'*;/?:@&=+$,%_#]+)/gi,
-      (m) => `<a href="${m}">${m}</a>`,
-    );
+  // 生 URL を <a> 化(移植元 filterContentHtml の挙動を維持)してから
+  // allowlist サニタイズする。色指定 style は sanitize が属性ごと除去する。
+  const linked = rawHtml.replace(
+    /(http(s)?:\/\/[a-zA-Z0-9-.!'*;/?:@&=+$,%_#]+)/gi,
+    (m) => `<a href="${m}">${m}</a>`,
+  );
+  return sanitizeContentHtml(linked);
 }
 
 interface DetailConfig {
