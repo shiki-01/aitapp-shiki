@@ -8,7 +8,9 @@
     "dev:sandbox": "wrangler dev --port 8788 --persist-to .wrangler/sandbox-state --var MOODLE_ORIGIN_OVERRIDE:moodle.shiki-01.com",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "dependencies": {
     "@hono/mcp": "^0.3.1",
@@ -20,6 +22,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260703.1",
     "typescript": "^5.6.2",
+    "vitest": "^4.1.10",
     "wrangler": "^4.107.0"
   }
 }
