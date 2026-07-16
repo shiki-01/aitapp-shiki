@@ -25,3 +25,11 @@ export async function writeState(
 ): Promise<void> {
   await env.USER_KV.put(key(userId), JSON.stringify(state));
 }
+
+// user state を削除する。logout で session を実効失効させるために使う
+// （暗号化 credential・上流 cookie・moodle token を1 read で消す＝1 key 削除）。
+// 削除後はデータ系ミドルウェアと /api/auth/me がともに state 不在で 401 を返すため、
+// 盗まれた cookie も logout 後は無効になる。
+export async function deleteState(env: Env, userId: string): Promise<void> {
+  await env.USER_KV.delete(key(userId));
+}

@@ -1,10 +1,21 @@
 // browser版 API クライアント。session cookie を送るため常に credentials: 'include'。
 // 認証情報は cookie のみ。平文 password は login のリクエストボディでのみ送る。
 
+import { goto } from '$app/navigation';
 import { ApiError, type ApiClient } from './types';
 import { qs, fileApiPath } from './apiPath';
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8787';
+
+// session 失効（logout やパスワード変更で KV state が消え、cookie は有効でも
+// データが取れない状態）からの回復。データ系エンドポイントで 401 を受けたら
+// /login へ誘導する。auth 系（login/logout/me）は呼び出し側が扱うため除外し、
+// 既に /login にいる場合は何もしない（リダイレクトループ防止）。
+function recoverFromUnauthorized(path: string): void {
+  if (path.startsWith('/api/auth/')) return;
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/login')) return;
+  void goto('/login');
+}
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -22,6 +33,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch {
       // ignore
     }
+    if (res.status === 401) recoverFromUnauthorized(path);
     throw new ApiError(res.status, message, code);
   }
   return (await res.json()) as T;
