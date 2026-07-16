@@ -256,16 +256,13 @@ app.get('/api/notices', async (c) => {
   const count = Math.max(1, parseInt(c.req.query('count') ?? '10', 10) || 10);
   const userId = c.get('userId');
   const state = c.get('state');
-  try {
-    const notices = await withLcamRelogin(c.env, userId, state, (cookies) =>
-      fetchNotices(cookies, isCommon, count),
-    );
-    return c.json({ notices });
-  } catch (e) {
-    // 連絡が 1 件も無い場合はパースが空で失敗する。空配列として正常扱いする。
-    if (e instanceof NotFoundError) return c.json({ notices: [] });
-    throw e;
-  }
+  // 「本当に0件」と「構造破壊」の分離はパーサ側で行う。
+  // 0件はコンテナが在れば [] で返り、コンテナ欠落（構造変化）は UpstreamError(502) として
+  // ここでは握り潰さず伝播させる（silent [] にしない）。
+  const notices = await withLcamRelogin(c.env, userId, state, (cookies) =>
+    fetchNotices(cookies, isCommon, count),
+  );
+  return c.json({ notices });
 });
 
 // ---- GET /api/notices/detail?type=&index= ----
@@ -305,16 +302,12 @@ app.get('/api/schedule', async (c) => {
 app.get('/api/performance', async (c) => {
   const userId = c.get('userId');
   const state = c.get('state');
-  try {
-    const performance = await withLcamRelogin(c.env, userId, state, (cookies) =>
-      fetchPerformance(cookies),
-    );
-    return c.json({ performance });
-  } catch (e) {
-    // 履修科目が1件も無い場合はパースが空で失敗する。空配列として正常扱いする。
-    if (e instanceof NotFoundError) return c.json({ performance: [] });
-    throw e;
-  }
+  // 成績セル欠落（構造変化）はパーサ側で UpstreamError(502) を投げる。
+  // ログイン済みの成績ページは常に科目を含むため silent [] にはしない。
+  const performance = await withLcamRelogin(c.env, userId, state, (cookies) =>
+    fetchPerformance(cookies),
+  );
+  return c.json({ performance });
 });
 
 // ---- GET /api/enquetes?type=class|evaluation|campus ----

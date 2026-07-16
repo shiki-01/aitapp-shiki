@@ -3,6 +3,7 @@
 // URL・body フィールドは Dart 実装由来（推測補完なし）。
 
 import { UpstreamError } from '../errors';
+import { fetchUpstream, UPSTREAM_FILE_TIMEOUT_MS } from '../fetch';
 import type { LcamCookies } from '../../types';
 
 export const LCAM_ORIGIN = 'lcam.aitech.ac.jp';
@@ -44,7 +45,7 @@ async function httpAccess(
 ): Promise<Response> {
   // Dart の http パッケージはリダイレクトを自動追従し、失効時はログイン HTML(200)
   // を受け取って DOM 判定する。これに合わせ追従させる（要件 §8: status 非依存）。
-  const res = await fetch(url, {
+  const res = await fetchUpstream(url, {
     method: body ? 'POST' : 'GET',
     headers: { ...headers },
     body: body ? formBody(body) : undefined,
@@ -508,7 +509,8 @@ export async function getFile(
     Cookie: cookieHeader(cookies),
     ...constHeader,
   };
-  return fetch(`${BASE}${fileUrl}`, { headers });
+  // ファイルは stream proxy するため、body 読み切りまで時間がかかり得る。タイムアウトを延長。
+  return fetchUpstream(`${BASE}${fileUrl}`, { headers }, UPSTREAM_FILE_TIMEOUT_MS);
 }
 
 // ---- スケジュール（PC 経路） ----
