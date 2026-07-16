@@ -5,7 +5,7 @@
 import type { Env, UserState } from '../../types';
 import { decryptCredential } from '../../crypto/aes';
 import { writeState } from '../../store/kv';
-import { UpstreamError } from '../errors';
+import { UpstreamError, AuthFailedError } from '../errors';
 import { getMoodleToken, MoodleTokenError } from './access';
 
 /** Moodle 操作を token 確保＋失効時リトライ付きで実行する。 */
@@ -39,7 +39,16 @@ export async function withMoodleToken<T>(
     return await op(token, moodleOrigin);
   } catch (e) {
     if (!(e instanceof MoodleTokenError)) throw e;
+    // 失効 → 再取得 → 1回だけリトライ。
     const fresh = await refreshToken();
-    return op(fresh, moodleOrigin);
+    try {
+      return await op(fresh, moodleOrigin);
+    } catch (e2) {
+      if (e2 instanceof MoodleTokenError) {
+        // 再取得後も token 失効 → 上流メッセージは伏せ AuthFailedError に変換（router で 401 reauth_required）。
+        throw new AuthFailedError('Moodle token refresh failed twice');
+      }
+      throw e2;
+    }
   }
 }
