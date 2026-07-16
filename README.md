@@ -71,6 +71,34 @@ CRED_KEY=ローカル用のランダム文字列
 SESSION_SECRET=別のローカル用ランダム文字列
 ```
 
+#### シークレットのローテーション
+
+漏洩時やローテーションポリシー上で鍵を差し替える場合の手順と影響。2 つの鍵は
+用途が独立しており、影響範囲も別々になる（[実装] `src/crypto/aes.ts` /
+`src/session/cookie.ts`）。
+
+- **`CRED_KEY`（credential 暗号化鍵, AES-GCM）を差し替えると、KV に保存済みの全
+  credential が復号不能になる。** 鍵はバージョン管理しておらず（過剰実装を避けるため
+  dual-key/鍵バージョン方式は採らない）、旧鍵で暗号化された暗号文は新鍵では復号できない。
+  結果として**全ユーザーが再ログインするまで透過再ログインが失敗する**（ログイン時に
+  新鍵で暗号化し直されて回復する）。数人〜10 人規模の運用前提のため、この一斉再ログインは
+  許容コストとして受け入れる。
+- **`SESSION_SECRET`（session cookie 署名鍵, HMAC-SHA256）を差し替えると、発行済みの
+  全 session cookie の署名検証が失敗する。** つまり**全ユーザーがログアウト状態になり
+  再ログインが必要**になる。credential 自体（KV）は無傷なので、再ログインすれば
+  そのまま使える。
+
+```sh
+cd worker
+# どちらか一方、または両方を差し替える（値は新しいランダム文字列にする）
+bunx wrangler secret put CRED_KEY        # → 全 credential が復号不能。全員の再ログインが必要
+bunx wrangler secret put SESSION_SECRET  # → 全 session 失効。全員の再ログインが必要
+```
+
+> KV の各ユーザー state には TTL（90 日 sliding、`src/store/kv.ts`）が付いており、
+> 書き込みのたびに延命される。鍵ローテーション後に再ログインしなかった孤児 state は
+> この TTL で自動失効する。
+
 ### 3. `APP_ORIGIN`
 
 `wrangler.toml` の `[vars] APP_ORIGIN` をフロントのオリジンに合わせる。

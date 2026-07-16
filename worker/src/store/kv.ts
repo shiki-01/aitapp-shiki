@@ -5,6 +5,14 @@
 
 import type { Env, UserState } from '../types';
 
+/**
+ * KV エントリの TTL（秒）。90 日。書き込みのたびに更新する sliding 方式なので、
+ * ログイン・上流 cookie 更新・moodle token 更新のある能動ユーザーの state は
+ * 都度延命され、卒業・退学等で使われなくなった state（孤児 state）は自動失効する。
+ * 別 key を分けず 1 key に集約している都合上、明示的な delete パスの代わりに使う。
+ */
+const STATE_TTL_SECONDS = 60 * 60 * 24 * 90;
+
 function key(userId: string): string {
   return `user:${userId}`;
 }
@@ -23,5 +31,7 @@ export async function writeState(
   userId: string,
   state: UserState,
 ): Promise<void> {
-  await env.USER_KV.put(key(userId), JSON.stringify(state));
+  await env.USER_KV.put(key(userId), JSON.stringify(state), {
+    expirationTtl: STATE_TTL_SECONDS,
+  });
 }
