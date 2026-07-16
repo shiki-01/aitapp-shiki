@@ -3,10 +3,13 @@
 export class ApiError extends Error {
   status: number;
   code?: string;
-  constructor(status: number, message: string, code?: string) {
+  // サーバーが発行した相関ID。ユーザーが問い合わせ時に伝えるとログ突合できる。
+  correlationId?: string;
+  constructor(status: number, message: string, code?: string, correlationId?: string) {
     super(message);
     this.status = status;
     this.code = code;
+    this.correlationId = correlationId;
   }
 }
 
