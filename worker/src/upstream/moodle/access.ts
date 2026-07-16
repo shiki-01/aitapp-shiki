@@ -6,6 +6,23 @@
 
 import type { Credential } from '../../types';
 import { UpstreamError } from '../errors';
+import {
+  parseMoodleResponse,
+  TokenResponseSchema,
+  SiteInfoSchema,
+  UserCoursesSchema,
+  AssignmentsResponseSchema,
+  SubmissionStatusSchema,
+  QuizListResponseSchema,
+  QuizAccessInfoSchema,
+  UserAttemptsSchema,
+  StartAttemptResponseSchema,
+  StartedAttemptSchema,
+  AttemptDataSchema,
+  AttemptReviewSchema,
+  DraftItemIdSchema,
+  ResourcesResponseSchema,
+} from './schemas';
 
 const WEBSERVICE = '/webservice/rest/server.php';
 const UPLOAD_ENDPOINT = '/webservice/upload.php';
@@ -111,7 +128,7 @@ export async function getMoodleToken(
   if (res.status !== 200) {
     throw new UpstreamError(`Moodle token error: statusCode=${res.status}`);
   }
-  const data = (await res.json()) as { token?: string; error?: string };
+  const data = parseMoodleResponse(TokenResponseSchema, await res.json(), 'token');
   if (data.error) {
     throw new UpstreamError(`Moodle token error: ${data.error}`);
   }
@@ -144,14 +161,19 @@ interface RawUserCourse {
  * quiz/resources 系ツールが要求する courseId の取得起点になる。
  */
 export async function getUserCourses(origin: string, token: string): Promise<MoodleCourse[]> {
-  const site = await callMoodleApi<RawSiteInfo>(origin, token, 'core_webservice_get_site_info', {});
-  const courses = await callMoodleApi<RawUserCourse[]>(
-    origin,
-    token,
-    'core_enrol_get_users_courses',
-    { userid: String(site.userid) },
+  const site = parseMoodleResponse(
+    SiteInfoSchema,
+    await callMoodleApi<RawSiteInfo>(origin, token, 'core_webservice_get_site_info', {}),
+    'core_webservice_get_site_info',
   );
-  return (courses ?? []).map((course) => ({
+  const courses = parseMoodleResponse(
+    UserCoursesSchema,
+    await callMoodleApi<RawUserCourse[]>(origin, token, 'core_enrol_get_users_courses', {
+      userid: String(site.userid),
+    }),
+    'core_enrol_get_users_courses',
+  );
+  return courses.map((course) => ({
     id: course.id,
     fullName: course.fullname,
     shortName: course.shortname,
@@ -203,9 +225,10 @@ export async function getMoodleAssignments(
     throw new UpstreamError(`Moodle assignments error: ${data.message ?? data.exception}`);
   }
 
+  const parsed = parseMoodleResponse(AssignmentsResponseSchema, data, 'mod_assign_get_assignments');
   const out: MoodleAssignment[] = [];
-  for (const course of data.courses ?? []) {
-    for (const a of course.assignments ?? []) {
+  for (const course of parsed.courses) {
+    for (const a of course.assignments) {
       const epochMs = a.duedate * 1000;
       const cutoffEpochMs = (a.cutoffdate ?? 0) * 1000;
       out.push({
@@ -256,11 +279,12 @@ export async function getAssignSubmissionStatus(
   token: string,
   assignmentId: number,
 ): Promise<AssignSubmissionStatus> {
-  const data = await callMoodleApi<RawSubmissionStatus>(
-    origin,
-    token,
+  const data = parseMoodleResponse(
+    SubmissionStatusSchema,
+    await callMoodleApi<RawSubmissionStatus>(origin, token, 'mod_assign_get_submission_status', {
+      assignid: String(assignmentId),
+    }),
     'mod_assign_get_submission_status',
-    { assignid: String(assignmentId) },
   );
   const attempt = data.lastattempt;
   const submission = attempt?.submission ?? attempt?.teamsubmission;
@@ -422,13 +446,14 @@ export async function getQuizInfoByCourse(
   courseId: number,
   filter?: QuizInfoFilter,
 ): Promise<QuizInfoResult> {
-  const quizzes = await callMoodleApi<{ quizzes: RawQuiz[] }>(
-    origin,
-    token,
+  const quizzes = parseMoodleResponse(
+    QuizListResponseSchema,
+    await callMoodleApi<{ quizzes: RawQuiz[] }>(origin, token, 'mod_quiz_get_quizzes_by_courses', {
+      'courseids[0]': String(courseId),
+    }),
     'mod_quiz_get_quizzes_by_courses',
-    { 'courseids[0]': String(courseId) },
   );
-  let list = quizzes.quizzes ?? [];
+  let list = quizzes.quizzes;
   if (filter?.quizId !== undefined) {
     list = list.filter((q) => q.id === filter.quizId);
   }
@@ -443,11 +468,12 @@ export async function getQuizInfoByCourse(
     let canAttempt: boolean | null = null;
     let preventAccessReasons: string[] = [];
     if (accessInfoIncluded) {
-      const access = await callMoodleApi<RawQuizAccessInfo>(
-        origin,
-        token,
+      const access = parseMoodleResponse(
+        QuizAccessInfoSchema,
+        await callMoodleApi<RawQuizAccessInfo>(origin, token, 'mod_quiz_get_quiz_access_information', {
+          quizid: String(q.id),
+        }),
         'mod_quiz_get_quiz_access_information',
-        { quizid: String(q.id) },
       );
       canAttempt = access.canattempt;
       preventAccessReasons = access.preventaccessreasons ?? [];
@@ -542,13 +568,12 @@ export async function getQuizzesWithStatus(
   token: string,
   filter?: QuizStatusFilter,
 ): Promise<QuizStatusResult> {
-  const data = await callMoodleApi<{ quizzes: RawQuiz[] }>(
-    origin,
-    token,
+  const data = parseMoodleResponse(
+    QuizListResponseSchema,
+    await callMoodleApi<{ quizzes: RawQuiz[] }>(origin, token, 'mod_quiz_get_quizzes_by_courses', {}),
     'mod_quiz_get_quizzes_by_courses',
-    {},
   );
-  let list = data.quizzes ?? [];
+  let list = data.quizzes;
   if (filter?.quizId !== undefined) {
     list = list.filter((q) => q.id === filter.quizId);
   }
@@ -586,11 +611,13 @@ export async function getQuizzesWithStatus(
     let inProgressAttemptId: number | null = null;
     let lastFinishedAt: string | null = null;
     if (statusIncluded) {
-      const res = await callMoodleApi<{ attempts?: RawUserAttempt[] }>(
-        origin,
-        token,
+      const res = parseMoodleResponse(
+        UserAttemptsSchema,
+        await callMoodleApi<{ attempts?: RawUserAttempt[] }>(origin, token, 'mod_quiz_get_user_attempts', {
+          quizid: String(q.id),
+          status: 'all',
+        }),
         'mod_quiz_get_user_attempts',
-        { quizid: String(q.id), status: 'all' },
       );
       const attempts = res.attempts ?? [];
       const finishedList = attempts.filter((a) => a.state === 'finished');
@@ -633,12 +660,6 @@ export interface MoodleQuizQuestion {
   html: string;
 }
 
-interface RawQuizAttempt {
-  id: number;
-  quiz: number;
-  attempt: number;
-  state: string;
-}
 interface RawQuizQuestion {
   slot: number;
   page: number;
@@ -650,13 +671,6 @@ interface RawWarning {
   itemid?: number;
   warningcode?: string;
   message?: string;
-}
-
-// 受験できない場合、mod_quiz_start_attempt は Moodle exception を投げず
-// HTTP 200 で `attempt: []`（空配列）+ `warnings` を返す（実データで確認済み）。
-// そのため `attempt` がオブジェクトかどうかを明示的に判定する必要がある。
-function isStartedAttempt(attempt: unknown): attempt is RawQuizAttempt {
-  return typeof attempt === 'object' && attempt !== null && !Array.isArray(attempt);
 }
 
 /**
@@ -673,11 +687,13 @@ export async function getAttemptQuestions(
   let page = 0;
   const MAX_PAGES = 50;
   for (let i = 0; i < MAX_PAGES; i++) {
-    const data = await callMoodleApi<{ questions: RawQuizQuestion[]; nextpage: number }>(
-      origin,
-      token,
+    const data = parseMoodleResponse(
+      AttemptDataSchema,
+      await callMoodleApi<{ questions: RawQuizQuestion[]; nextpage: number }>(origin, token, 'mod_quiz_get_attempt_data', {
+        attemptid: String(attemptId),
+        page: String(page),
+      }),
       'mod_quiz_get_attempt_data',
-      { attemptid: String(attemptId), page: String(page) },
     );
     out.push(...(data.questions ?? []));
     if (data.nextpage === -1 || data.nextpage === undefined) break;
@@ -697,17 +713,22 @@ export async function startQuizAttempt(
   token: string,
   quizId: number,
 ): Promise<{ attempt: MoodleQuizAttempt; questions: MoodleQuizQuestion[] }> {
-  const started = await callMoodleApi<{ attempt: unknown; warnings?: RawWarning[] }>(
-    origin,
-    token,
+  const started = parseMoodleResponse(
+    StartAttemptResponseSchema,
+    await callMoodleApi<{ attempt: unknown; warnings?: RawWarning[] }>(origin, token, 'mod_quiz_start_attempt', {
+      quizid: String(quizId),
+    }),
     'mod_quiz_start_attempt',
-    { quizid: String(quizId) },
   );
-  if (!isStartedAttempt(started.attempt)) {
+  // 受験できない場合、mod_quiz_start_attempt は Moodle exception を投げず HTTP 200 で
+  // `attempt: []`（空配列）+ `warnings` を返す（実データで確認済み）。attempt が正規の
+  // 受験オブジェクトでなければ business error として warnings を伝える。
+  const startedAttempt = StartedAttemptSchema.safeParse(started.attempt);
+  if (!startedAttempt.success) {
     const reason = started.warnings?.[0]?.message ?? '受験を開始できませんでした';
     throw new UpstreamError(`Moodle mod_quiz_start_attempt error: ${reason}`);
   }
-  const attempt = started.attempt;
+  const attempt = startedAttempt.data;
   const questions = await getAttemptQuestions(origin, token, attempt.id);
   return {
     attempt: { id: attempt.id, quizId: attempt.quiz, attemptNumber: attempt.attempt, state: attempt.state },
@@ -835,14 +856,18 @@ export async function getQuizAttemptReview(
   token: string,
   attemptId: number,
 ): Promise<QuizAttemptReview> {
-  const data = await callMoodleApi<{
-    grade?: string | number;
-    attempt: RawQuizReviewAttempt;
-    questions?: RawQuizReviewQuestion[];
-  }>(origin, token, 'mod_quiz_get_attempt_review', {
-    attemptid: String(attemptId),
-    page: '-1',
-  });
+  const data = parseMoodleResponse(
+    AttemptReviewSchema,
+    await callMoodleApi<{
+      grade?: string | number;
+      attempt: RawQuizReviewAttempt;
+      questions?: RawQuizReviewQuestion[];
+    }>(origin, token, 'mod_quiz_get_attempt_review', {
+      attemptid: String(attemptId),
+      page: '-1',
+    }),
+    'mod_quiz_get_attempt_review',
+  );
   return {
     grade: data.grade != null ? String(data.grade) : null,
     attempt: data.attempt,
@@ -882,11 +907,10 @@ export async function saveAssignTextDraft(
 
 /** ファイル添付先の空draft area itemidを発行する。core_files_get_unused_draft_itemid。 */
 export async function getUnusedDraftItemId(origin: string, token: string): Promise<number> {
-  const data = await callMoodleApi<{ itemid: number }>(
-    origin,
-    token,
+  const data = parseMoodleResponse(
+    DraftItemIdSchema,
+    await callMoodleApi<{ itemid: number }>(origin, token, 'core_files_get_unused_draft_itemid', {}),
     'core_files_get_unused_draft_itemid',
-    {},
   );
   return data.itemid;
 }
@@ -979,14 +1003,15 @@ export async function getCourseResources(
   token: string,
   courseId: number,
 ): Promise<MoodleCourseFile[]> {
-  const data = await callMoodleApi<{ resources: RawResource[] }>(
-    origin,
-    token,
+  const data = parseMoodleResponse(
+    ResourcesResponseSchema,
+    await callMoodleApi<{ resources: RawResource[] }>(origin, token, 'mod_resource_get_resources_by_courses', {
+      'courseids[0]': String(courseId),
+    }),
     'mod_resource_get_resources_by_courses',
-    { 'courseids[0]': String(courseId) },
   );
   const out: MoodleCourseFile[] = [];
-  for (const r of data.resources ?? []) {
+  for (const r of data.resources) {
     for (const f of r.contentfiles ?? []) {
       out.push({
         name: r.name,
