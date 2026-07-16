@@ -16,6 +16,14 @@ export class AuthFailedError extends Error {
   }
 }
 
+/** Moodle token が失効しているときに投げる（token 版の再取得→リトライは withMoodleToken が行う）。 */
+export class MoodleTokenError extends Error {
+  constructor(message = 'moodle token invalid') {
+    super(message);
+    this.name = 'MoodleTokenError';
+  }
+}
+
 /** 上流からの HTTP ステータス異常など、データ取得に失敗したときに投げる。 */
 export class UpstreamError extends Error {
   constructor(message: string) {

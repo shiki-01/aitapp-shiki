@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolClient } from '../tool-client';
 import type { EnqueteList, EnqueteAnswerForm } from '../types';
+import { CONFIRM_FINAL_SUBMIT } from '../../../shared/contract';
 
 function json(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
@@ -119,12 +120,12 @@ export function registerEnqueteTools(server: McpServer, client: ToolClient): voi
       },
     },
     async ({ index, answers, confirm }) => {
-      if (confirm !== 'CONFIRM_FINAL_SUBMIT') {
+      if (confirm !== CONFIRM_FINAL_SUBMIT) {
         return json({
           ok: false,
           error:
             'confirmed_required: ユーザーから最終提出について改めて明示的な同意を得た上で ' +
-            'confirm="CONFIRM_FINAL_SUBMIT" を渡してください。取り消しが難しい書き込み操作のため、' +
+            `confirm="${CONFIRM_FINAL_SUBMIT}" を渡してください。取り消しが難しい書き込み操作のため、` +
             '同意なしには実行しません。',
         });
       }

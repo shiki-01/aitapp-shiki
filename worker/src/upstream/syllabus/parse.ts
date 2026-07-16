@@ -4,45 +4,14 @@
 import { type HTMLElement, parseHtml, nodeText, selAll } from '../../html/parser';
 import { NotFoundError, UpstreamError } from '../errors';
 
-export interface SyllabusFilters {
-  year: Record<string, string>;
-  folder: Record<string, string>;
-  campus: Record<string, string>;
-  hour: Record<string, string>;
-  week: Record<string, string>;
-  semester: Record<string, string>;
-}
-
-export interface SyllabusListItem {
-  unitsNumber: number;
-  classification: string;
-  teacher: string;
-  subject: string;
-  url: string;
-}
-
-export interface Teacher {
-  name: string;
-  ruby: string;
-}
-
-export interface SyllabusDetail {
-  unitsNumber: number;
-  classification: string;
-  teachers: Teacher[];
-  semester: string;
-  content: string[];
-  subject: string;
-  classPeriod: string;
-  classRoom: string;
-  plan: string[];
-  learningGoal: string;
-  features: string;
-  records: string;
-  teachersMessage: string;
-  textBook: string;
-  referenceBook: string;
-}
+// 契約型は shared/contract.ts に集約。ここでは取り込んで再エクスポートする。
+import type {
+  SyllabusFilters,
+  SyllabusListItem,
+  Teacher,
+  SyllabusDetail,
+} from '../../../../shared/contract';
+export type { SyllabusFilters, SyllabusListItem, Teacher, SyllabusDetail };
 
 /** set-cookie 群から先頭の `name=value`（JSESSIONID）を返す。 */
 export function extractSyllabusCookie(res: Response): string {

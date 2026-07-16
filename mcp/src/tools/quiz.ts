@@ -8,6 +8,7 @@ import type {
   MoodleQuizStart,
   QuizStatusResponse,
 } from '../types';
+import { CONFIRM_FINISH_ATTEMPT } from '../../../shared/contract';
 
 function json(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
@@ -182,11 +183,11 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
       },
     },
     async ({ attemptId, confirm }) => {
-      if (confirm !== 'CONFIRM_FINISH_ATTEMPT') {
+      if (confirm !== CONFIRM_FINISH_ATTEMPT) {
         return json({
           ok: false,
           error:
-            'confirmed_required: ユーザーの明示的な同意を得た上で confirm="CONFIRM_FINISH_ATTEMPT" ' +
+            `confirmed_required: ユーザーの明示的な同意を得た上で confirm="${CONFIRM_FINISH_ATTEMPT}" ` +
             'を渡してください。取り消し不可の書き込み操作のため、同意なしには実行しません。',
         });
       }

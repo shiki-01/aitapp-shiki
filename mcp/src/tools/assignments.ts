@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolClient } from '../tool-client';
 import type { Assignment, AssignmentStatusResponse } from '../types';
+import { CONFIRM_SUBMIT_ASSIGNMENT } from '../../../shared/contract';
 
 function json(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
@@ -192,11 +193,11 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
       },
     },
     async ({ assignmentId, confirm }) => {
-      if (confirm !== 'CONFIRM_SUBMIT_ASSIGNMENT') {
+      if (confirm !== CONFIRM_SUBMIT_ASSIGNMENT) {
         return json({
           ok: false,
           error:
-            'confirmed_required: ユーザーの明示的な同意を得た上で confirm="CONFIRM_SUBMIT_ASSIGNMENT" ' +
+            `confirmed_required: ユーザーの明示的な同意を得た上で confirm="${CONFIRM_SUBMIT_ASSIGNMENT}" ` +
             'を渡してください。取り消し不可の書き込み操作のため、同意なしには実行しません。',
         });
       }

@@ -66,10 +66,16 @@ import {
 } from './upstream/syllabus/parse';
 import {
   AuthFailedError,
+  MoodleTokenError,
   NotFoundError,
   UpstreamError,
   ValidationError,
 } from './upstream/errors';
+import {
+  CONFIRM_FINAL_SUBMIT,
+  CONFIRM_FINISH_ATTEMPT,
+  CONFIRM_SUBMIT_ASSIGNMENT,
+} from '../../shared/contract';
 import { handleMcpRequest } from './mcp/handler';
 
 type Variables = { userId: string; state: UserState };
@@ -393,9 +399,9 @@ app.post('/api/enquetes/submit', async (c) => {
   } catch {
     return c.json({ error: 'invalid body' }, 400);
   }
-  if (bodyIn.confirm !== 'CONFIRM_FINAL_SUBMIT') {
+  if (bodyIn.confirm !== CONFIRM_FINAL_SUBMIT) {
     return c.json(
-      { error: 'confirm_required', message: 'confirm に "CONFIRM_FINAL_SUBMIT" を指定してください' },
+      { error: 'confirm_required', message: `confirm に "${CONFIRM_FINAL_SUBMIT}" を指定してください` },
       400,
     );
   }
@@ -619,9 +625,9 @@ app.post('/api/moodle/quiz/finish', async (c) => {
   } catch {
     return c.json({ error: 'invalid body' }, 400);
   }
-  if (bodyIn.confirm !== 'CONFIRM_FINISH_ATTEMPT') {
+  if (bodyIn.confirm !== CONFIRM_FINISH_ATTEMPT) {
     return c.json(
-      { error: 'confirm_required', message: 'confirm に "CONFIRM_FINISH_ATTEMPT" を指定してください' },
+      { error: 'confirm_required', message: `confirm に "${CONFIRM_FINISH_ATTEMPT}" を指定してください` },
       400,
     );
   }
@@ -689,9 +695,9 @@ app.post('/api/moodle/assignment/submit', async (c) => {
   } catch {
     return c.json({ error: 'invalid body' }, 400);
   }
-  if (bodyIn.confirm !== 'CONFIRM_SUBMIT_ASSIGNMENT') {
+  if (bodyIn.confirm !== CONFIRM_SUBMIT_ASSIGNMENT) {
     return c.json(
-      { error: 'confirm_required', message: 'confirm に "CONFIRM_SUBMIT_ASSIGNMENT" を指定してください' },
+      { error: 'confirm_required', message: `confirm に "${CONFIRM_SUBMIT_ASSIGNMENT}" を指定してください` },
       400,
     );
   }
@@ -890,6 +896,11 @@ app.onError((err, c) => {
   // 診断用: 全エラーを種別とメッセージ付きでログ出力する。
   console.log(`[error] ${c.req.method} ${path} -> ${err.name}: ${err.message}`);
   if (err instanceof AuthFailedError) {
+    return c.json({ error: 'reauth_required', message: err.message }, 401);
+  }
+  // Moodle token の再取得リトライでも回復できなかった場合（AuthFailedError と同様に
+  // 再認証が必要な状態）。taxonomy を揃えるため reauth_required(401) に集約する。
+  if (err instanceof MoodleTokenError) {
     return c.json({ error: 'reauth_required', message: err.message }, 401);
   }
   if (err instanceof NotFoundError) {

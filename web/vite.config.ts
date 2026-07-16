@@ -8,5 +8,10 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // 契約型の単一情報源 ../shared/contract.ts（web/ の外）を dev サーバーから
+    // 読めるように許可する（build/svelte-check には影響しない）。
+    fs: {
+      allow: ['..'],
+    },
   },
 });

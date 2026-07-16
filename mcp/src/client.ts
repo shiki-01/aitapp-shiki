@@ -89,10 +89,11 @@ export class WorkerClient implements ToolClient {
   }
 
   /**
-   * JSON API 呼び出し。401（session無効/失効）を検知したら1回だけ再ログインして
-   * リトライし、それでも失敗したらエラーをそのまま呼び出し元に返す。
+   * rawRequest に「401（session無効/失効）を検知したら1回だけ再ログインして
+   * リトライする」共通処理を被せる。JSON/ダウンロード各呼び出しで共有する
+   * （直列化・keep-alive・自動復旧はしない）。
    */
-  async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private async requestWithRelogin(path: string, init: RequestInit = {}): Promise<Response> {
     let res = await this.rawRequest(path, init);
     if (res.status === 401) {
       this.cookie = undefined;
@@ -100,6 +101,15 @@ export class WorkerClient implements ToolClient {
       await this.login();
       res = await this.rawRequest(path, init);
     }
+    return res;
+  }
+
+  /**
+   * JSON API 呼び出し。401 なら1回だけ再ログインしてリトライし、
+   * それでも失敗したらエラーをそのまま呼び出し元に返す。
+   */
+  async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const res = await this.requestWithRelogin(path, init);
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
       throw new ApiError(res.status, body.message ?? body.error ?? `HTTP ${res.status}`, body.error);
@@ -124,13 +134,7 @@ export class WorkerClient implements ToolClient {
     suggestedName: string,
   ): Promise<DownloadedFile> {
     const id = this.fileId(relativePath);
-    let res = await this.rawRequest(`/api/file/${id}`);
-    if (res.status === 401) {
-      this.cookie = undefined;
-      this.loginInFlight = undefined;
-      await this.login();
-      res = await this.rawRequest(`/api/file/${id}`);
-    }
+    const res = await this.requestWithRelogin(`/api/file/${id}`);
     if (!res.ok) {
       throw new ApiError(res.status, `attachment download failed: HTTP ${res.status}`);
     }
@@ -152,13 +156,7 @@ export class WorkerClient implements ToolClient {
     suggestedName: string,
   ): Promise<DownloadedFile> {
     const path = `/api/moodle/file?url=${encodeURIComponent(fileUrl)}`;
-    let res = await this.rawRequest(path);
-    if (res.status === 401) {
-      this.cookie = undefined;
-      this.loginInFlight = undefined;
-      await this.login();
-      res = await this.rawRequest(path);
-    }
+    const res = await this.requestWithRelogin(path);
     if (!res.ok) {
       throw new ApiError(res.status, `Moodle file download failed: HTTP ${res.status}`);
     }
