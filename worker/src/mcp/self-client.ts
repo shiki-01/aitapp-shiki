@@ -39,6 +39,11 @@ export class SelfClient implements ToolClient {
     private readonly dispatch: Dispatch,
   ) {}
 
+  /** out-of-band 確認秘密（worker の CONFIRM_SECRET 由来）。モデル引数からは取らない。 */
+  get confirmSecret(): string {
+    return this.env.CONFIRM_SECRET ?? '';
+  }
+
   private origin(): string {
     return this.env.APP_ORIGIN ?? 'http://localhost:5173';
   }

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolClient } from '../tool-client';
+import { resolveConfirm } from './confirm';
 import type { EnqueteList, EnqueteAnswerForm } from '../types';
 
 function json(data: unknown) {
@@ -57,8 +58,9 @@ export function registerEnqueteTools(server: McpServer, client: ToolClient): voi
         '【注意】これは大学のLCAMシステムに実際に回答を一時保存(tempSaveAction)する書き込み操作。' +
         '実データでの動作は確認済みだが、誤って実行すると本物の課題/アンケートに下書きが残る。' +
         'lcam_get_enquete_questionsで設問(answerType="text"のもの)を確認し、' +
-        'ユーザーから明示的な同意を得てから、confirmに厳密に"CONFIRM_SUBMIT"という文字列を' +
-        '渡したときのみ実行される。それ以外の値ではAPIを呼ばずエラーを返す。' +
+        'ユーザーから明示的な同意を得た上で呼び出すこと。実行の可否は、人間が MCP ホストに設定した' +
+        'out-of-band の確認秘密を worker が検証して決める（このツールに確認用の引数は無く、' +
+        'モデルからは秘密を指定できない。秘密が未設定なら実行前にエラーになる）。' +
         '最終提出(確認画面を経由した提出)には未対応で、一時保存までしか行わない' +
         '(一時保存は取り消し・再保存が可能)。',
       inputSchema: {
@@ -66,24 +68,16 @@ export function registerEnqueteTools(server: McpServer, client: ToolClient): voi
         answers: z
           .record(z.string(), z.string())
           .describe('設問index(文字列、lcam_get_enquete_questionsのindexと対応)→回答文字列'),
-        confirm: z
-          .string()
-          .describe('実行するには厳密に "CONFIRM_SUBMIT" を渡す。ユーザーの明示的な同意なしに渡さないこと。'),
       },
     },
-    async ({ index, answers, confirm }) => {
-      if (confirm !== 'CONFIRM_SUBMIT') {
-        return json({
-          ok: false,
-          error:
-            'confirmed_required: ユーザーの明示的な同意を得た上で confirm="CONFIRM_SUBMIT" を渡してください。' +
-            '未検証の書き込み操作のため、同意なしには実行しません。',
-        });
-      }
+    async ({ index, answers }) => {
+      // 確認秘密は config/env（out-of-band）から取り、LLM 引数からは取らない。
+      const gate = resolveConfirm(client);
+      if (!gate.ok) return json({ ok: false, error: gate.message });
       const res = await client.request<{ ok: boolean }>('/api/enquetes/answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index, answers }),
+        body: JSON.stringify({ index, answers, confirm: gate.confirm }),
       });
       return json(res);
     },
@@ -99,39 +93,27 @@ export function registerEnqueteTools(server: McpServer, client: ToolClient): voi
         '取り消しには別途LCAM上での「回答取消」操作が必要になる(自動では取り消さない)。' +
         '実データで動作確認済み。' +
         '必ず: (1) lcam_get_enquete_questionsで設問を確認し、(2) 回答内容をユーザーに明示的に見せて、' +
-        '(3) 「最終提出してよいか」の同意を都度得た上で、confirmに厳密に' +
-        '"CONFIRM_FINAL_SUBMIT"という文字列を渡したときのみ実行すること。' +
+        '(3) 「最終提出してよいか」の同意を都度得た上で呼び出すこと。' +
         'lcam_save_class_enquete_answer_draftで過去に同意を得ていても、このツールの実行には' +
         '改めて同意を得ること（一時保存と最終提出は別の同意が必要）。' +
-        'それ以外のconfirm値ではAPIを呼ばずエラーを返す。',
+        '実行の可否は、人間が MCP ホストに設定した out-of-band の確認秘密を worker が検証して決める' +
+        '（このツールに確認用の引数は無く、モデルからは秘密を指定できない。' +
+        '秘密が未設定なら実行前にエラーになる）。',
       inputSchema: {
         index: z.number().int().min(0).describe('lcam_list_enquetesの結果内での0始まりの並び順'),
         answers: z
           .record(z.string(), z.string())
           .describe('設問index(文字列、lcam_get_enquete_questionsのindexと対応)→回答文字列'),
-        confirm: z
-          .string()
-          .describe(
-            '実行するには厳密に "CONFIRM_FINAL_SUBMIT" を渡す。' +
-              'lcam_save_class_enquete_answer_draftのCONFIRM_SUBMITとは別物であり、' +
-              'このツール専用に改めてユーザーの明示的な同意を得てから渡すこと。',
-          ),
       },
     },
-    async ({ index, answers, confirm }) => {
-      if (confirm !== 'CONFIRM_FINAL_SUBMIT') {
-        return json({
-          ok: false,
-          error:
-            'confirmed_required: ユーザーから最終提出について改めて明示的な同意を得た上で ' +
-            'confirm="CONFIRM_FINAL_SUBMIT" を渡してください。取り消しが難しい書き込み操作のため、' +
-            '同意なしには実行しません。',
-        });
-      }
+    async ({ index, answers }) => {
+      // 確認秘密は config/env（out-of-band）から取り、LLM 引数からは取らない。
+      const gate = resolveConfirm(client);
+      if (!gate.ok) return json({ ok: false, error: gate.message });
       const res = await client.request<{ ok: boolean }>('/api/enquetes/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index, answers, confirm }),
+        body: JSON.stringify({ index, answers, confirm: gate.confirm }),
       });
       return json(res);
     },

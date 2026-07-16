@@ -17,6 +17,14 @@ export interface DownloadedFile {
 }
 
 export interface ToolClient {
+  /**
+   * 不可逆/取り消しにくい書き込み操作の out-of-band 確認秘密。
+   * 人間が MCP ホストの設定（stdio は env `AITAPP_CONFIRM_SECRET`、`/mcp` は worker の
+   * `CONFIRM_SECRET`）に入れた値で、モデルからは見えない・指定できない。ツール実装はこれを
+   * worker へ転送するだけで、値そのものは決して LLM 由来の引数から取らない。
+   * 未設定なら空文字（＝書き込みツールは実行前にエラーを返す）。
+   */
+  readonly confirmSecret: string;
   /** worker の JSON API 呼び出し。session 失効時は1回だけ再ログインしてリトライする。 */
   request<T>(path: string, init?: RequestInit): Promise<T>;
   /** LCAM 連絡の添付ファイルを取得する。 */

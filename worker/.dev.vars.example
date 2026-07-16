@@ -3,6 +3,11 @@
 CRED_KEY=
 SESSION_SECRET=
 
+# 不可逆/取り消しにくい書き込み操作（クイズ受験開始・確定、課題の下書き保存・
+# ファイル添付・最終提出、アンケート提出）の out-of-band 確認秘密。
+# MCP ホスト側の AITAPP_CONFIRM_SECRET と同一値にする。未設定だと該当書き込みは常に拒否される。
+CONFIRM_SECRET=
+
 # 任意。設定するとログイン時にクライアント指定の moodleOrigin を無視し、常にこの値を使う。
 # ローカル開発でサンドボックス Moodle に固定したい場合に使う（本番では設定しない）。
 MOODLE_ORIGIN_OVERRIDE=

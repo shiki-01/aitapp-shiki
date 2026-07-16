@@ -62,6 +62,10 @@ bunx wrangler kv namespace create USER_KV --preview
 # 任意の十分に長いランダム文字列を投入する（例: openssl rand -base64 48）
 bunx wrangler secret put CRED_KEY
 bunx wrangler secret put SESSION_SECRET
+# 不可逆/取り消しにくい書き込み操作（クイズ受験開始・確定、課題の下書き保存・
+# ファイル添付・最終提出、アンケート提出）を許可するための out-of-band 確認秘密。
+# MCP ホストの AITAPP_CONFIRM_SECRET と同一値にする。未設定だと該当書き込みは常に拒否される。
+bunx wrangler secret put CONFIRM_SECRET
 ```
 
 ローカル開発では `worker/.dev.vars` に置く（gitignore 済み）:
@@ -69,6 +73,7 @@ bunx wrangler secret put SESSION_SECRET
 ```
 CRED_KEY=ローカル用のランダム文字列
 SESSION_SECRET=別のローカル用ランダム文字列
+CONFIRM_SECRET=書き込み許可用のランダム文字列（MCPホストのAITAPP_CONFIRM_SECRETと同一値）
 ```
 
 ### 3. `APP_ORIGIN`
@@ -109,6 +114,12 @@ bunx wrangler secret put AITAPP_MOODLE_ORIGIN   # 例: cms.aitech.ac.jp
 #   bunx wrangler secret put AITAPP_MOODLE_ID
 #   bunx wrangler secret put AITAPP_MOODLE_PASSWORD
 ```
+
+`/mcp` 経由で書き込み系ツール（クイズ・課題・アンケートの提出等）を使う場合は、
+上の「シークレットを登録」で設定した `CONFIRM_SECRET` が必須（未設定だと該当書き込みは
+常に拒否される）。`/mcp` 実行ではツール側の確認値も worker の `CONFIRM_SECRET` から
+供給されるため、別途 `AITAPP_CONFIRM_SECRET` を渡す必要はない（stdio 実行のときだけ
+MCP ホストの env に `AITAPP_CONFIRM_SECRET` を `CONFIRM_SECRET` と同一値で設定する）。
 
 未設定の間 `/mcp` は 404 を返すだけで、既存 API に影響しない。
 

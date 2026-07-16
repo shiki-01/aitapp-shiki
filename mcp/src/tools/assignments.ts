@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolClient } from '../tool-client';
+import { resolveConfirm } from './confirm';
 import type { Assignment, AssignmentStatusResponse } from '../types';
 
 function json(data: unknown) {
@@ -92,18 +93,25 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
       description:
         '【注意】これは実際にMoodle上で課題のオンラインテキスト提出を下書き保存' +
         '(mod_assign_save_submission、ファイル指定なし)する書き込み操作。' +
-        '本提出(moodle_submit_assignment)はしないため、何度でも上書き保存・修正できる。' +
-        'assignmentIdはmoodle_list_assignmentsが返すidを使う。',
+        '本提出(moodle_submit_assignment)はしないため、何度でも上書き保存・修正できるが、' +
+        'submissiondrafts=0 の課題では下書き段階が無く、この保存が即時の本提出扱いになりうる。' +
+        'assignmentIdはmoodle_list_assignmentsが返すidを使う。' +
+        'ユーザーの明示的な同意を得た上で呼び出すこと。実行の可否は、人間が MCP ホストに設定した' +
+        'out-of-band の確認秘密を worker が検証して決める（このツールに確認用の引数は無く、' +
+        'モデルからは秘密を指定できない。秘密が未設定なら実行前にエラーになる）。',
       inputSchema: {
         assignmentId: z.number().int(),
         text: z.string().describe('提出するテキスト本文'),
       },
     },
     async ({ assignmentId, text }) => {
+      // 確認秘密は config/env（out-of-band）から取り、LLM 引数からは取らない。
+      const gate = resolveConfirm(client);
+      if (!gate.ok) return json({ ok: false, error: gate.message });
       const res = await client.request<{ warnings: unknown[] }>('/api/moodle/assignment/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignmentId, text }),
+        body: JSON.stringify({ assignmentId, text, confirm: gate.confirm }),
       });
       return json(res);
     },
@@ -116,7 +124,11 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
       description:
         '【注意】これは実際にMoodle上で課題のファイル提出用draft areaにファイルを' +
         'アップロードし、提出物として紐付ける(mod_assign_save_submission)書き込み操作。' +
-        '本提出(moodle_submit_assignment)はしないため、再度呼び出せばファイルを差し替えられる。' +
+        '本提出(moodle_submit_assignment)はしないため、再度呼び出せばファイルを差し替えられるが、' +
+        'submissiondrafts=0 の課題では下書き段階が無く、このアップロードが即時の本提出扱いになりうる。' +
+        'ユーザーの明示的な同意を得た上で呼び出すこと。実行の可否は、人間が MCP ホストに設定した' +
+        'out-of-band の確認秘密を worker が検証して決める（このツールに確認用の引数は無く、' +
+        'モデルからは秘密を指定できない。秘密が未設定なら実行前にエラーになる）。' +
         'ローカル(stdio)実行時はfilePath(MCPサーバーが動作しているマシン上のパス)を使う。' +
         'リモート(HTTP)実行時はfilePathは使えないため、fileBase64とfileNameで内容を直接渡す。' +
         `usermaxuploadfilesize(約128MB)を超えるファイルはアップロードできない。`,
@@ -134,6 +146,9 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
       },
     },
     async ({ assignmentId, filePath, fileBase64, fileName }) => {
+      // 確認秘密は config/env（out-of-band）から取り、LLM 引数からは取らない。
+      const gate = resolveConfirm(client);
+      if (!gate.ok) return json({ ok: false, error: gate.message });
       let bytes: Uint8Array;
       let name: string;
       if (filePath) {
@@ -157,6 +172,7 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
       }
       const form = new FormData();
       form.append('assignmentId', String(assignmentId));
+      form.append('confirm', gate.confirm);
       // Uint8Array の generics(ArrayBufferLike)が BlobPart と合わないため ArrayBuffer に切り出す。
       const part = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
       form.append('file', new Blob([part]), name);
@@ -178,32 +194,22 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
         '事前にmoodle_save_assignment_draft / moodle_upload_assignment_fileで保存した内容が対象になる' +
         '（このツール自体には提出内容を渡さない）。' +
         '必ず: (1) 提出内容を保存済みであることを確認し、(2) 内容をユーザーに明示的に見せて、' +
-        '(3) 「このまま最終提出してよいか」の同意を得た上で、confirmに厳密に' +
-        '"CONFIRM_SUBMIT_ASSIGNMENT"という文字列を渡したときのみ実行すること。' +
-        'それ以外のconfirm値ではAPIを呼ばずエラーを返す。',
+        '(3) 「このまま最終提出してよいか」の同意を得た上で呼び出すこと。実行の可否は、' +
+        '人間が MCP ホストに設定した out-of-band の確認秘密を worker が検証して決める' +
+        '（このツールに確認用の引数は無く、モデルからは秘密を指定できない。' +
+        '秘密が未設定なら実行前にエラーになる）。',
       inputSchema: {
         assignmentId: z.number().int(),
-        confirm: z
-          .string()
-          .describe(
-            '実行するには厳密に "CONFIRM_SUBMIT_ASSIGNMENT" を渡す。取り消し不可の書き込み操作のため、' +
-              'ユーザーの明示的な同意なしに渡さないこと。',
-          ),
       },
     },
-    async ({ assignmentId, confirm }) => {
-      if (confirm !== 'CONFIRM_SUBMIT_ASSIGNMENT') {
-        return json({
-          ok: false,
-          error:
-            'confirmed_required: ユーザーの明示的な同意を得た上で confirm="CONFIRM_SUBMIT_ASSIGNMENT" ' +
-            'を渡してください。取り消し不可の書き込み操作のため、同意なしには実行しません。',
-        });
-      }
+    async ({ assignmentId }) => {
+      // 確認秘密は config/env（out-of-band）から取り、LLM 引数からは取らない。
+      const gate = resolveConfirm(client);
+      if (!gate.ok) return json({ ok: false, error: gate.message });
       const res = await client.request<{ warnings: unknown[] }>('/api/moodle/assignment/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignmentId, confirm }),
+        body: JSON.stringify({ assignmentId, confirm: gate.confirm }),
       });
       return json(res);
     },
