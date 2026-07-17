@@ -707,12 +707,18 @@ export async function getAttemptQuestions(
  * 【注意】この呼び出し自体が受験試行回数を1回消費する（取り消し不可）。
  * 受験不可の場合（時間外・試行回数超過等）は Moodle exception ではなく
  * `attempt: []` + warnings で返る仕様のため、その場合は UpstreamError にして呼び出し元へ伝える。
+ *
+ * 【重要】設問の取得（getAttemptQuestions）はこの関数に含めない。試行を消費する
+ * mod_quiz_start_attempt と非消費の設問取得を同一のリトライ単位（withMoodleToken）に
+ * まとめると、開始成功後の設問取得でトークンが失効した際に処理全体が再実行され、
+ * mod_quiz_start_attempt が二重に走って試行を二重消費する（取り消し不可）。
+ * そのため開始だけを1回実行し、設問取得は呼び出し側で別のリトライ単位として行う。
  */
 export async function startQuizAttempt(
   origin: string,
   token: string,
   quizId: number,
-): Promise<{ attempt: MoodleQuizAttempt; questions: MoodleQuizQuestion[] }> {
+): Promise<{ attempt: MoodleQuizAttempt }> {
   const started = await callMoodleApi<{ attempt: unknown; warnings?: RawWarning[] }>(
     origin,
     token,
@@ -724,10 +730,8 @@ export async function startQuizAttempt(
     throw new UpstreamError(`Moodle mod_quiz_start_attempt error: ${reason}`);
   }
   const attempt = started.attempt;
-  const questions = await getAttemptQuestions(origin, token, attempt.id);
   return {
     attempt: { id: attempt.id, quizId: attempt.quiz, attemptNumber: attempt.attempt, state: attempt.state },
-    questions: questions.map((q) => ({ slot: q.slot, page: q.page, type: q.type, html: q.html })),
   };
 }
 
@@ -782,10 +786,22 @@ export async function saveQuizAttempt(
 
   const merged = { ...seqChecks, ...answers };
   const pairs = Object.entries(merged).map(([name, value]) => ({ name, value }));
-  await callMoodleApi(origin, token, 'mod_quiz_save_attempt', {
+  // mod_quiz_save_attempt は保存に失敗しても Moodle exception を投げず、HTTP 200 で
+  // warnings を返すことがある。warnings の正確な形は 要検証 のため、保守的に
+  // 「warnings が非空なら保存が反映されなかったとみなし失敗扱い」とし、明確なエラーを投げる。
+  // （ここで握りつぶすと後続の finish が空の提出を確定してしまう。）
+  const saved = await callMoodleApi<{ warnings?: RawWarning[] }>(origin, token, 'mod_quiz_save_attempt', {
     attemptid: String(attemptId),
     ...indexedNameValuePairs('data', pairs),
   });
+  if (saved.warnings && saved.warnings.length > 0) {
+    const reason =
+      saved.warnings
+        .map((w) => w.message ?? w.warningcode ?? '')
+        .filter(Boolean)
+        .join('; ') || '回答の保存に失敗しました';
+    throw new UpstreamError(`Moodle mod_quiz_save_attempt warning: ${reason}`);
+  }
 
   // 保存が実際に反映されたかを検証する（{ok:true} の偽陽性を防ぐ）。
   const after = await getAttemptQuestions(origin, token, attemptId);

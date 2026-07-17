@@ -585,10 +585,17 @@ app.post('/api/moodle/quiz/start', async (c) => {
   if (typeof bodyIn.quizId !== 'number') return c.json({ error: 'quizId required' }, 400);
   const userId = c.get('userId');
   const state = c.get('state');
-  const result = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+  // 試行を消費する開始は1回だけ実行する（withMoodleToken の失効リトライは、
+  // 開始が invalidtoken で弾かれた＝未消費のケースのみ安全に再実行される）。
+  const { attempt } = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
     startQuizAttempt(moodleOrigin, token, bodyIn.quizId as number),
   );
-  return c.json({ attempt: result.attempt, questions: summarizeQuizQuestions(result.questions) });
+  // 設問取得は非消費なので、開始とは別のリトライ単位で行う。ここで失効しても
+  // 再実行されるのは設問取得のみで、開始（試行消費）が再実行されることはない。
+  const questions = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
+    getAttemptQuestions(moodleOrigin, token, attempt.id),
+  );
+  return c.json({ attempt, questions: summarizeQuizQuestions(questions) });
 });
 
 // ---- GET /api/moodle/quiz/questions?attemptId=（開始済みattemptの設問HTML全文・参照のみ） ----
