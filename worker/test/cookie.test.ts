@@ -7,7 +7,9 @@ import {
 
 const SECRET = 'session-secret-abcdef';
 
-const payload: SessionPayload = { uid: 's4200001', iat: 1700000000000 };
+// iat は現在時刻にする（#7 の iat 期限検証で 30 日超は失効するため、
+// 固定の過去時刻だと round-trip 検証が失効扱いになってしまう）。
+const payload: SessionPayload = { uid: 's4200001', iat: Date.now() };
 
 describe('session cookie の署名/検証', () => {
   it('sign→verify で payload が復元される', async () => {
