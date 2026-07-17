@@ -32,7 +32,8 @@
     persistDone();
   }
 
-  function fmt(iso: string): string {
+  function fmt(iso: string | null): string {
+    if (!iso) return '締切なし';
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '-';
     return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -73,9 +74,10 @@
       const isDone = done.has(a.id);
       switch (filter) {
         case 'upcoming':
-          return !isDone && a.dueEpochMs >= now;
+          // 締切なし（dueEpochMs=0）は期限切れではないため「これから」に含める。
+          return !isDone && (a.dueEpochMs === 0 || a.dueEpochMs >= now);
         case 'overdue':
-          return !isDone && a.dueEpochMs < now;
+          return !isDone && a.dueEpochMs !== 0 && a.dueEpochMs < now;
         case 'done':
           return isDone;
         default:
@@ -110,7 +112,7 @@
   <ul class="list">
     {#each list as a (a.id)}
       {@const isDone = done.has(a.id)}
-      {@const overdue = a.dueEpochMs < Date.now()}
+      {@const overdue = a.dueEpochMs !== 0 && a.dueEpochMs < Date.now()}
       <li class:done={isDone}>
         <button
           class="check"
@@ -126,7 +128,7 @@
           <div class="due" class:overdue={overdue && !isDone}>
             <Icon name="clock" size={13} color="currentColor" />
             <span>{fmt(a.dueDate)}</span>
-            {#if !isDone}<span class="rem">{remaining(a.dueEpochMs)}</span>{/if}
+            {#if !isDone && a.dueEpochMs !== 0}<span class="rem">{remaining(a.dueEpochMs)}</span>{/if}
           </div>
         </div>
       </li>

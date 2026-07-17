@@ -64,8 +64,9 @@ export interface Assignment {
   id: number;
   name: string;
   description: string;
-  dueDate: string;
-  dueEpochMs: number;
+  /** 締切日時（ISO）。締切なしの課題では null。 */
+  dueDate: string | null;
+  dueEpochMs: number; // 0 = 締切なし
   courseId: number;
   courseName: string;
 }

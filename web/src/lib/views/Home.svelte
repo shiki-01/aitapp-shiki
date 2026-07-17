@@ -67,14 +67,18 @@
     });
   });
 
+  // 締切なし（dueEpochMs=0）の課題も「これからの課題」に含める（期限切れではないため）。
   const upcoming = $derived(
-    [...assignments].filter((a) => a.dueEpochMs >= Date.now()).sort((a, b) => a.dueEpochMs - b.dueEpochMs),
+    [...assignments]
+      .filter((a) => a.dueEpochMs === 0 || a.dueEpochMs >= Date.now())
+      .sort((a, b) => (a.dueEpochMs || Number.MAX_SAFE_INTEGER) - (b.dueEpochMs || Number.MAX_SAFE_INTEGER)),
   );
 
   const latestNotices = $derived(notices.slice(0, 3));
   const recentMemos = $derived(memos.sorted.slice(0, 2));
 
   function fmtDue(epoch: number): string {
+    if (!epoch) return '締切なし';
     const d = new Date(epoch);
     return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }

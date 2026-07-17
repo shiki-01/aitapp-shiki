@@ -35,6 +35,19 @@ interface MoodleExceptionBody {
 }
 
 /**
+ * res.json() を安全にパースする。上流が 200 でも JSON 以外（メンテナンス画面・WAF・
+ * ログインリダイレクト等の HTML）を返すと res.json() は SyntaxError を投げるため、
+ * それを UpstreamError（502）に変換する（500 にしない）。
+ */
+async function parseJsonOrThrow<T>(res: Response, context: string): Promise<T> {
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new UpstreamError(`Moodle ${context} error: invalid JSON response`);
+  }
+}
+
+/**
  * Moodle webservice/rest/server.php への共通 POST 呼び出し。
  * `params` のキーは PHP 配列パラメータ（例: `data[0][name]`）をそのまま文字列で渡せる。
  */
@@ -57,7 +70,7 @@ async function callMoodleApi<T>(
   if (res.status !== 200) {
     throw new UpstreamError(`Moodle ${wsfunction} error: statusCode=${res.status}`);
   }
-  const data = (await res.json()) as T & MoodleExceptionBody;
+  const data = await parseJsonOrThrow<T & MoodleExceptionBody>(res, wsfunction);
   if (data && typeof data === 'object' && !Array.isArray(data) && 'exception' in data) {
     if (data.errorcode === 'invalidtoken') {
       throw new MoodleTokenError(data.message ?? data.errorcode);
@@ -84,8 +97,9 @@ export interface MoodleAssignment {
   id: number;
   name: string;
   description: string;
-  dueDate: string; // ISO
-  dueEpochMs: number;
+  /** 締切日時（ISO）。duedate が 0/未設定/非有限のときは null（締切なし）。 */
+  dueDate: string | null;
+  dueEpochMs: number; // 0 = 締切なし
   /** 提出受付終了日時（cutoffdate）。未設定なら null。 */
   cutoffDate: string | null;
   cutoffEpochMs: number; // 0 = 未設定
@@ -111,7 +125,7 @@ export async function getMoodleToken(
   if (res.status !== 200) {
     throw new UpstreamError(`Moodle token error: statusCode=${res.status}`);
   }
-  const data = (await res.json()) as { token?: string; error?: string };
+  const data = await parseJsonOrThrow<{ token?: string; error?: string }>(res, 'token');
   if (data.error) {
     throw new UpstreamError(`Moodle token error: ${data.error}`);
   }
@@ -189,12 +203,12 @@ export async function getMoodleAssignments(
   if (res.status !== 200) {
     throw new UpstreamError(`Moodle assignments error: statusCode=${res.status}`);
   }
-  const data = (await res.json()) as {
+  const data = await parseJsonOrThrow<{
     courses?: MoodleCourseRaw[];
     exception?: string;
     errorcode?: string;
     message?: string;
-  };
+  }>(res, 'assignments');
   if (data.exception) {
     // token 失効のみ再取得対象。Moodle 標準の errorcode を前提（要確認）。
     if (data.errorcode === 'invalidtoken') {
@@ -206,13 +220,15 @@ export async function getMoodleAssignments(
   const out: MoodleAssignment[] = [];
   for (const course of data.courses ?? []) {
     for (const a of course.assignments ?? []) {
-      const epochMs = a.duedate * 1000;
+      // duedate が 0/未設定/非有限（Moodle が想定外の値を返す場合）のときは締切なし扱い。
+      // new Date(NaN).toISOString() は RangeError を投げ、0 は 1970/1/1 になるため Date 生成前に弾く。
+      const epochMs = Number.isFinite(a.duedate) && a.duedate > 0 ? a.duedate * 1000 : 0;
       const cutoffEpochMs = (a.cutoffdate ?? 0) * 1000;
       out.push({
         id: a.id,
         name: a.name,
         description: a.intro,
-        dueDate: new Date(epochMs).toISOString(),
+        dueDate: epochMs ? new Date(epochMs).toISOString() : null,
         dueEpochMs: epochMs,
         cutoffDate: cutoffEpochMs ? new Date(cutoffEpochMs).toISOString() : null,
         cutoffEpochMs,
@@ -913,7 +929,7 @@ export async function uploadFileToDraftArea(
   if (res.status !== 200) {
     throw new UpstreamError(`Moodle upload error: statusCode=${res.status}`);
   }
-  const data = (await res.json()) as unknown;
+  const data = await parseJsonOrThrow<unknown>(res, 'upload');
   if (!Array.isArray(data) || data.length === 0) {
     throw new UpstreamError(`Moodle upload error: unexpected response ${JSON.stringify(data)}`);
   }
