@@ -14,57 +14,24 @@ import {
 import { NotFoundError, UpstreamError } from '../errors';
 
 // ---- 出力型 ----
-
-export interface UnivNotice {
-  type: 'common';
-  sender: string;
-  title: string;
-  sendAt: string;
-  isImportant: boolean;
-  index: number;
-}
-
-export interface ClassNotice {
-  type: 'class';
-  sender: string;
-  title: string;
-  subject: string;
-  makeupClassAt: string;
-  isImportant: boolean;
-  index: number;
-}
-
-export interface NoticeDetail {
-  sender: string;
-  title: string;
-  content: string;
-  sendAt: string;
-  subject?: string;
-  url: string[];
-  files: Record<string, string>;
-}
-
-export interface TimetableEntry {
-  day: string; // monday..sunday
-  period: number; // 1..7
-  title: string;
-  classRoom: string;
-  teacher: string;
-}
-
-export interface ScheduleEvent {
-  title: string;
-  startTime: string; // YYYY-MM-DDTHH:mm
-  endTime: string;
-  location?: string;
-  teacher?: string;
-  period?: number;
-}
-
-export interface ScheduleDay {
-  date: string; // YYYY-MM-DD
-  events: ScheduleEvent[];
-}
+// 契約型の単一情報源（shared/contract.ts）から取り込み、そのまま再エクスポートする。
+// パース関数の戻り値型として使いつつ、client.ts など従来の import 経路も維持する。
+import type {
+  UnivNotice,
+  ClassNotice,
+  NoticeDetail,
+  TimetableEntry,
+  ScheduleEvent,
+  ScheduleDay,
+} from '../../../../shared/contract';
+export type {
+  UnivNotice,
+  ClassNotice,
+  NoticeDetail,
+  TimetableEntry,
+  ScheduleEvent,
+  ScheduleDay,
+};
 
 // 授業時限の開始/終了（const.dart classPeriods）。[startH, startM, endH, endM]
 const CLASS_PERIODS: Record<number, [number, number, number, number]> = {

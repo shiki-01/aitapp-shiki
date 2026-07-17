@@ -5,7 +5,11 @@
 // 透過再ログインのラップ対象外。token 失効時のみ password で再取得する。
 
 import type { Credential } from '../../types';
-import { UpstreamError } from '../errors';
+import type { Assignment } from '../../../../shared/contract';
+import { UpstreamError, MoodleTokenError } from '../errors';
+// token 失効時に投げる MoodleTokenError はエラー taxonomy(errors.ts)へ集約した。
+// 既存の `import { MoodleTokenError } from './access'`（token.ts）を維持するため再エクスポートする。
+export { MoodleTokenError };
 import { fetchUpstream, UPSTREAM_FILE_TIMEOUT_MS } from '../fetch';
 import {
   parseMoodleResponse,
@@ -37,14 +41,6 @@ const baseHeaders: Record<string, string> = {
   Accept: 'application/json',
   'Content-Type': 'application/x-www-form-urlencoded',
 };
-
-/** token が失効しているときに投げる（router が token 再取得→リトライ）。 */
-export class MoodleTokenError extends Error {
-  constructor(message = 'moodle token invalid') {
-    super(message);
-    this.name = 'MoodleTokenError';
-  }
-}
 
 interface MoodleExceptionBody {
   exception?: string;
@@ -111,19 +107,8 @@ function indexedNameValuePairs(
   return out;
 }
 
-export interface MoodleAssignment {
-  id: number;
-  name: string;
-  description: string;
-  /** 締切日時（ISO）。duedate が 0/未設定/非有限のときは null（締切なし）。 */
-  dueDate: string | null;
-  dueEpochMs: number; // 0 = 締切なし
-  /** 提出受付終了日時（cutoffdate）。未設定なら null。 */
-  cutoffDate: string | null;
-  cutoffEpochMs: number; // 0 = 未設定
-  courseId: number;
-  courseName: string;
-}
+/** 課題。契約型は shared/contract.ts に集約（web/mcp と同一の単一情報源）。 */
+export type MoodleAssignment = Assignment;
 
 /** token 取得。POST /login/token.php。 */
 export async function getMoodleToken(

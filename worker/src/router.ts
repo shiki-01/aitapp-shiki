@@ -66,6 +66,7 @@ import {
 } from './upstream/syllabus/parse';
 import {
   AuthFailedError,
+  MoodleTokenError,
   NotFoundError,
   UpstreamError,
   ValidationError,
@@ -972,6 +973,11 @@ app.onError((err, c) => {
   });
   // 既知の型付きエラーは stable な code / status を維持しつつ、メッセージは汎用化する。
   if (err instanceof AuthFailedError) {
+    return c.json({ error: 'reauth_required', message: '再ログインが必要です', correlationId }, 401);
+  }
+  // Moodle token の再取得リトライでも回復できなかった場合（AuthFailedError と同様に
+  // 再認証が必要な状態）。taxonomy を揃えるため reauth_required(401) に集約する。
+  if (err instanceof MoodleTokenError) {
     return c.json({ error: 'reauth_required', message: '再ログインが必要です', correlationId }, 401);
   }
   if (err instanceof NotFoundError) {
