@@ -6,6 +6,7 @@
 
 import type { Credential } from '../../types';
 import { UpstreamError } from '../errors';
+import { fetchUpstream, UPSTREAM_FILE_TIMEOUT_MS } from '../fetch';
 
 const WEBSERVICE = '/webservice/rest/server.php';
 const UPLOAD_ENDPOINT = '/webservice/upload.php';
@@ -57,7 +58,7 @@ async function callMoodleApi<T>(
   wsfunction: string,
   params: Record<string, string>,
 ): Promise<T> {
-  const res = await fetch(`${moodleBase(origin)}${WEBSERVICE}`, {
+  const res = await fetchUpstream(`${moodleBase(origin)}${WEBSERVICE}`, {
     method: 'POST',
     headers: baseHeaders,
     body: new URLSearchParams({
@@ -113,7 +114,7 @@ export async function getMoodleToken(
   username: string,
   password: string,
 ): Promise<string> {
-  const res = await fetch(`${moodleBase(origin)}/login/token.php`, {
+  const res = await fetchUpstream(`${moodleBase(origin)}/login/token.php`, {
     method: 'POST',
     headers: baseHeaders,
     body: new URLSearchParams({
@@ -191,7 +192,7 @@ export async function getMoodleAssignments(
   origin: string,
   token: string,
 ): Promise<MoodleAssignment[]> {
-  const res = await fetch(`${moodleBase(origin)}${WEBSERVICE}`, {
+  const res = await fetchUpstream(`${moodleBase(origin)}${WEBSERVICE}`, {
     method: 'POST',
     headers: baseHeaders,
     body: new URLSearchParams({
@@ -941,7 +942,7 @@ export async function uploadFileToDraftArea(
   form.append('itemid', String(itemId));
   form.append('file_1', new Blob([fileBytes], { type: contentType }), fileName);
 
-  const res = await fetch(`${moodleBase(origin)}${UPLOAD_ENDPOINT}`, { method: 'POST', body: form });
+  const res = await fetchUpstream(`${moodleBase(origin)}${UPLOAD_ENDPOINT}`, { method: 'POST', body: form });
   if (res.status !== 200) {
     throw new UpstreamError(`Moodle upload error: statusCode=${res.status}`);
   }
@@ -1054,7 +1055,7 @@ async function moodleWebLogin(origin: string, username: string, password: string
     }
   };
 
-  let res = await fetch(`${moodleBase(origin)}/login/index.php`);
+  let res = await fetchUpstream(`${moodleBase(origin)}/login/index.php`);
   collectCookies(res);
   const html = await res.text();
   const tokenMatch = html.match(/name="logintoken" value="([^"]+)"/);
@@ -1062,7 +1063,7 @@ async function moodleWebLogin(origin: string, username: string, password: string
     throw new UpstreamError('Moodle web login error: logintoken not found');
   }
 
-  res = await fetch(`${moodleBase(origin)}/login/index.php`, {
+  res = await fetchUpstream(`${moodleBase(origin)}/login/index.php`, {
     method: 'POST',
     redirect: 'manual',
     headers: {
@@ -1089,10 +1090,11 @@ export async function downloadMoodleFile(
   token: string,
   credential: Credential,
 ): Promise<Response> {
+  // ファイルは stream proxy するため、body 読み切りまで時間がかかり得る。タイムアウトを延長。
   if (fileUrl.startsWith(pluginfilePrefix(credential.moodleOrigin))) {
     const sep = fileUrl.includes('?') ? '&' : '?';
-    return fetch(`${fileUrl}${sep}token=${token}`);
+    return fetchUpstream(`${fileUrl}${sep}token=${token}`, undefined, UPSTREAM_FILE_TIMEOUT_MS);
   }
   const cookie = await moodleWebLogin(credential.moodleOrigin, credential.id, credential.password);
-  return fetch(fileUrl, { headers: { Cookie: cookie } });
+  return fetchUpstream(fileUrl, { headers: { Cookie: cookie } }, UPSTREAM_FILE_TIMEOUT_MS);
 }

@@ -2,6 +2,7 @@
 // 移植元: access_syllabus.dart。
 
 import { UpstreamError } from '../errors';
+import { fetchUpstream } from '../fetch';
 
 const SYLLABUS_ORIGIN = 'syllabus.aitech.ac.jp';
 const BASE = `https://${SYLLABUS_ORIGIN}`;
@@ -26,7 +27,7 @@ const contentTypeHeader: Record<string, string> = {
 
 /** GET /ext_syllabus/ → Response（set-cookie で JSESSIONID、body で filters）。 */
 export async function getSyllabusSession(): Promise<Response> {
-  const res = await fetch(`${BASE}/ext_syllabus/`, {
+  const res = await fetchUpstream(`${BASE}/ext_syllabus/`, {
     headers: { ...constHeader, ...secFetchHeader },
   });
   if (res.status !== 200) {
@@ -75,7 +76,7 @@ export async function getSyllabusListBody(p: SyllabusSearchParams): Promise<stri
     subFolderFlag2: 'on',
     bottonType: 'search',
   };
-  const res = await fetch(`${BASE}/ext_syllabus/syllabusSearch.do`, {
+  const res = await fetchUpstream(`${BASE}/ext_syllabus/syllabusSearch.do`, {
     method: 'POST',
     headers,
     body: new URLSearchParams(data).toString(),
@@ -100,7 +101,7 @@ export async function getSyllabus(
     ...constHeader,
     ...secFetchHeader,
   };
-  const res = await fetch(`${BASE}${path}`, { headers });
+  const res = await fetchUpstream(`${BASE}${path}`, { headers });
   if (res.status !== 200) {
     throw new UpstreamError(`Syllabus detail error: statusCode=${res.status}`);
   }
@@ -134,7 +135,7 @@ export async function refreshFiltersSession(
     subFolderFlag2: 'on',
     bottonType: 'titleID',
   };
-  const res = await fetch(
+  const res = await fetchUpstream(
     `${BASE}/ext_syllabus/syllabusSearch.do;jsessionid=${value}`,
     {
       method: 'POST',

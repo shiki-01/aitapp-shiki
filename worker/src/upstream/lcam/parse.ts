@@ -11,7 +11,7 @@ import {
   selAll,
   selOne,
 } from '../../html/parser';
-import { NotFoundError } from '../errors';
+import { NotFoundError, UpstreamError } from '../errors';
 
 // ---- 出力型 ----
 
@@ -90,12 +90,18 @@ function extractListItemTexts(row: HTMLElement): string[] {
 /** 学内連絡一覧。移植元: univNotice。 */
 export function parseUnivNotice(html: string): UnivNotice[] {
   const root = parseHtml(html);
+  // コンテナ（SP 一覧枠）の有無で「本当に0件」と「構造破壊」を分離する。
+  // コンテナ自体が無い＝セレクタ改名等の構造変化とみなし、UpstreamError で顕在化させる
+  // （0件と同一視して silent [] にすると異常に気づけないため）。
+  // 要検証: 連絡0件のアカウントでもこのコンテナが描画されるかは実データ未観測。
+  const container = root.querySelector('#smartPhoneCommonContactList');
+  if (container == null) {
+    throw new UpstreamError('[parseUnivNotice]一覧コンテナが見つかりません（上流の構造変化の可能性）');
+  }
   const rows = root.querySelectorAll(
     '#smartPhoneCommonContactList > form:nth-child(4) > div.listItem',
   );
-  if (rows.length === 0) {
-    throw new NotFoundError('[parseUnivNotice]データの取得に失敗しました');
-  }
+  // コンテナは在るが行が0件＝正真正銘の空。空配列を返す（エラーにしない）。
   const result: UnivNotice[] = [];
   for (let i = 0; i < rows.length; i++) {
     const texts = extractListItemTexts(rows[i]);
@@ -130,12 +136,16 @@ export function parseUnivNotice(html: string): UnivNotice[] {
 /** 授業連絡一覧。移植元: classNotice。 */
 export function parseClassNotice(html: string): ClassNotice[] {
   const root = parseHtml(html);
+  // コンテナの有無で「本当に0件」と「構造破壊」を分離する（parseUnivNotice と同じ方針）。
+  // 要検証: 授業連絡0件のアカウントでもこのコンテナが描画されるかは実データ未観測。
+  const container = root.querySelector('#smartPhoneClassContactList');
+  if (container == null) {
+    throw new UpstreamError('[parseClassNotice]一覧コンテナが見つかりません（上流の構造変化の可能性）');
+  }
   const rows = root.querySelectorAll(
     '#smartPhoneClassContactList > form:nth-child(4) > div.listItem',
   );
-  if (rows.length === 0) {
-    throw new NotFoundError('[parseClassNotice]データの取得に失敗しました');
-  }
+  // コンテナは在るが行が0件＝正真正銘の空。空配列を返す（エラーにしない）。
   const result: ClassNotice[] = [];
   for (let i = 0; i < rows.length; i++) {
     const texts = extractListItemTexts(rows[i]);
@@ -428,8 +438,12 @@ export interface PerformanceEntry {
 export function parsePerformance(html: string): PerformanceEntry[] {
   const root = parseHtml(html);
   const cells = root.querySelectorAll('td.txt12');
+  // ログイン済みの成績ページは常にカテゴリ見出し/科目セル（td.txt12）を含む。
+  // 在学生で完全に0件は非現実的なため、0件はセレクタ改名等の構造破壊とみなし
+  // UpstreamError で顕在化させる（silent [] で異常を握り潰さない）。
+  // 要検証: 上級学年/評価済みアカウントでのセル構造は実データ未観測。
   if (cells.length === 0) {
-    throw new NotFoundError('[parsePerformance]データの取得に失敗しました');
+    throw new UpstreamError('[parsePerformance]成績セルが見つかりません（上流の構造変化の可能性）');
   }
 
   const result: PerformanceEntry[] = [];
