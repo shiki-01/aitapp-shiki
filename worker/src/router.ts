@@ -751,6 +751,8 @@ app.get('/api/moodle/file', async (c) => {
   if (ct) headers.set('content-type', ct);
   if (cd) headers.set('content-disposition', cd);
   if (cl) headers.set('content-length', cl);
+  // 認証済みファイルをブラウザのディスクキャッシュに残さない。
+  headers.set('cache-control', 'no-store');
   return new Response(upstream.body, { status: upstream.status, headers });
 });
 
@@ -866,6 +868,8 @@ app.get('/api/file/:id', async (c) => {
   if (ct) headers.set('content-type', ct);
   if (cd) headers.set('content-disposition', cd);
   if (cl) headers.set('content-length', cl);
+  // 認証済みファイルをブラウザのディスクキャッシュに残さない。
+  headers.set('cache-control', 'no-store');
   return new Response(upstream.body, { status: upstream.status, headers });
 });
 
