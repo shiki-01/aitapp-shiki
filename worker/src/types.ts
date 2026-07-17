@@ -13,6 +13,17 @@ export interface Env {
   SCHEDULE_WEEKS?: string;
   /** ローカル開発時に Moodle 接続先を強制的に上書きする（`.dev.vars` 専用、本番では未設定）。 */
   MOODLE_ORIGIN_OVERRIDE?: string;
+  /**
+   * 不可逆/取り消しにくい書き込み操作（クイズ受験開始・確定、課題の下書き保存・
+   * ファイル添付・最終提出、アンケート提出）の out-of-band 確認秘密。
+   * これは worker 側の権威ある検証値であり、MCP ホストが人間保有の秘密
+   * （stdio 実行は env `AITAPP_CONFIRM_SECRET`、`/mcp` 実行はこの `CONFIRM_SECRET` 自身）
+   * から注入した値と一致したときだけ実行を許可する。モデルに見えるツール引数ではないため、
+   * LLM が選んだ（あるいは上流データのプロンプトインジェクションが指示した）任意文字列では
+   * 通らない。未設定なら該当書き込みは fail-closed で拒否する。
+   * `wrangler secret put CONFIRM_SECRET`（十分に長いランダム値。例 openssl rand -hex 32）。
+   */
+  CONFIRM_SECRET?: string;
 
   // ---- /mcp（Streamable HTTP MCP サーバー）用。全て未設定なら /mcp は無効（404）。 ----
   /** /mcp の認証トークン（Bearer ヘッダ / /mcp/:token の両方で使う）。wrangler secret put MCP_TOKEN。URL パスに使える文字のみで生成する。 */

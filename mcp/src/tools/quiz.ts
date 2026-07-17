@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolClient } from '../tool-client';
+import { resolveConfirm } from './confirm';
 import type {
   MoodleQuizAttemptResult,
   MoodleQuizInfoResponse,
@@ -103,7 +104,9 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
         '【注意】これは実際にMoodle上でクイズの新規受験(attempt)を開始する書き込み操作。' +
         '呼び出した時点で許容試行回数(attemptsAllowed)を1回消費し、取り消せない。' +
         'moodle_get_quiz_infoでcanAttemptがtrueであることを確認し、ユーザーが受験を開始する意思を' +
-        '明示的に示した場合のみ呼び出すこと。成功すると要約済みの設問一覧(questions)が返る。' +
+        '明示的に示した場合のみ呼び出すこと。実行の可否は、人間が MCP ホストに設定した out-of-band の' +
+        '確認秘密を worker が検証して決める（このツールに確認用の引数は無く、モデルからは秘密を指定できない。' +
+        '秘密が未設定なら実行前にエラーになる）。成功すると要約済みの設問一覧(questions)が返る。' +
         '各設問は text(設問文)と inputs(回答入力欄のnameと選択肢等)を持ち、そのまま' +
         'moodle_answer_quiz_questionの回答作成に使える。要約パーサ未対応の設問形式では' +
         'inputsが汎用フィールド列挙(kind: "generic")になり、htmlに元の設問HTML全文が付くので' +
@@ -112,10 +115,13 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
       inputSchema: { quizId: z.number().int() },
     },
     async ({ quizId }) => {
+      // 確認秘密は config/env（out-of-band）から取り、LLM 引数からは取らない。
+      const gate = resolveConfirm(client);
+      if (!gate.ok) return json({ ok: false, error: gate.message });
       const res = await client.request<MoodleQuizStart>('/api/moodle/quiz/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quizId }),
+        body: JSON.stringify({ quizId, confirm: gate.confirm }),
       });
       return json(res);
     },
@@ -169,31 +175,21 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
         '保存した回答が対象になる（このツール自体には回答データを渡さない）。' +
         '必ず: (1) moodle_answer_quiz_questionで全設問への回答を保存済みであることを確認し、' +
         '(2) 回答内容をユーザーに明示的に見せて、(3) 「このまま受験を確定してよいか」の' +
-        '同意を得た上で、confirmに厳密に"CONFIRM_FINISH_ATTEMPT"という文字列を渡した' +
-        'ときのみ実行すること。それ以外のconfirm値ではAPIを呼ばずエラーを返す。',
+        '同意を得た上で呼び出すこと。実行の可否は、人間が MCP ホストに設定した out-of-band の' +
+        '確認秘密を worker が検証して決める（このツールに確認用の引数は無く、モデルからは秘密を指定できない。' +
+        '秘密が未設定なら実行前にエラーになる）。',
       inputSchema: {
         attemptId: z.number().int(),
-        confirm: z
-          .string()
-          .describe(
-            '実行するには厳密に "CONFIRM_FINISH_ATTEMPT" を渡す。取り消し不可の書き込み操作のため、' +
-              'ユーザーの明示的な同意なしに渡さないこと。',
-          ),
       },
     },
-    async ({ attemptId, confirm }) => {
-      if (confirm !== 'CONFIRM_FINISH_ATTEMPT') {
-        return json({
-          ok: false,
-          error:
-            'confirmed_required: ユーザーの明示的な同意を得た上で confirm="CONFIRM_FINISH_ATTEMPT" ' +
-            'を渡してください。取り消し不可の書き込み操作のため、同意なしには実行しません。',
-        });
-      }
+    async ({ attemptId }) => {
+      // 確認秘密は config/env（out-of-band）から取り、LLM 引数からは取らない。
+      const gate = resolveConfirm(client);
+      if (!gate.ok) return json({ ok: false, error: gate.message });
       const res = await client.request<{ state: string }>('/api/moodle/quiz/finish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ attemptId, confirm }),
+        body: JSON.stringify({ attemptId, confirm: gate.confirm }),
       });
       return json(res);
     },

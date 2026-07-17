@@ -38,6 +38,7 @@ bun install
 | `AITAPP_MOODLE_ORIGIN` | - | Moodle接続先ホスト名（例 `cms.aitech.ac.jp`）。未設定ならMoodle系ツールは使えない |
 | `AITAPP_MOODLE_ID` | - | Moodle専用ログインID。LCAMとMoodleのアカウントが別の場合のみ設定 |
 | `AITAPP_MOODLE_PASSWORD` | - | Moodle専用ログインパスワード。`AITAPP_MOODLE_ID` とセットで指定したときだけ有効（片方だけなら無視され、LCAMのID/パスワードがMoodleにも使われる） |
+| `AITAPP_CONFIRM_SECRET` | 書き込み時○ | 不可逆/取り消しにくい書き込み操作（クイズ受験開始・確定、課題の下書き保存・ファイル添付・最終提出、アンケート提出）を許可する out-of-band 確認秘密。worker の `CONFIRM_SECRET` と同一値にする。未設定だと書き込みツールはエラーになる（読み取りツールは影響なし）。この値はツール引数ではなく、モデルからは参照・指定できない |
 
 Moodleへの認証は、ログイン時に一度だけID/パスワードで `login/token.php` から
 トークンを取得し、以後はそのトークンだけで動く（失効時のみ保存済み資格情報で
@@ -63,7 +64,8 @@ Moodleへの認証は、ログイン時に一度だけID/パスワードで `log
         "AITAPP_APP_ORIGIN": "http://localhost:5173",
         "AITAPP_ID": "your-portal-id",
         "AITAPP_PASSWORD": "your-portal-password",
-        "AITAPP_MOODLE_ORIGIN": "cms.aitech.ac.jp"
+        "AITAPP_MOODLE_ORIGIN": "cms.aitech.ac.jp",
+        "AITAPP_CONFIRM_SECRET": "worker の CONFIRM_SECRET と同一値（書き込みツールを使う場合）"
       }
     }
   }
@@ -120,10 +122,18 @@ Moodle側（コースファイル・設問中の音声等）は`moodle_download_
 （`webservice/pluginfile.php`のtoken認証、レガシー`file.php`の都度Webログイン）を
 自動判別する。詳細は`MIGRATION_NOTES.md`12.5節を参照。
 
-クイズ・課題提出系のうち`moodle_finish_quiz_attempt`・`moodle_submit_assignment`は取り消し不可の操作で、
-`confirm`に専用の文字列（`CONFIRM_FINISH_ATTEMPT` / `CONFIRM_SUBMIT_ASSIGNMENT`）を渡した
-場合のみ実行される。詳細・実データ検証状況は`MIGRATION_NOTES.md`の12節を参照
-（MIGRATION_NOTES内のツール名は改名前の当時のもの）。
+クイズ・課題・アンケートの書き込み系ツール（`moodle_start_quiz_attempt`・
+`moodle_finish_quiz_attempt`・`moodle_save_assignment_draft`・`moodle_upload_assignment_file`・
+`moodle_submit_assignment`・`lcam_save_class_enquete_answer_draft`・
+`lcam_submit_class_enquete_final`）は、不可逆または取り消しにくい操作。実行の可否は
+**out-of-band の確認秘密**（人間が事前に設定する `AITAPP_CONFIRM_SECRET` / worker の
+`CONFIRM_SECRET`）を worker が検証して決める。この確認値はモデルに見えるツール引数ではなく、
+LLM（あるいは上流データに紛れたプロンプトインジェクション）が文字列を渡して突破することは
+できない。ツール実装は config/env からこの秘密を読み取り worker へ転送するだけで、
+秘密が未設定なら worker を呼ばずにエラーを返す。かつては `confirm` にモデル可視の固定文字列
+（`CONFIRM_FINISH_ATTEMPT` 等）を渡す方式だったが、スキーマから読み取って復唱できてしまい
+多層防御にならないため out-of-band 化した。詳細・実データ検証状況は`MIGRATION_NOTES.md`の
+12節を参照（MIGRATION_NOTES内のツール名は改名前の当時のもの）。
 
 ## 認証・再ログインの挙動
 

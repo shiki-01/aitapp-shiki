@@ -36,6 +36,11 @@ export class WorkerClient implements ToolClient {
 
   constructor(private readonly config: Config) {}
 
+  /** out-of-band 確認秘密（env AITAPP_CONFIRM_SECRET 由来）。モデル引数からは取らない。 */
+  get confirmSecret(): string {
+    return this.config.confirmSecret;
+  }
+
   private async login(): Promise<void> {
     const res = await fetch(`${this.config.workerUrl}/api/auth/login`, {
       method: 'POST',

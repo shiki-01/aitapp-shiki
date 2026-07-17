@@ -10,7 +10,8 @@
         "AITAPP_PASSWORD": "your-portal-password",
         "AITAPP_MOODLE_ORIGIN": "cms.aitech.ac.jp",
         "AITAPP_MOODLE_ID": "(optional) moodle-id-if-different-from-portal",
-        "AITAPP_MOODLE_PASSWORD": "(optional) moodle-password-if-different-from-portal"
+        "AITAPP_MOODLE_PASSWORD": "(optional) moodle-password-if-different-from-portal",
+        "AITAPP_CONFIRM_SECRET": "(required-for-writes) same-value-as-worker-CONFIRM_SECRET"
       }
     }
   }

@@ -103,6 +103,21 @@ function checkOrigin(c: { req: { header: (n: string) => string | undefined }; en
   return origin === allowed;
 }
 
+// ---- 不可逆/取り消しにくい書き込み操作の out-of-band confirm 検証 ----
+// confirm 値はモデルに見えるツール引数ではなく、MCP ホストが人間保有の秘密
+// （env.CONFIRM_SECRET）から注入したもの。worker を権威ある検証点とし、LLM が選んだ
+// （あるいは上流データのプロンプトインジェクションが指示した）任意文字列では通さない。
+// env.CONFIRM_SECRET 未設定なら fail-closed（常に不成立＝実行拒否）。
+function confirmOk(env: Env, confirm: unknown): boolean {
+  const secret = env.CONFIRM_SECRET;
+  return typeof secret === 'string' && secret.length > 0 && confirm === secret;
+}
+
+// confirm 不成立時の共通レスポンス（未設定・不一致を区別せず 400 で拒否する）。
+const CONFIRM_REQUIRED_MESSAGE =
+  'out-of-band の確認値が未設定または不一致です。worker の CONFIRM_SECRET と ' +
+  'MCP ホストの AITAPP_CONFIRM_SECRET（/mcp 実行時は worker の CONFIRM_SECRET）を同一値に設定してください。';
+
 // ---- 認証ミドルウェア（auth 配下以外の /api を保護） ----
 app.use('/api/*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
@@ -400,13 +415,17 @@ function parseEnqueteAnswerBody(
 
 // ---- POST /api/enquetes/answer（授業アンケートへの回答を一時保存） ----
 // 実データで動作検証済み。MIGRATION_NOTES §11 参照。
+// 本物のアンケートに下書きが残る書き込みのため、out-of-band confirm を要求する。
 app.post('/api/enquetes/answer', async (c) => {
   if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
-  let bodyIn: { index?: number; answers?: Record<string, string> };
+  let bodyIn: { index?: number; answers?: Record<string, string>; confirm?: string };
   try {
     bodyIn = await c.req.json();
   } catch {
     return c.json({ error: 'invalid body' }, 400);
+  }
+  if (!confirmOk(c.env, bodyIn.confirm)) {
+    return c.json({ error: 'confirm_required', message: CONFIRM_REQUIRED_MESSAGE }, 400);
   }
   const parsed = parseEnqueteAnswerBody(bodyIn);
   if ('error' in parsed) return c.json({ error: parsed.error }, 400);
@@ -430,11 +449,8 @@ app.post('/api/enquetes/submit', async (c) => {
   } catch {
     return c.json({ error: 'invalid body' }, 400);
   }
-  if (bodyIn.confirm !== 'CONFIRM_FINAL_SUBMIT') {
-    return c.json(
-      { error: 'confirm_required', message: 'confirm に "CONFIRM_FINAL_SUBMIT" を指定してください' },
-      400,
-    );
+  if (!confirmOk(c.env, bodyIn.confirm)) {
+    return c.json({ error: 'confirm_required', message: CONFIRM_REQUIRED_MESSAGE }, 400);
   }
   const parsed = parseEnqueteAnswerBody(bodyIn);
   if ('error' in parsed) return c.json({ error: parsed.error }, 400);
@@ -578,11 +594,15 @@ app.get('/api/moodle/quiz/info', async (c) => {
 // 生HTMLが必要な場合は GET /api/moodle/quiz/questions で取り直せる。
 app.post('/api/moodle/quiz/start', async (c) => {
   if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
-  let bodyIn: { quizId?: number };
+  let bodyIn: { quizId?: number; confirm?: string };
   try {
     bodyIn = await c.req.json();
   } catch {
     return c.json({ error: 'invalid body' }, 400);
+  }
+  // 受験開始は試行回数を1回消費する取り消し不可の操作のため out-of-band confirm を要求する。
+  if (!confirmOk(c.env, bodyIn.confirm)) {
+    return c.json({ error: 'confirm_required', message: CONFIRM_REQUIRED_MESSAGE }, 400);
   }
   if (typeof bodyIn.quizId !== 'number') return c.json({ error: 'quizId required' }, 400);
   const userId = c.get('userId');
@@ -663,11 +683,8 @@ app.post('/api/moodle/quiz/finish', async (c) => {
   } catch {
     return c.json({ error: 'invalid body' }, 400);
   }
-  if (bodyIn.confirm !== 'CONFIRM_FINISH_ATTEMPT') {
-    return c.json(
-      { error: 'confirm_required', message: 'confirm に "CONFIRM_FINISH_ATTEMPT" を指定してください' },
-      400,
-    );
+  if (!confirmOk(c.env, bodyIn.confirm)) {
+    return c.json({ error: 'confirm_required', message: CONFIRM_REQUIRED_MESSAGE }, 400);
   }
   if (typeof bodyIn.attemptId !== 'number') return c.json({ error: 'attemptId required' }, 400);
   const userId = c.get('userId');
@@ -681,11 +698,16 @@ app.post('/api/moodle/quiz/finish', async (c) => {
 // ---- POST /api/moodle/assignment/draft（テキストのみの下書き保存） ----
 app.post('/api/moodle/assignment/draft', async (c) => {
   if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
-  let bodyIn: { assignmentId?: number; text?: string };
+  let bodyIn: { assignmentId?: number; text?: string; confirm?: string };
   try {
     bodyIn = await c.req.json();
   } catch {
     return c.json({ error: 'invalid body' }, 400);
+  }
+  // 本物の課題に下書き（submissiondrafts=0 の課題では即時提出扱い）が残る書き込みのため
+  // out-of-band confirm を要求する。
+  if (!confirmOk(c.env, bodyIn.confirm)) {
+    return c.json({ error: 'confirm_required', message: CONFIRM_REQUIRED_MESSAGE }, 400);
   }
   if (typeof bodyIn.assignmentId !== 'number') return c.json({ error: 'assignmentId required' }, 400);
   if (typeof bodyIn.text !== 'string') return c.json({ error: 'text required' }, 400);
@@ -701,6 +723,11 @@ app.post('/api/moodle/assignment/draft', async (c) => {
 app.post('/api/moodle/assignment/upload', async (c) => {
   if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
   const form = await c.req.formData();
+  // 本物の課題に提出物（submissiondrafts=0 の課題では即時提出扱い）が紐付く書き込みのため
+  // out-of-band confirm を要求する（multipart なので form フィールドで受け取る）。
+  if (!confirmOk(c.env, form.get('confirm'))) {
+    return c.json({ error: 'confirm_required', message: CONFIRM_REQUIRED_MESSAGE }, 400);
+  }
   const assignmentId = parseInt(String(form.get('assignmentId') ?? ''), 10);
   const file = form.get('file');
   if (Number.isNaN(assignmentId)) return c.json({ error: 'assignmentId required' }, 400);
@@ -733,11 +760,8 @@ app.post('/api/moodle/assignment/submit', async (c) => {
   } catch {
     return c.json({ error: 'invalid body' }, 400);
   }
-  if (bodyIn.confirm !== 'CONFIRM_SUBMIT_ASSIGNMENT') {
-    return c.json(
-      { error: 'confirm_required', message: 'confirm に "CONFIRM_SUBMIT_ASSIGNMENT" を指定してください' },
-      400,
-    );
+  if (!confirmOk(c.env, bodyIn.confirm)) {
+    return c.json({ error: 'confirm_required', message: CONFIRM_REQUIRED_MESSAGE }, 400);
   }
   if (typeof bodyIn.assignmentId !== 'number') return c.json({ error: 'assignmentId required' }, 400);
   const userId = c.get('userId');
