@@ -71,10 +71,19 @@ import {
   ValidationError,
 } from './upstream/errors';
 import { handleMcpRequest } from './mcp/handler';
+import { log } from './log';
 
-type Variables = { userId: string; state: UserState };
+type Variables = { userId: string; state: UserState; correlationId: string };
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// ---- 相関ID（リクエスト単位）----
+// 全リクエストに correlationId を付与し、構造化ログとエラー応答本文で共有する。
+// ユーザーが提示するエラーコードとサーバーログを突き合わせるための識別子。
+app.use('*', async (c, next) => {
+  c.set('correlationId', crypto.randomUUID());
+  await next();
+});
 
 // ---- CORS（credentials 付き、APP_ORIGIN 限定） ----
 app.use('/api/*', async (c, next) => {
@@ -924,24 +933,33 @@ app.all('/mcp/:token', (c) =>
 );
 
 // ---- エラーハンドラ ----
+// client には固定の汎用メッセージ + correlationId のみ返し、上流本文・例外文字列・
+// 内部パーサ/クラス名は透過させない。詳細は構造化ログ（error レベル）にのみ出す。
 app.onError((err, c) => {
   const path = new URL(c.req.url).pathname;
-  // 診断用: 全エラーを種別とメッセージ付きでログ出力する。
-  console.log(`[error] ${c.req.method} ${path} -> ${err.name}: ${err.message}`);
+  const correlationId = c.get('correlationId') ?? 'unknown';
+  // 診断用の詳細はサーバーログにのみ残す（client には返さない）。
+  log('error', correlationId, 'request failed', {
+    method: c.req.method,
+    path,
+    errorName: err.name,
+    detail: err.message,
+    stack: err.stack,
+  });
+  // 既知の型付きエラーは stable な code / status を維持しつつ、メッセージは汎用化する。
   if (err instanceof AuthFailedError) {
-    return c.json({ error: 'reauth_required', message: err.message }, 401);
+    return c.json({ error: 'reauth_required', message: '再ログインが必要です', correlationId }, 401);
   }
   if (err instanceof NotFoundError) {
-    return c.json({ error: 'not_found', message: err.message }, 404);
+    return c.json({ error: 'not_found', message: '対象が見つかりません', correlationId }, 404);
   }
   if (err instanceof ValidationError) {
-    return c.json({ error: 'validation_error', message: err.message }, 400);
+    return c.json({ error: 'validation_error', message: 'リクエストが不正です', correlationId }, 400);
   }
   if (err instanceof UpstreamError) {
-    return c.json({ error: 'upstream_error', message: err.message }, 502);
+    return c.json({ error: 'upstream_error', message: '上流エラー', correlationId }, 502);
   }
-  console.error('unhandled error stack:', err.stack);
-  return c.json({ error: 'internal_error', message: err.message }, 500);
+  return c.json({ error: 'internal_error', message: '内部エラー', correlationId }, 500);
 });
 
 export default app;

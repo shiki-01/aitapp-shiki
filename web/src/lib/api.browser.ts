@@ -25,16 +25,25 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     let code: string | undefined;
+    let correlationId: string | undefined;
     let message = `HTTP ${res.status}`;
     try {
-      const body = (await res.json()) as { error?: string; message?: string };
+      const body = (await res.json()) as {
+        error?: string;
+        message?: string;
+        correlationId?: string;
+      };
       code = body.error;
+      correlationId = body.correlationId;
       message = body.message ?? body.error ?? message;
     } catch {
       // ignore
     }
+    // correlationId があれば、ユーザーが問い合わせ時に提示できるよう表示に含める。
+    if (correlationId) message += `（エラーコード: ${correlationId}）`;
+    // session 失効（KV state 消失）時はデータ系 401 で /login へ誘導する。
     if (res.status === 401) recoverFromUnauthorized(path);
-    throw new ApiError(res.status, message, code);
+    throw new ApiError(res.status, message, code, correlationId);
   }
   return (await res.json()) as T;
 }
