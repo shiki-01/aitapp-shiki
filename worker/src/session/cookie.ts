@@ -6,6 +6,9 @@ const enc = new TextEncoder();
 
 export const SESSION_COOKIE_NAME = 'aitapp_session';
 
+/** session の有効期間（ms）。Max-Age と iat 期限検証の窓を一致させる。 */
+export const SESSION_MAX_AGE_MS = 60 * 60 * 24 * 30 * 1000;
+
 export interface SessionPayload {
   /** userId（= 愛工大 ID）。 */
   uid: string;
@@ -78,6 +81,10 @@ export async function verifySession(
     if (typeof payload.uid !== 'string' || typeof payload.iat !== 'number') {
       return null;
     }
+    // iat（ms）から 30 日を超えたものは失効扱い（署名不正と同じ結果を返す）。
+    if (Date.now() - payload.iat > SESSION_MAX_AGE_MS) {
+      return null;
+    }
     return payload;
   } catch {
     return null;
@@ -92,8 +99,8 @@ export function buildSessionCookie(value: string): string {
     'Secure',
     'SameSite=Strict',
     'Path=/',
-    // 30 日。即時失効は要件外。
-    `Max-Age=${60 * 60 * 24 * 30}`,
+    // 30 日。即時失効は要件外。iat 期限検証の窓と一致させる。
+    `Max-Age=${SESSION_MAX_AGE_MS / 1000}`,
   ].join('; ');
 }
 
