@@ -1,0 +1,21 @@
+# Cloudflare Pages のセキュリティヘッダ設定。
+# SvelteKit(adapter-static) が static/ 配下をビルド出力ルートへコピーするため、
+# Pages はこの _headers を配信時に適用する。全ルートへ適用する。
+#
+# CSP は多層防御の backstop（一次防御は Worker 側の本文サニタイズ）。
+# 注意点:
+#  - script-src に 'unsafe-inline' を含める。SvelteKit のハイドレーション用
+#    インラインブートストラップ <script> はビルド毎にハッシュが変わり、静的な
+#    _headers ではハッシュも nonce も付与できないため。危険な埋め込みスクリプトは
+#    本文サニタイズ側で除去済み。
+#  - style-src に 'unsafe-inline' が必要（Svelte/Vite のインラインスタイル）。
+#  - connect-src は同一オリジン(self)に加え https: を許可。browser 版は別サブ
+#    ドメインの Worker(VITE_API_BASE, 例 https://api.example.com)へ fetch する
+#    ため。より厳格にするなら https: を実際の Worker オリジンに置き換える。
+#  - img-src は self と data:(favicon 等)を許可。
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains

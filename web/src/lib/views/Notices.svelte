@@ -154,7 +154,8 @@
     <h3 class="d-title">{detail.title}</h3>
     <div class="meta">{detail.sender} · {detail.sendAt}</div>
     {#if detail.subject}<div class="meta">科目: {detail.subject}</div>{/if}
-    <!-- 本文 HTML は上流由来。Worker 側で inline style 除去済み。 -->
+    <!-- 本文 HTML は上流由来。Worker 側で allowlist サニタイズ済み(script/iframe/
+         on*/javascript: 等を除去)。CSP(_headers)を多層防御の backstop とする。 -->
     <div class="content">{@html detail.content}</div>
     {#if detail.url.length > 0}
       <h4>参考URL</h4>
