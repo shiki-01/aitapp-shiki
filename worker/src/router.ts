@@ -158,6 +158,17 @@ app.use('/api/*', async (c, next) => {
 const MOODLE_ORIGIN_PATTERN =
   /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
 
+// moodleOrigin に許可するホストの allowlist。id/password を POST する接続先を
+// 任意ホストにさせない（限定的な SSRF 対策）。本番 `cms.aitech.ac.jp` と
+// dev docker-compose の `moodle.shiki-01.com` の両方を必ず含める（後者を落とすと
+// dev 環境が丸ごと壊れる）。MOODLE_ORIGIN_OVERRIDE（dev:sandbox 用）が設定されて
+// いれば、その値も許可対象に加える（実効 allowlist に合流させる）。
+const MOODLE_ORIGIN_ALLOWLIST = ['cms.aitech.ac.jp', 'moodle.shiki-01.com'];
+function isMoodleOriginAllowed(origin: string, env: Env): boolean {
+  if (MOODLE_ORIGIN_ALLOWLIST.includes(origin)) return true;
+  return Boolean(env.MOODLE_ORIGIN_OVERRIDE) && origin === env.MOODLE_ORIGIN_OVERRIDE;
+}
+
 // ---- POST /api/auth/login ----
 app.post('/api/auth/login', async (c) => {
   if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
@@ -182,6 +193,10 @@ app.post('/api/auth/login', async (c) => {
   const moodleOrigin = c.env.MOODLE_ORIGIN_OVERRIDE || (bodyIn.moodleOrigin ?? '').trim();
   if (moodleOrigin && !MOODLE_ORIGIN_PATTERN.test(moodleOrigin)) {
     return c.json({ error: 'invalid moodleOrigin' }, 400);
+  }
+  // 形式検証に加えて allowlist で接続先ホストを限定する（SSRF 対策）。
+  if (moodleOrigin && !isMoodleOriginAllowed(moodleOrigin, c.env)) {
+    return c.json({ error: 'moodleOrigin not allowed' }, 400);
   }
 
   // Moodle 専用資格情報（LCAM とアカウントが別の場合）。両方揃ったときだけ採用し、
