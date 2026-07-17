@@ -46,5 +46,11 @@ export async function saveCachedCookie(
   await writeFile(file, JSON.stringify({ portalId, cookie } satisfies CachedSession), {
     mode: 0o600,
   });
-  await chmod(file, 0o600);
+  // POSIX ではオーナーのみ読み書き可に絞る。Windows は 0600 の POSIX パーミッションを
+  // 強制できず chmod は実質 no-op（環境によっては例外）になるため、best-effort に留める。
+  try {
+    await chmod(file, 0o600);
+  } catch {
+    // Windows 等でパーミッション変更に失敗しても保存自体は継続する。
+  }
 }

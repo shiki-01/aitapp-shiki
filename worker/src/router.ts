@@ -12,7 +12,7 @@ import {
   clearSessionCookie,
   readSessionCookie,
 } from './session/cookie';
-import { readState, writeState } from './store/kv';
+import { readState, writeState, deleteState } from './store/kv';
 import { getCookie, loginLcam } from './upstream/lcam/access';
 import { parseHtml } from './html/parser';
 import { isLoginSuccess } from './upstream/lcam/detect';
@@ -97,10 +97,14 @@ function checkOrigin(c: { req: { header: (n: string) => string | undefined }; en
 // ---- 認証ミドルウェア（auth 配下以外の /api を保護） ----
 app.use('/api/*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
-  // /api/auth/me は signed cookie の検証のみで完結させる。KV の state 読み取りに
-  // 依存すると、ログイン直後(write直後のread)は Workers KV の結果整合性
-  // （伝播遅延・negative cache）により state がまだ見えず、ログイン成功直後に
-  // 未ログイン扱いで /login へ差し戻されてしまう。
+  // auth 系は認証セマンティクスが他と異なるため、この共有ミドルウェア（session 検証＋
+  // 内部 MCP ブートストラップ）の対象外にし、各ハンドラで自前検証する。
+  //   - login: まだ session が無い。
+  //   - logout/me: cookie 検証＋KV state の存在確認のみを行い、env 資格情報による
+  //     state 上書き（内部 MCP 用ブートストラップ）は行わない。
+  // なお me が KV state に依存するため、ログイン直後は Workers KV の結果整合性
+  // （伝播遅延・negative cache）で一時的に 401 になり得るが、失効（logout での KV 削除）を
+  // 検知するために許容する。ブラウザ側は 401 を /login へ誘導して回復する。
   if (
     path === '/api/auth/login' ||
     path === '/api/auth/logout' ||
@@ -245,19 +249,35 @@ app.post('/api/auth/login', async (c) => {
 });
 
 // ---- POST /api/auth/logout ----
-app.post('/api/auth/logout', (c) => {
+// cookie 破棄に加えて KV の user state を削除し、session を実効失効させる（連鎖C/D）。
+// cookie は署名付きで書き込み可能な bearer のため、KV を残すと盗まれた cookie が
+// logout 後も生き続ける。state を消せばデータ系ミドルウェアと /api/auth/me の双方が
+// state 不在で 401 を返すため、当該ユーザーの全 session が失効する。
+app.post('/api/auth/logout', async (c) => {
   if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  const token = readSessionCookie(c.req.header('Cookie'));
+  const payload = await verifySession(c.env.SESSION_SECRET, token);
+  if (payload) {
+    await deleteState(c.env, payload.uid);
+  }
   c.header('Set-Cookie', clearSessionCookie());
   return c.json({ ok: true });
 });
 
 // ---- GET /api/auth/me ----
-// KV の state には依存せず、signed session cookie の検証のみで応答する
+// signed session cookie の検証に加えて KV state の存在も要求する
 // （ミドルウェアの対象外にしてあるため、ここで自前検証する）。
+// logout で state を消すと me も 401 になるため、失効した cookie で me だけ成功し
+// 全データが 401 という不整合（罠 C1）を避けられる。KV の結果整合性により
+// ログイン直後は一時的に 401 になり得るが、ブラウザ側の 401→/login 回復で吸収する。
 app.get('/api/auth/me', async (c) => {
   const token = readSessionCookie(c.req.header('Cookie'));
   const payload = await verifySession(c.env.SESSION_SECRET, token);
   if (!payload) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const state = await readState(c.env, payload.uid);
+  if (!state) {
     return c.json({ error: 'unauthorized' }, 401);
   }
   return c.json({ userId: payload.uid });
