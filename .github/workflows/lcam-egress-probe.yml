@@ -7,6 +7,11 @@ name: lcam-egress-probe
 
 on:
   workflow_dispatch:
+  # GitHub App 経由だと workflow_dispatch を叩けない (403) ため、
+  # このワークフロー自身の変更 push でも発火させる。
+  push:
+    branches: [claude/mcp-lcam-file-reading-r5o3cb]
+    paths: ['.github/workflows/lcam-egress-probe.yml']
 
 jobs:
   probe:
