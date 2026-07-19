@@ -71,6 +71,12 @@ export interface UserState {
   moodleToken: string | null;
   /** 認証情報（AES-GCM 暗号文）。 */
   credential: Encrypted;
+  /**
+   * ユーザー別 MCP トークン（/mcp/<token>）の SHA-256 ハッシュ（hex）。
+   * 平文トークンは発行時の応答でのみ返し、KV には置かない。
+   * 未発行/失効済みなら undefined/null。過去に保存された state には存在しないため optional。
+   */
+  mcpTokenHash?: string | null;
 }
 
 /** 復号後の認証情報（メモリ上でのみ保持し永続化しない）。 */

@@ -3,8 +3,67 @@
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import Syllabus from './Syllabus.svelte';
+  import { api } from '$lib/api';
 
   let { userId = '', onLogout }: { userId?: string; onLogout?: () => void } = $props();
+
+  // ---- Claude 連携（ユーザー別 MCP URL）----
+  // 発行済みかどうかは /api/auth/me の mcp フラグ（desktop 版では取得できず undefined）。
+  // 平文 URL は発行直後の応答でしか得られないため、この画面でだけ表示する。
+  let mcpIssued = $state<boolean | undefined>(undefined);
+  let mcpUrl = $state('');
+  let mcpBusy = $state(false);
+  let mcpError = $state('');
+  let mcpCopied = $state(false);
+
+  $effect(() => {
+    api
+      .me()
+      .then((r) => (mcpIssued = r.mcp))
+      .catch(() => {});
+  });
+
+  async function issueMcp() {
+    if (mcpIssued && !confirm('再発行すると、いま設定済みの MCP URL は使えなくなります。続けますか？')) {
+      return;
+    }
+    mcpBusy = true;
+    mcpError = '';
+    try {
+      const r = await api.mcpTokenIssue();
+      mcpUrl = r.url;
+      mcpIssued = true;
+      mcpCopied = false;
+    } catch (e) {
+      mcpError = e instanceof Error ? e.message : String(e);
+    } finally {
+      mcpBusy = false;
+    }
+  }
+
+  async function revokeMcp() {
+    if (!confirm('MCP URL を失効させます。設定済みのコネクタは使えなくなります。よろしいですか？')) return;
+    mcpBusy = true;
+    mcpError = '';
+    try {
+      await api.mcpTokenRevoke();
+      mcpIssued = false;
+      mcpUrl = '';
+    } catch (e) {
+      mcpError = e instanceof Error ? e.message : String(e);
+    } finally {
+      mcpBusy = false;
+    }
+  }
+
+  async function copyMcpUrl() {
+    try {
+      await navigator.clipboard.writeText(mcpUrl);
+      mcpCopied = true;
+    } catch {
+      // clipboard 不可の環境ではテキストを手動選択してもらう。
+    }
+  }
 
   // メモ編集シート
   let memoOpen = $state(false);
@@ -92,6 +151,40 @@
       </li>
     {/each}
   </ul>
+</section>
+
+<!-- Claude 連携（ユーザー別 MCP URL） -->
+<section class="block">
+  <div class="block-h">
+    <span><Icon name="grid" size={18} color="var(--primary)" /> Claude 連携 (MCP)</span>
+  </div>
+  <div class="mcp card">
+    <p class="mcp-desc">
+      自分専用の MCP URL を発行すると、Claude（カスタムコネクタ）から自分のアカウントで
+      時間割・課題・お知らせ等を参照できます。URL はパスワードと同じ扱いで保管し、
+      他人に共有しないでください。
+    </p>
+    {#if mcpUrl}
+      <div class="mcp-url-box">
+        <code class="mcp-url">{mcpUrl}</code>
+        <button class="mcp-copy" onclick={copyMcpUrl}>
+          {#if mcpCopied}<Icon name="check" size={15} color="var(--primary)" /> コピー済み{:else}コピー{/if}
+        </button>
+      </div>
+      <p class="mcp-note">この URL は今しか表示されません。再表示はできず、必要なら再発行になります。</p>
+    {:else if mcpIssued}
+      <p class="mcp-note">発行済みです（URL の再表示はできません。紛失した場合は再発行してください）。</p>
+    {/if}
+    {#if mcpError}<p class="mcp-error">{mcpError}</p>{/if}
+    <div class="mcp-actions">
+      <button class="mcp-issue" onclick={issueMcp} disabled={mcpBusy}>
+        {mcpIssued ? 'MCP URL を再発行' : 'MCP URL を発行'}
+      </button>
+      {#if mcpIssued}
+        <button class="mcp-revoke" onclick={revokeMcp} disabled={mcpBusy}>失効</button>
+      {/if}
+    </div>
+  </div>
 </section>
 
 <!-- 設定 -->
@@ -267,6 +360,82 @@
   }
   .link.danger {
     color: var(--danger);
+  }
+  .mcp.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 13px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .mcp-desc {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .mcp-url-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg, #f5f6f8);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 10px;
+  }
+  .mcp-url {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.72rem;
+    word-break: break-all;
+    user-select: all;
+  }
+  .mcp-copy {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+  }
+  .mcp-note {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .mcp-error {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--danger);
+  }
+  .mcp-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .mcp-issue {
+    border: none;
+    border-radius: 10px;
+    background: var(--primary);
+    color: #fff;
+    padding: 9px 14px;
+    font-size: 0.85rem;
+  }
+  .mcp-revoke {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--danger);
+    padding: 9px 14px;
+    font-size: 0.85rem;
+  }
+  .mcp-issue:disabled,
+  .mcp-revoke:disabled {
+    opacity: 0.5;
   }
   .version {
     text-align: center;

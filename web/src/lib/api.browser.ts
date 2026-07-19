@@ -62,6 +62,12 @@ export const browserApi: ApiClient = {
   async me() {
     return request('/api/auth/me');
   },
+  async mcpTokenIssue() {
+    return request('/api/auth/mcp-token', { method: 'POST' });
+  },
+  async mcpTokenRevoke() {
+    return request('/api/auth/mcp-token/revoke', { method: 'POST' });
+  },
   // count は累積表示件数（上流の listPageNo）。ページ番号ではなく「先頭から何件
   // 表示するか」を表す。上流は 1..count の全件を返すため、毎回全件を取り直す。
   async notices(type, count = 10) {

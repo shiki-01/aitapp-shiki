@@ -803,8 +803,10 @@ preview=365e6244b925476b9fecea11cf792e24）、同じ worker に MCP Streamable H
   - stdio 版: `mcp/src/client.ts`（HTTP + ローカル一時ファイル保存）
   - worker 版: `worker/src/mcp/self-client.ts`（`app.fetch` への in-process dispatch +
     base64 返却、上限 10MB）
-- 認証: `Authorization: Bearer <MCP_TOKEN>`（SHA-256 ダイジェスト比較）。
-  `MCP_TOKEN`/`AITAPP_ID`/`AITAPP_PASSWORD` 未設定なら `/mcp` は 404。
+- 認証: `Authorization: Bearer <token>` または `/mcp/<token>`（SHA-256 ダイジェスト比較）。
+  トークンは owner（env `MCP_TOKEN`）とユーザー別（§13.5）の 2 種類。
+  （旧仕様の「env 未設定なら 404」は §13.5 でユーザー別トークンが常時有効になったため
+  廃止。不正トークンは一律 401。）
 - 資格情報は worker シークレット（`AITAPP_ID`/`AITAPP_PASSWORD`/`AITAPP_MOODLE_ORIGIN` 等）。
   内部呼び出し（`X-Aitapp-Internal: MCP_TOKEN` ヘッダ）に限り、認証ミドルウェアが
   env 資格情報から state をブートストラップする（`/api/auth/login` 不要）。これは
@@ -873,3 +875,37 @@ Oracle 相乗りを優先した（追加の保守コストは Moodle と共有�
 Cookie 透過・パースまで一連が機能。なお `LCAM_RELAY_URL` を `[vars]` でコメントのまま
 デプロイすると（URL/TOKEN 両方揃わないと relay を使わない実装のため）直続 500 に戻る点に注意
 （初回デプロイで実際に踏んだ。URL var の有効化 + 再デプロイで解消）。
+
+### 13.5 /mcp のマルチユーザー化（ユーザー別トークン）
+
+2026-07-19 実装。owner の env 資格情報を全員で共有せず、各ユーザーが自分の
+資格情報で `/mcp` を使えるようにした。worker 管理者の運用負担（ユーザーごとの
+シークレット設定・トークン配布）は発生しない。
+
+- **発行**: ログイン済みユーザーが `POST /api/auth/mcp-token`（Web アプリの
+  「その他 → Claude 連携 (MCP)」）で自己発行。失効は `POST /api/auth/mcp-token/revoke`、
+  発行済みフラグは `GET /api/auth/me` の `mcp`。
+- **形式**: `u.<base64url(userId)>.<乱数32byte hex>`（`worker/src/mcp/token.ts`）。
+  uid を埋め込むことで token→uid の索引 key を KV に作らず、`user:{uid}` の
+  1 read だけで検証できる（要件 §6 の key 分割禁止に適合）。uid 部分を改竄すると
+  トークン全体の SHA-256 が変わり不一致になる。
+- **保存**: KV の `UserState.mcpTokenHash` に SHA-256（hex）のみ。平文は発行応答
+  でしか返さない。再発行で置換・revoke で null・logout で state ごと削除（＝失効）。
+  再ログイン（`/api/auth/login`）は既存 state から `mcpTokenHash` を引き継ぐ
+  （引き継がないと再ログインの度にコネクタが壊れる）。
+- **実行時**: `worker/src/mcp/handler.ts` がトークン種別を判定し、ユーザー別なら
+  `SelfClient` を user モード（uid の自己署名 cookie のみ、`X-Aitapp-Internal` なし）で
+  生成。ツールは本人の KV state（暗号化 credential・上流 cookie・Moodle token）で動く。
+- **書き込み系ツールは fail-closed**: out-of-band 確認秘密（`CONFIRM_SECRET`）を
+  ユーザー別に受け渡す経路が無い（カスタムコネクタはヘッダ設定不可で、URL トークンが
+  唯一の伝達手段＝out-of-band にならない）ため、user モードの `confirmSecret` は
+  常に空にし、不可逆書き込み（クイズ・課題・アンケート提出等）は confirm_secret_unset
+  で拒否する。閲覧系のみ提供。owner モードは従来どおり。
+- **Google ログイン等の外部 IdP は導入しない（判断）**: ユーザーはどのみち LCAM の
+  資格情報を登録する必要があり（スクレイピングに必須）、LCAM ログイン成功自体が
+  本人確認になる。OAuth クライアント登録・コールバック・external state 管理を足しても
+  認証強度は上がらず、要件の「過剰実装をしない」に反するため見送り。将来
+  「登録できる人を絞る」必要が出たら、その時点で allowlist 等を検討する（要件外）。
+- **無料枠への影響**: ユーザー別 /mcp は 1 ツール呼び出しあたり KV read が
+  +1（トークン検証）で計 2 回。write は発行/失効時のみ。無料枠
+  （read 100k/日・write 1k/日）に対しユーザー数十人規模でも余裕（§7 参照）。

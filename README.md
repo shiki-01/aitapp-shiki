@@ -130,7 +130,33 @@ bunx wrangler deploy   # 本番へ
 
 worker には MCP Streamable HTTP エンドポイント `/mcp` があり、デプロイすると
 Claude Code 等からクラウド経由でツールを使える（ローカルの `mcp/` を起動しなくてよい）。
-単一ユーザー前提で、資格情報は worker のシークレットに置く。
+トークンは 2 種類あり、併用できる。
+
+| | ユーザー別トークン（推奨・複数人向け） | owner トークン（従来・単一ユーザー） |
+|---|---|---|
+| 発行方法 | Web アプリでログイン → 「その他」→「Claude 連携 (MCP)」→ 発行 | `wrangler secret put MCP_TOKEN` |
+| 資格情報 | 本人が Web ログイン時に KV へ暗号化保存したもの | worker のシークレット（`AITAPP_ID` 等） |
+| 失効 | 画面から失効/再発行、または logout（state 削除） | シークレット差し替え |
+| 書き込み系ツール | 使えない（常に confirm 拒否。閲覧系のみ） | `CONFIRM_SECRET` 設定時に可 |
+
+### ユーザー別トークン（自己発行・マルチユーザー）
+
+各ユーザーは自分の LCAM 資格情報で Web アプリにログインし、自分専用の
+`/mcp/<token>` URL を自己発行する（`POST /api/auth/mcp-token`）。worker 管理者が
+ユーザーごとに設定する項目はない。
+
+- トークンは `u.<base64url(userId)>.<乱数64hex>` 形式。KV には SHA-256 ハッシュのみ
+  保存し、平文は発行時の応答でしか表示されない（紛失時は再発行）。
+- 再発行すると旧トークンは無効になる。logout すると KV state ごと消えるため
+  トークンも無効になる（再ログイン後に再発行が必要）。
+- ツール実行は本人の KV state（暗号化 credential・上流 cookie・Moodle token）で行われ、
+  worker 管理者の資格情報には触れない。
+- 書き込み系ツール（クイズ・課題・アンケートの提出等）は out-of-band 確認秘密を
+  ユーザー別に受け渡す経路が無いため、fail-closed で常に拒否する（閲覧系のみ）。
+
+### owner トークン（従来方式・worker 管理者用）
+
+資格情報を worker のシークレットに置く単一ユーザー方式。
 
 ```sh
 cd worker
@@ -149,7 +175,8 @@ bunx wrangler secret put AITAPP_MOODLE_ORIGIN   # 例: cms.aitech.ac.jp
 供給されるため、別途 `AITAPP_CONFIRM_SECRET` を渡す必要はない（stdio 実行のときだけ
 MCP ホストの env に `AITAPP_CONFIRM_SECRET` を `CONFIRM_SECRET` と同一値で設定する）。
 
-未設定の間 `/mcp` は 404 を返すだけで、既存 API に影響しない。
+owner 用シークレット（`MCP_TOKEN` 等）が未設定でも、ユーザー別トークンによる
+`/mcp` は常に有効（不正トークンには 401 を返す）。
 
 Claude Code への登録:
 
@@ -163,18 +190,21 @@ claude mcp add --transport http aitapp-cloud \
 
 スマホの Claude アプリはコネクタ（リモートMCP）に対応しているが、カスタムコネクタでは
 `Authorization` 等のカスタムヘッダを設定できない。そのためトークンを URL パスに
-埋め込んだエンドポイント `/mcp/<MCP_TOKEN>` を用意している（認証の中身はヘッダ方式と同一）。
+埋め込んだエンドポイント `/mcp/<token>` を用意している（認証の中身はヘッダ方式と同一。
+ユーザー別トークン・owner トークンのどちらも使える）。
 
 1. claude.ai（Web）の **設定 → コネクタ → カスタムコネクタを追加** で、URL に
-   `https://<worker-origin>/mcp/<MCP_TOKEN>` を登録する（コネクタはアカウント単位
+   `https://<worker-origin>/mcp/<token>`（Web アプリで発行した MCP URL そのまま、
+   または owner の `/mcp/<MCP_TOKEN>`）を登録する（コネクタはアカウント単位
    なので、Web で追加すればスマホアプリからも使える）。
 2. スマホの Claude アプリでチャットのコネクタ一覧から有効化して使う。
 
 注意:
 
 - トークンが URL に含まれるため、URL の扱いは Bearer トークンと同等に秘匿する
-  （チャットや共有リンクに貼らない）。漏れた場合は `wrangler secret put MCP_TOKEN`
-  で新しい値に差し替えれば即座に無効化できる。
+  （チャットや共有リンクに貼らない）。漏れた場合、ユーザー別トークンは Web アプリの
+  「Claude 連携 (MCP)」から再発行/失効、owner トークンは `wrangler secret put MCP_TOKEN`
+  で新しい値に差し替えれば無効化できる。
 - `MCP_TOKEN` は URL パスに使える文字だけで生成する（推奨: `openssl rand -hex 32`。
   `base64` は `/` や `+` を含みうるため不可）。
 - スマホからの利用は必然的にデプロイ版 worker 経由になるため、下記の制約どおり

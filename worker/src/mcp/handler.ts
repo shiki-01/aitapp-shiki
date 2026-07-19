@@ -1,28 +1,42 @@
 // /mcp エンドポイント（MCP Streamable HTTP, stateless）。
-// 認証: Authorization: Bearer <MCP_TOKEN>、またはカスタムヘッダを設定できない
+// 認証: Authorization: Bearer <token>、またはカスタムヘッダを設定できない
 // クライアント（スマホの Claude アプリのカスタムコネクタ等）向けに URL パスへの
-// トークン埋め込み（/mcp/<MCP_TOKEN>）。単一ユーザー前提で、資格情報は
-// worker のシークレット（AITAPP_ID 等）から取る。リクエストごとに McpServer を
-// 生成する stateless 運用（Durable Objects 不使用の制約に適合）。
+// トークン埋め込み（/mcp/<token>）。トークンは 2 種類:
+//   - owner トークン（env.MCP_TOKEN）: 資格情報は worker のシークレット（AITAPP_ID 等）。
+//     従来の単一ユーザー運用。env が未設定なら無効。
+//   - ユーザー別トークン（`u.` プレフィックス。/api/auth/mcp-token で自己発行）:
+//     資格情報は本人が Web ログイン時に KV へ暗号化保存したものを使う。
+//     KV の UserState.mcpTokenHash と SHA-256 ハッシュの一致で認証する。
+// リクエストごとに McpServer を生成する stateless 運用
+// （Durable Objects 不使用の制約に適合）。
 
 import type { Context } from 'hono';
 import { StreamableHTTPTransport } from '@hono/mcp';
 import { createAitappServer } from '../../../mcp/src/register';
 import type { Env } from '../types';
-import { SelfClient, type Dispatch } from './self-client';
+import { readState } from '../store/kv';
+import { SelfClient, type Dispatch, type SelfAuth } from './self-client';
+import { hashMcpToken, parseUserMcpTokenUid, safeEqual } from './token';
 
-/** タイミング攻撃を避けるため、SHA-256 ダイジェスト同士を比較する。 */
-async function safeEqual(a: string, b: string): Promise<boolean> {
-  const enc = new TextEncoder();
-  const [ha, hb] = await Promise.all([
-    crypto.subtle.digest('SHA-256', enc.encode(a)),
-    crypto.subtle.digest('SHA-256', enc.encode(b)),
-  ]);
-  const va = new Uint8Array(ha);
-  const vb = new Uint8Array(hb);
-  let diff = 0;
-  for (let i = 0; i < va.length; i++) diff |= va[i] ^ vb[i];
-  return diff === 0;
+/** トークンを検証し、成立したら SelfClient の認証コンテキストを返す。 */
+async function authenticate(env: Env, token: string): Promise<SelfAuth | null> {
+  if (!token) return null;
+
+  // owner トークン（従来方式）。env が揃っているときのみ有効。
+  const { MCP_TOKEN, AITAPP_ID, AITAPP_PASSWORD } = env;
+  if (MCP_TOKEN && AITAPP_ID && AITAPP_PASSWORD && (await safeEqual(token, MCP_TOKEN))) {
+    return { uid: AITAPP_ID, internal: true };
+  }
+
+  // ユーザー別トークン。uid は state の所在を決めるだけで、認証は保存済みハッシュとの
+  // 一致で行う（uid 部分を改竄するとハッシュが一致しなくなる）。
+  const uid = parseUserMcpTokenUid(token);
+  if (!uid) return null;
+  const state = await readState(env, uid);
+  if (!state?.mcpTokenHash) return null;
+  const hash = await hashMcpToken(token);
+  if (!(await safeEqual(hash, state.mcpTokenHash))) return null;
+  return { uid, internal: false };
 }
 
 export async function handleMcpRequest<E extends { Bindings: Env }>(
@@ -30,19 +44,15 @@ export async function handleMcpRequest<E extends { Bindings: Env }>(
   dispatch: Dispatch,
   pathToken?: string,
 ): Promise<Response> {
-  const { MCP_TOKEN, AITAPP_ID, AITAPP_PASSWORD } = c.env;
-  // 未設定なら機能ごと無効（存在も明かさない）。
-  if (!MCP_TOKEN || !AITAPP_ID || !AITAPP_PASSWORD) {
-    return c.json({ error: 'not found' }, 404);
-  }
   const auth = c.req.header('Authorization') ?? '';
   const headerToken = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length) : '';
   const token = headerToken || pathToken || '';
-  if (!token || !(await safeEqual(token, MCP_TOKEN))) {
+  const selfAuth = await authenticate(c.env, token);
+  if (!selfAuth) {
     return c.json({ error: 'unauthorized' }, 401);
   }
 
-  const server = createAitappServer(new SelfClient(c.env, dispatch));
+  const server = createAitappServer(new SelfClient(c.env, dispatch, selfAuth));
   const transport = new StreamableHTTPTransport();
   await server.connect(transport);
   const res = await transport.handleRequest(c);
