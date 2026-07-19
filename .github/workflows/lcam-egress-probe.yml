@@ -1,0 +1,35 @@
+# LCAM が非 Cloudflare のデータセンター IP（GitHub Actions = Azure 帯）を
+# 通すかどうかの手動プローブ。MIGRATION_NOTES.md §13.1 の続き:
+# Cloudflare egress は WAF (Zenedge) に拒否される（SC_error / 500）ことが
+# 確定済みで、他クラウド帯の扱いが「自前ホストなしの中継 relay」案の成否を
+# 分けるため、それを実測する。公開ログインページへの GET を 1 回行うだけ。
+name: lcam-egress-probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe LCAM from GitHub Actions egress
+        run: |
+          echo "== egress IP =="
+          curl -sS --max-time 15 https://api.ipify.org || true
+          echo
+          echo "== GET https://lcam.aitech.ac.jp/portalv2/ =="
+          status=$(curl -sS --max-time 30 -o body.html -D headers.txt \
+            -w '%{http_code}' 'https://lcam.aitech.ac.jp/portalv2/' || echo 'CURL_FAIL')
+          echo "HTTP status: $status"
+          echo "-- response headers --"
+          cat headers.txt || true
+          echo "-- body head (first 40 lines) --"
+          head -40 body.html || true
+          echo "-- verdict --"
+          if grep -q 'SC_error\|サーバ内部でエラーが発生' body.html; then
+            echo 'BLOCKED: LiveCampus error page (same as Cloudflare egress, §13.1)'
+          elif [ "$status" = "200" ]; then
+            echo 'PASS: got 200 without SC_error -> this egress IP range is accepted'
+          else
+            echo "INCONCLUSIVE: status=$status (inspect headers/body above)"
+          fi
