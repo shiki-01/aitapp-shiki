@@ -14,6 +14,15 @@ export interface Env {
   /** ローカル開発時に Moodle 接続先を強制的に上書きする（`.dev.vars` 専用、本番では未設定）。 */
   MOODLE_ORIGIN_OVERRIDE?: string;
   /**
+   * LCAM 中継 relay の URL（例 https://relay.shiki-01.com）。
+   * LCAM の WAF は Cloudflare の egress IP を拒否するため（MIGRATION_NOTES §13.1）、
+   * 本番では LCAM 宛リクエストのみ非 Cloudflare の relay 経由にする。
+   * 未設定なら LCAM へ直接 fetch する（ローカル `wrangler dev` は未設定で直続。§13.4）。
+   */
+  LCAM_RELAY_URL?: string;
+  /** LCAM relay の Bearer トークン。wrangler secret put LCAM_RELAY_TOKEN。LCAM_RELAY_URL とセットで有効。 */
+  LCAM_RELAY_TOKEN?: string;
+  /**
    * 不可逆/取り消しにくい書き込み操作（クイズ受験開始・確定、課題の下書き保存・
    * ファイル添付・最終提出、アンケート提出）の out-of-band 確認秘密。
    * これは worker 側の権威ある検証値であり、MCP ホストが人間保有の秘密

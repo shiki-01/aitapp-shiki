@@ -4,10 +4,50 @@
 
 import { UpstreamError } from '../errors';
 import { fetchUpstream, UPSTREAM_FILE_TIMEOUT_MS } from '../fetch';
-import type { LcamCookies } from '../../types';
+import type { Env, LcamCookies } from '../../types';
 
 export const LCAM_ORIGIN = 'lcam.aitech.ac.jp';
 const BASE = `https://${LCAM_ORIGIN}`;
+
+/**
+ * LCAM 中継 relay の設定。deployment 定数（全リクエスト共通）のためモジュール変数に
+ * 一度だけ注入する。値がリクエスト間で不変なので isolate 再利用でも state 汚染は起きない。
+ * リクエスト入口の共通ミドルウェアで configureLcamRelay(env) を呼ぶこと。
+ */
+let relay: { url: string; token: string } | undefined;
+
+export function configureLcamRelay(env: Env): void {
+  relay =
+    env.LCAM_RELAY_URL && env.LCAM_RELAY_TOKEN
+      ? { url: env.LCAM_RELAY_URL, token: env.LCAM_RELAY_TOKEN }
+      : undefined;
+}
+
+/**
+ * LCAM 専用 fetch。relay が設定されていれば、宛先 URL を X-Aitapp-Target ヘッダに載せて
+ * relay へ回す（LCAM の WAF が Cloudflare IP を拒否するため。MIGRATION_NOTES §13）。
+ * 未設定なら従来どおり LCAM へ直接 fetch。Cookie/Origin/Sec-Fetch-* 等の全ヘッダと body は
+ * relay がそのまま LCAM へ素通しする前提。
+ */
+function lcamFetch(
+  url: string,
+  init: RequestInit,
+  timeoutMs?: number,
+): Promise<Response> {
+  if (!relay) return fetchUpstream(url, init, timeoutMs);
+  return fetchUpstream(
+    relay.url,
+    {
+      ...init,
+      headers: {
+        ...(init.headers as Record<string, string>),
+        'X-Aitapp-Target': url,
+        Authorization: `Bearer ${relay.token}`,
+      },
+    },
+    timeoutMs,
+  );
+}
 
 // SP（スマホ）系エンドポイントはモバイル UA を前提とするため必須。
 // Workers の fetch は既定で UA を送らないので Worker 側で付与する。
@@ -45,7 +85,7 @@ async function httpAccess(
 ): Promise<Response> {
   // Dart の http パッケージはリダイレクトを自動追従し、失効時はログイン HTML(200)
   // を受け取って DOM 判定する。これに合わせ追従させる（要件 §8: status 非依存）。
-  const res = await fetchUpstream(url, {
+  const res = await lcamFetch(url, {
     method: body ? 'POST' : 'GET',
     headers: { ...headers },
     body: body ? formBody(body) : undefined,
@@ -510,7 +550,7 @@ export async function getFile(
     ...constHeader,
   };
   // ファイルは stream proxy するため、body 読み切りまで時間がかかり得る。タイムアウトを延長。
-  return fetchUpstream(`${BASE}${fileUrl}`, { headers }, UPSTREAM_FILE_TIMEOUT_MS);
+  return lcamFetch(`${BASE}${fileUrl}`, { headers }, UPSTREAM_FILE_TIMEOUT_MS);
 }
 
 // ---- スケジュール（PC 経路） ----

@@ -13,7 +13,7 @@ import {
   readSessionCookie,
 } from './session/cookie';
 import { readState, writeState, deleteState } from './store/kv';
-import { getCookie, loginLcam } from './upstream/lcam/access';
+import { getCookie, loginLcam, configureLcamRelay } from './upstream/lcam/access';
 import { parseHtml } from './html/parser';
 import { isLoginSuccess } from './upstream/lcam/detect';
 import { withLcamRelogin } from './upstream/relogin';
@@ -83,6 +83,8 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 // ユーザーが提示するエラーコードとサーバーログを突き合わせるための識別子。
 app.use('*', async (c, next) => {
   c.set('correlationId', crypto.randomUUID());
+  // LCAM 中継 relay の設定を注入（env 由来の deployment 定数。§13.4）。
+  configureLcamRelay(c.env);
   await next();
 });
 

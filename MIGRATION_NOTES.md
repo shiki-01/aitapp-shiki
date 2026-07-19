@@ -816,3 +816,60 @@ preview=365e6244b925476b9fecea11cf792e24）、同じ worker に MCP Streamable H
 - 検証済み（本番 /mcp 経由）: `initialize` / `tools/list` / `moodle_list_assignments`
   （実データ取得）/ `syllabus_get_filters`。`lcam_get_timetable` は §13.1 のとおり
   上流 500 エラーになる。
+
+### 13.3 egress プローブ結果（2026-07-19）: 拒否は Cloudflare 帯限定
+
+§13.1 の続き。「LCAM の WAF はデータセンター IP 全般を拒否するのか、Cloudflare
+帯だけか」を GitHub Actions（Azure westus2、egress IP 20.120.220.145）から実測した
+（`.github/workflows/lcam-egress-probe.yml`、workflow_dispatch / 自ファイル push で発火。
+GitHub App 経由の API では workflow_dispatch が 403 になるため push トリガーを併設）。
+
+結果: `GET https://lcam.aitech.ac.jp/portalv2/` が **HTTP 200** で本物の L-Cam
+ログインページ（`<title>L-Cam</title>`、`Set-Cookie: JSESSIONID=...` 発行）を返した。
+応答ヘッダに `server: ZENEDGE` / `x-cdn: Served-By-Zenedge` があり WAF 通過後の
+正常応答であることを確認。
+
+帰結: **Zenedge の拒否は Cloudflare の IP 帯に限定**で、非 Cloudflare の
+データセンター IP（少なくとも Azure 帯）は通る。よって「LCAM 宛だけ非 Cloudflare の
+無料サーバーレス（Deno Deploy / Vercel 等）に置いた中継 relay を経由する」構成が
+自前ホストなしで成立する見込み。ただし実際に使うプラットフォームの egress 帯
+（Deno Deploy=GCP、Vercel=AWS 等）は本プローブ未検証のため、採用時に同じ方法で
+1 回プローブして確認すること（**要確認**）。
+
+### 13.4 LCAM 中継 relay（Oracle Cloud 相乗り）
+
+§13.3 を受け、採用構成を「既存の Moodle サンドボックス VM（Oracle Cloud Always Free、
+固定 IP・cloudflared 稼働済み）に LCAM 専用の透過 relay を相乗りさせる」に確定した。
+Oracle 帯の egress は `curl https://lcam.aitech.ac.jp/portalv2/` が **200** を返すことで
+確認済み（§13.3 で通した Azure に加え Oracle も通過）。サーバーレス（Deno Deploy 等）は
+共有 egress 帯のローテーション・帯単位 BAN・禁止ヘッダ検閲の懸念があり、固定 IP の
+Oracle 相乗りを優先した（追加の保守コストは Moodle と共有のため実質増分なし）。
+
+設計:
+
+- **Worker 側**: LCAM の全アクセスが通る `worker/src/upstream/lcam/access.ts` の
+  `lcamFetch()` に集約。`env.LCAM_RELAY_URL` / `LCAM_RELAY_TOKEN` があれば、宛先 URL を
+  `X-Aitapp-Target` ヘッダに載せ `Authorization: Bearer` を付けて relay へ回す。未設定なら
+  従来どおり LCAM へ直接 fetch（ローカル `wrangler dev` は未設定で直続）。relay 設定は
+  deployment 定数のため `configureLcamRelay(env)`（`app.use('*')` で毎リクエスト注入）で
+  モジュール変数に入れる（値不変のため isolate 再利用でも汚染なし）。Moodle/シラバスは
+  別 access のため無改修。
+- **relay 側**（`relay/relay.mjs`、依存ゼロの Node）: Bearer 認証・宛先を
+  `https://lcam.aitech.ac.jp/` 前置のみ許可・GET/POST のみ。受信ヘッダ（Cookie/Origin/
+  Referer/Sec-Fetch-*/User-Agent 等）と body を **node:https で verbatim 転送**する。
+  これらは Fetch 仕様の「禁止ヘッダ」で spec fetch() だと落ちるため、CF Workers と同様に
+  検閲しない node:https を使うのが要点。応答は status・body（stream）・Set-Cookie（複数
+  保持）・Content-Type をそのまま返す。body はログに残さない（ログイン POST に平文資格情報）。
+- **公開**: 既存 cloudflared トンネルに `relay.shiki-01.com → http://localhost:8090` を
+  追加。inbound は CF 経由だが relay→LCAM の egress は Oracle 固定 IP なので WAF を通る。
+
+配置・デプロイ手順は `relay/README.md`。
+
+**エンドツーエンド検証済み（2026-07-19）**: Oracle VM（Moodle と同居、cloudflared に
+`relay.shiki-01.com → localhost:8090` を追加）に relay を配置し、worker を
+`LCAM_RELAY_URL="https://relay.shiki-01.com"` + `LCAM_RELAY_TOKEN` 有効でデプロイ。
+本番 `/mcp` から `lcam_get_timetable` が実データ（週間時間割）を返すことを確認し、
+§13.2 で 500 だった LCAM 系が解消した。relay→LCAM の禁止ヘッダ到達・SP セッション確立・
+Cookie 透過・パースまで一連が機能。なお `LCAM_RELAY_URL` を `[vars]` でコメントのまま
+デプロイすると（URL/TOKEN 両方揃わないと relay を使わない実装のため）直続 500 に戻る点に注意
+（初回デプロイで実際に踏んだ。URL var の有効化 + 再デプロイで解消）。
