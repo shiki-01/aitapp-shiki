@@ -816,3 +816,22 @@ preview=365e6244b925476b9fecea11cf792e24）、同じ worker に MCP Streamable H
 - 検証済み（本番 /mcp 経由）: `initialize` / `tools/list` / `moodle_list_assignments`
   （実データ取得）/ `syllabus_get_filters`。`lcam_get_timetable` は §13.1 のとおり
   上流 500 エラーになる。
+
+### 13.3 egress プローブ結果（2026-07-19）: 拒否は Cloudflare 帯限定
+
+§13.1 の続き。「LCAM の WAF はデータセンター IP 全般を拒否するのか、Cloudflare
+帯だけか」を GitHub Actions（Azure westus2、egress IP 20.120.220.145）から実測した
+（`.github/workflows/lcam-egress-probe.yml`、workflow_dispatch / 自ファイル push で発火。
+GitHub App 経由の API では workflow_dispatch が 403 になるため push トリガーを併設）。
+
+結果: `GET https://lcam.aitech.ac.jp/portalv2/` が **HTTP 200** で本物の L-Cam
+ログインページ（`<title>L-Cam</title>`、`Set-Cookie: JSESSIONID=...` 発行）を返した。
+応答ヘッダに `server: ZENEDGE` / `x-cdn: Served-By-Zenedge` があり WAF 通過後の
+正常応答であることを確認。
+
+帰結: **Zenedge の拒否は Cloudflare の IP 帯に限定**で、非 Cloudflare の
+データセンター IP（少なくとも Azure 帯）は通る。よって「LCAM 宛だけ非 Cloudflare の
+無料サーバーレス（Deno Deploy / Vercel 等）に置いた中継 relay を経由する」構成が
+自前ホストなしで成立する見込み。ただし実際に使うプラットフォームの egress 帯
+（Deno Deploy=GCP、Vercel=AWS 等）は本プローブ未検証のため、採用時に同じ方法で
+1 回プローブして確認すること（**要確認**）。
