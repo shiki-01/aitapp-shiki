@@ -959,6 +959,30 @@ app.all('/mcp/:token', (c) =>
   ),
 );
 
+// ---- フロント静的配信（web/build、Workers Static Assets） ----
+// [assets] run_worker_first = true で全リクエストが Worker を通るため、
+// /api・/mcp に一致しなかった残りをここで受けて asset 配信へ回す。
+// SPA フォールバック（/login 等 → index.html）は [assets] not_found_handling が担う。
+app.all('*', (c) => {
+  const path = new URL(c.req.url).pathname;
+  // API/MCP 配下の未定義パスはフロントへフォールバックさせず 404 を返す。
+  if (path.startsWith('/api/') || path === '/mcp' || path.startsWith('/mcp/')) {
+    return c.json(
+      { error: 'not_found', message: '対象が見つかりません', correlationId: c.get('correlationId') },
+      404,
+    );
+  }
+  if (!c.env.ASSETS) return c.notFound();
+  const expected = c.env.WEB_BASIC_AUTH;
+  if (expected && c.req.header('Authorization') !== `Basic ${btoa(expected)}`) {
+    return new Response('authentication required', {
+      status: 401,
+      headers: { 'WWW-Authenticate': 'Basic realm="aitapp", charset="UTF-8"' },
+    });
+  }
+  return c.env.ASSETS.fetch(c.req.raw);
+});
+
 // ---- エラーハンドラ ----
 // client には固定の汎用メッセージ + correlationId のみ返し、上流本文・例外文字列・
 // 内部パーサ/クラス名は透過させない。詳細は構造化ログ（error レベル）にのみ出す。

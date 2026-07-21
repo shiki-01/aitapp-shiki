@@ -8,6 +8,18 @@ routes = [
   { pattern = "aitapp.shiki-01.com", custom_domain = true }
 ]
 
+# フロント（web/build）を同一オリジンで静的配信する（Workers Static Assets、無料）。
+# 単一オリジン（aitapp.shiki-01.com）に API とフロントを同居させることで、
+# SameSite=Strict の session cookie と CORS の制約を丸ごと回避する。
+# デプロイ前に web/ 側で `VITE_API_BASE=https://aitapp.shiki-01.com bun run build` を実行しておくこと。
+# run_worker_first: 全リクエストを Worker に通し、Basic 認証（WEB_BASIC_AUTH）を
+# 適用してから ASSETS binding 経由で配信する（router.ts のフォールバックルート）。
+[assets]
+directory = "../web/build"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
 # Workers KV: ユーザー状態を 1 ユーザー 1 key で保持する。
 # `wrangler kv namespace create USER_KV` で作成し、出力された id を埋める。
 kv_namespaces = [
@@ -16,8 +28,12 @@ kv_namespaces = [
 
 [vars]
 # フロント(SvelteKit)のオリジン。CORS / Origin チェックに使用する。
-# 本番では Pages のオリジンに、ローカルでは Vite dev server に合わせる。
-APP_ORIGIN = "http://localhost:5173"
+# 本番はフロントを Worker 自身が静的配信するため API と同一オリジン。
+# ローカル開発時（vite dev 分離構成）は worker/.dev.vars に
+# APP_ORIGIN=http://localhost:5173 を書いて上書きする。
+APP_ORIGIN = "https://aitapp.shiki-01.com"
+# フロント静的配信の Basic 認証（"user:pass"）。API/MCP には適用されない。
+WEB_BASIC_AUTH = "admin:admin"
 # /api/schedule の reload ループ回数（subrequest 上限のため Dart の 25 から縮小）。
 SCHEDULE_WEEKS = "8"
 # LCAM 中継 relay の URL。LCAM の WAF が Cloudflare の egress IP を拒否するため

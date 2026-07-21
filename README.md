@@ -12,7 +12,7 @@ Workers をサーバーサイド proxy（BFF）として挟み、ログインを
 
 ```
 worker/   Cloudflare Workers + Hono + TypeScript（BFF / 上流 proxy。/mcp でリモートMCPも提供）
-web/      SvelteKit（Svelte 5）SPA（Cloudflare Pages 配信 / Tauriのフロントとしても共用）
+web/      SvelteKit（Svelte 5）SPA（本番は worker が同一オリジンで静的配信 / Tauriのフロントとしても共用）
 tauri/    PC版デスクトップアプリ（Tauri + Rust。web/のビルド成果物を表示する）
 mcp/      MCPサーバー（stdioローカル実行。ツール実装は worker/ の /mcp と共用）
 vendor/aitapp  移植元 Dart 実装（git submodule）
@@ -107,11 +107,14 @@ bunx wrangler secret put SESSION_SECRET  # → 全 session 失効。全員の再
 ### 3. `APP_ORIGIN`
 
 `wrangler.toml` の `[vars] APP_ORIGIN` をフロントのオリジンに合わせる。
-ローカルは `http://localhost:5173`、本番は Pages のオリジン。
+本番はフロントを Worker 自身が静的配信する（下記「セットアップ（web）」参照）ため
+API と同一の `https://aitapp.shiki-01.com`（wrangler.toml に記載済み）。
+ローカル開発時（vite dev 分離構成）は `worker/.dev.vars` に
+`APP_ORIGIN=http://localhost:5173` を書いて上書きする（`.dev.vars` は `[vars]` より優先される）。
 
 > **SameSite=Strict の制約**: session cookie は `SameSite=Strict` のため、フロントと
-> Worker は**同一 registrable domain（eTLD+1）**に揃える必要がある
-> （例: `app.example.com` と `api.example.com`）。ローカルは双方 `localhost` で成立する。
+> Worker は**同一 registrable domain（eTLD+1）**に揃える必要がある。本番は同一オリジン
+> 配信なので自動的に満たされる。ローカルは双方 `localhost`（別ポートは same-site）で成立する。
 
 ### 4. ローカル起動 / デプロイ
 
@@ -197,21 +200,25 @@ cp .env.example .env    # VITE_API_BASE を Worker の URL に設定
 bun run dev             # http://localhost:5173
 ```
 
-ビルド / デプロイ（Cloudflare Pages, 出力は `web/build`）:
+ビルド / デプロイ（本番はフロントを **Worker が同一オリジンで静的配信**する。
+`worker/wrangler.toml` の `[assets] directory = "../web/build"`）:
 
 ```sh
-bun run build
-# Pages へ: ビルド出力 build/ を Pages プロジェクトに割り当てる
-# 例: bunx wrangler pages deploy build
+# 1. web をビルド（API ベース URL は Worker 自身のオリジン）
+cd web
+VITE_API_BASE=https://aitapp.shiki-01.com bun run build
+# 2. worker をデプロイすると build/ が一緒にアップロードされる
+cd ../worker
+bunx wrangler deploy
 ```
 
-Pages のビルド設定例:
+本番構成（デプロイ済み）:
 
-| 項目 | 値 |
-|------|-----|
-| Build command | `bun install && bun run build` |
-| Build output directory | `build` |
-| Environment variable | `VITE_API_BASE = https://<worker-origin>` |
+- **`https://aitapp.shiki-01.com`** で API・フロント・`/mcp` すべてを配信する
+  （単一オリジン。SameSite=Strict / CORS の制約を構成で満たす。Pages は使わない）。
+- フロント配信部分には Basic 認証がかかる（`[vars] WEB_BASIC_AUTH = "user:pass"`）。
+  公開 URL の覗き見防止が目的で、`/api`（session cookie）と `/mcp`（MCP_TOKEN）は
+  対象外のため Tauri / MCP クライアントには影響しない。
 
 ## セットアップ（PC版デスクトップアプリ / tauri）
 

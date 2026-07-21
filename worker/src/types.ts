@@ -9,6 +9,18 @@ export interface Env {
   SESSION_SECRET: string;
   /** フロントのオリジン（CORS / Origin チェック）。 */
   APP_ORIGIN?: string;
+  /**
+   * フロント静的配信（web/build）の Workers Static Assets binding。
+   * wrangler.toml の [assets] で設定。ローカルで web/ を vite dev で分離起動する
+   * 構成では未バインドでもよい（その場合フロント配信は 404）。
+   */
+  ASSETS?: Fetcher;
+  /**
+   * フロント静的配信の Basic 認証（"user:pass" 形式）。未設定なら認証なしで配信。
+   * 目的は公開 URL の覗き見防止のみ。/api は session cookie、/mcp は MCP_TOKEN と
+   * それぞれ独自の認証を持つため対象外（Tauri/MCP クライアントを壊さない）。
+   */
+  WEB_BASIC_AUTH?: string;
   /** /api/schedule の reload ループ回数。 */
   SCHEDULE_WEEKS?: string;
   /** ローカル開発時に Moodle 接続先を強制的に上書きする（`.dev.vars` 専用、本番では未設定）。 */
