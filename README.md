@@ -129,6 +129,20 @@ bunx wrangler deploy   # 本番へ
 > `/api/auth/login`（LCAM 検証を含む）が動かない**。LCAM を含む全機能を使う場合は
 > ローカル実行（`wrangler dev`）を使う。詳細は `MIGRATION_NOTES.md` §13.1。
 
+### 上流エラー（相関ID）の調査手順
+
+- 画面に表示された `エラーコード` は worker の `correlationId`。
+- worker の構造化ログ（`console.error`）で同じ `correlationId` を検索すると、
+  `path` / `upstreamService` / `errorName` / `detail` を確認できる。
+- `upstreamService` は `lcam` / `moodle` / `syllabus` / `unknown` のいずれか。
+
+記録のみ（未修正）として扱う事象:
+
+- Issue #36
+  - 発生日時: 2026-07-21
+  - エラーコード: `baf80932-8ec5-4164-90fa-04f74e9f58cb`
+  - 状態: 原因調査待ち（上流サービス特定とログ突合せが必要）
+
 ## セットアップ（/mcp リモートMCP）
 
 worker には MCP Streamable HTTP エンドポイント `/mcp` があり、デプロイすると
