@@ -26,9 +26,12 @@ export class MoodleTokenError extends Error {
 
 /** 上流からの HTTP ステータス異常など、データ取得に失敗したときに投げる。 */
 export class UpstreamError extends Error {
-  constructor(message: string) {
+  /** 上流（Moodle 等）が返した機械可読なエラーコード。判別できた場合のみ入る。 */
+  readonly upstreamCode?: string;
+  constructor(message: string, upstreamCode?: string) {
     super(message);
     this.name = 'UpstreamError';
+    this.upstreamCode = upstreamCode;
   }
 }
 

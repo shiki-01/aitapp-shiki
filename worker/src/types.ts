@@ -89,6 +89,12 @@ export interface UserState {
    * 未発行/失効済みなら undefined/null。過去に保存された state には存在しないため optional。
    */
   mcpTokenHash?: string | null;
+  /**
+   * ユーザー別 MCP トークン(user モード)からの不可逆書き込みを本人が許可したか。
+   * Web 画面(セッション必須)からのみ変更でき、true のときだけ /mcp user モードに
+   * CONFIRM_SECRET が注入される。未設定/false は拒否(fail-closed)。
+   */
+  mcpAllowWrites?: boolean;
 }
 
 /** 復号後の認証情報（メモリ上でのみ保持し永続化しない）。 */

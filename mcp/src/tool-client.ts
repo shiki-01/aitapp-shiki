@@ -25,6 +25,13 @@ export interface ToolClient {
    * 未設定なら空文字（＝書き込みツールは実行前にエラーを返す）。
    */
   readonly confirmSecret: string;
+  /**
+   * confirmSecret が構造的に利用できない実装で、その理由をユーザー向けに説明する文字列。
+   * 例: /mcp のユーザー別トークン（user モード）は out-of-band 確認経路が無いため、
+   * worker の CONFIRM_SECRET を設定しても不可逆書き込みは実行できない。
+   * 設定漏れ（confirmSecret が空）とは区別してエラーメッセージに使う。
+   */
+  readonly confirmUnavailableReason?: string;
   /** worker の JSON API 呼び出し。session 失効時は1回だけ再ログインしてリトライする。 */
   request<T>(path: string, init?: RequestInit): Promise<T>;
   /** LCAM 連絡の添付ファイルを取得する。 */

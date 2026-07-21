@@ -89,7 +89,10 @@ async function callMoodleApi<T>(
     if (data.errorcode === 'invalidtoken') {
       throw new MoodleTokenError(data.message ?? data.errorcode);
     }
-    throw new UpstreamError(`Moodle ${wsfunction} error: ${data.message ?? data.exception}`);
+    throw new UpstreamError(
+      `Moodle ${wsfunction} error: ${data.message ?? data.exception}`,
+      data.errorcode,
+    );
   }
   return data;
 }
@@ -226,7 +229,7 @@ export async function getMoodleAssignments(
     if (data.errorcode === 'invalidtoken') {
       throw new MoodleTokenError(data.message ?? data.errorcode);
     }
-    throw new UpstreamError(`Moodle assignments error: ${data.message ?? data.exception}`);
+    throw new UpstreamError(`Moodle assignments error: ${data.message ?? data.exception}`, data.errorcode);
   }
 
   const parsed = parseMoodleResponse(AssignmentsResponseSchema, data, 'mod_assign_get_assignments');

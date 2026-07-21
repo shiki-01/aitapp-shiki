@@ -25,7 +25,7 @@ async function authenticate(env: Env, token: string): Promise<SelfAuth | null> {
   // owner トークン（従来方式）。env が揃っているときのみ有効。
   const { MCP_TOKEN, AITAPP_ID, AITAPP_PASSWORD } = env;
   if (MCP_TOKEN && AITAPP_ID && AITAPP_PASSWORD && (await safeEqual(token, MCP_TOKEN))) {
-    return { uid: AITAPP_ID, internal: true };
+    return { uid: AITAPP_ID, internal: true, allowWrites: true };
   }
 
   // ユーザー別トークン。uid は state の所在を決めるだけで、認証は保存済みハッシュとの
@@ -36,7 +36,7 @@ async function authenticate(env: Env, token: string): Promise<SelfAuth | null> {
   if (!state?.mcpTokenHash) return null;
   const hash = await hashMcpToken(token);
   if (!(await safeEqual(hash, state.mcpTokenHash))) return null;
-  return { uid, internal: false };
+  return { uid, internal: false, allowWrites: state.mcpAllowWrites === true };
 }
 
 export async function handleMcpRequest<E extends { Bindings: Env }>(

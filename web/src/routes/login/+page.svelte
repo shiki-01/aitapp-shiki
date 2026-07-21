@@ -21,8 +21,12 @@
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         error = 'ID またはパスワードが異なります';
+      } else if (err instanceof ApiError) {
+        // サーバー側エラー（上流障害等）。correlationId を含む message をそのまま見せて
+        // 問い合わせ・ログ照合（wrangler tail）に使えるようにする。
+        error = `ログインに失敗しました（HTTP ${err.status}）: ${err.message}`;
       } else {
-        error = '通信エラーが発生しました';
+        error = '通信エラーが発生しました（サーバーに接続できません）';
       }
     } finally {
       loading = false;

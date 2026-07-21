@@ -75,11 +75,14 @@ export interface ApiClient {
   logout(): Promise<{ ok: boolean }>;
   // mcp: ユーザー別 MCP トークンの発行済みフラグ。desktop 版（restore_session 経由）では
   // 取得できないため optional。
-  me(): Promise<{ userId: string; mcp?: boolean }>;
+  // mcpWrites: user モード MCP からの不可逆書き込みを本人が許可しているか。
+  me(): Promise<{ userId: string; mcp?: boolean; mcpWrites?: boolean }>;
   /** 自分専用の MCP URL を発行/再発行する。平文トークンはこの応答でのみ得られる。 */
   mcpTokenIssue(): Promise<{ ok: boolean; token: string; url: string }>;
   /** 発行済みのユーザー別 MCP トークンを失効させる。 */
   mcpTokenRevoke(): Promise<{ ok: boolean }>;
+  /** user モード MCP からの不可逆書き込み（提出等）の許可を切り替える。 */
+  mcpWritesSet(allow: boolean): Promise<{ ok: boolean; allow: boolean }>;
   notices(type: 'common' | 'class', count?: number): Promise<{ notices: Notice[] }>;
   noticeDetail(type: 'common' | 'class', index: number): Promise<{ detail: NoticeDetail }>;
   timetable(): Promise<{ timetable: TimetableEntry[] }>;

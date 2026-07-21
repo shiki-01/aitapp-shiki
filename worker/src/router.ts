@@ -282,6 +282,7 @@ app.post('/api/auth/login', async (c) => {
     moodleToken,
     credential,
     mcpTokenHash: prev?.mcpTokenHash ?? null,
+    mcpAllowWrites: prev?.mcpAllowWrites ?? false,
   };
   await writeState(c.env, id, state);
 
@@ -326,7 +327,12 @@ app.get('/api/auth/me', async (c) => {
     return c.json({ error: 'unauthorized' }, 401);
   }
   // mcp: ユーザー別 MCP トークンを発行済みかどうか（UI の表示用。トークン自体は返さない）。
-  return c.json({ userId: payload.uid, mcp: Boolean(state.mcpTokenHash) });
+  // mcpWrites: user モード MCP からの不可逆書き込みを許可しているか。
+  return c.json({
+    userId: payload.uid,
+    mcp: Boolean(state.mcpTokenHash),
+    mcpWrites: state.mcpAllowWrites === true,
+  });
 });
 
 // ---- POST /api/auth/mcp-token（ユーザー別 MCP トークンの発行/再発行） ----
@@ -356,6 +362,26 @@ app.post('/api/auth/mcp-token/revoke', async (c) => {
     await writeState(c.env, userId, { ...state, mcpTokenHash: null });
   }
   return c.json({ ok: true });
+});
+
+// ---- POST /api/auth/mcp-writes（user モード MCP からの不可逆書き込み許可の切替） ----
+// ユーザー別 MCP トークン(user モード)は既定で不可逆書き込みを拒否する。ここで本人が
+// 明示的に許可した場合のみ、/mcp user モードに CONFIRM_SECRET が注入されて実行可能になる。
+// セッション cookie + Origin 検証必須の Web UI からのみ呼ばれる想定で、MCP ツール経由の
+// 経路は存在しない(モデルはこのフラグを立てられない)。
+app.post('/api/auth/mcp-writes', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  let body: { allow?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid body' }, 400);
+  }
+  const allow = body.allow === true;
+  const userId = c.get('userId');
+  const state = c.get('state');
+  await writeState(c.env, userId, { ...state, mcpAllowWrites: allow });
+  return c.json({ ok: true, allow });
 });
 
 // ---- GET /api/notices?type=common|class&count=10 ----
@@ -1037,6 +1063,17 @@ app.all('*', (c) => {
 app.onError((err, c) => {
   const path = new URL(c.req.url).pathname;
   const correlationId = c.get('correlationId') ?? 'unknown';
+  // handler が throw すると cors ミドルウェアは応答ヘッダを設定できないため、
+  // /api のエラー応答にはここで CORS ヘッダを付ける（付けないとブラウザが本文を
+  // 読めず、フロントでは一律「通信エラー」になり correlationId も見えない）。
+  if (path.startsWith('/api/')) {
+    const allowed = c.env.APP_ORIGIN ?? 'http://localhost:5173';
+    if (c.req.header('Origin') === allowed) {
+      c.header('Access-Control-Allow-Origin', allowed);
+      c.header('Access-Control-Allow-Credentials', 'true');
+      c.header('Vary', 'Origin');
+    }
+  }
   // 診断用の詳細はサーバーログにのみ残す（client には返さない）。
   log('error', correlationId, 'request failed', {
     method: c.req.method,
@@ -1059,6 +1096,21 @@ app.onError((err, c) => {
   }
   if (err instanceof ValidationError) {
     return c.json({ error: 'validation_error', message: 'リクエストが不正です', correlationId }, 400);
+  }
+  // クイズ採点結果のレビュー非公開（教員のレビュー設定による）。障害ではなく
+  // 「まだ/そもそも公開されていない」状態なので、汎用の上流エラーと区別して返す。
+  // Moodle は mod_quiz_get_attempt_review で review が許可されていないとき
+  // errorcode "noreview" 系の exception を返す。
+  if (err instanceof UpstreamError && err.upstreamCode?.startsWith('noreview')) {
+    return c.json(
+      {
+        error: 'review_not_available',
+        message:
+          '採点結果は公開されていません。クイズのレビュー設定によっては、受験直後や成績公開前は結果を取得できません（提出自体は成立しています）。',
+        correlationId,
+      },
+      409,
+    );
   }
   if (err instanceof UpstreamError) {
     return c.json({ error: 'upstream_error', message: '上流エラー', correlationId }, 502);

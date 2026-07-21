@@ -178,6 +178,10 @@ bunx wrangler secret put AITAPP_MOODLE_ORIGIN   # 例: cms.aitech.ac.jp
 供給されるため、別途 `AITAPP_CONFIRM_SECRET` を渡す必要はない（stdio 実行のときだけ
 MCP ホストの env に `AITAPP_CONFIRM_SECRET` を `CONFIRM_SECRET` と同一値で設定する）。
 
+ユーザー別 MCP トークン（Web 画面から自己発行した `/mcp/<token>` URL）では、worker の
+`CONFIRM_SECRET` 設定に加えて、本人が Web 画面（その他 → Claude 連携）の
+「不可逆操作を許可」をオンにした場合のみ提出系操作が実行できる（既定はオフ＝拒否）。
+
 owner 用シークレット（`MCP_TOKEN` 等）が未設定でも、ユーザー別トークンによる
 `/mcp` は常に有効（不正トークンには 401 を返す）。
 
