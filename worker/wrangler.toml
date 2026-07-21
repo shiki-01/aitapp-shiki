@@ -8,6 +8,12 @@ routes = [
   { pattern = "aitapp.shiki-01.com", custom_domain = true }
 ]
 
+# Workers KV: ユーザー状態を 1 ユーザー 1 key で保持する。
+# `wrangler kv namespace create USER_KV` で作成し、出力された id を埋める。
+kv_namespaces = [
+  { binding = "USER_KV", id = "171403a15680458abc9da653d4931403", preview_id = "365e6244b925476b9fecea11cf792e24" }
+]
+
 # フロント（web/build）を同一オリジンで静的配信する（Workers Static Assets、無料）。
 # 単一オリジン（aitapp.shiki-01.com）に API とフロントを同居させることで、
 # SameSite=Strict の session cookie と CORS の制約を丸ごと回避する。
@@ -19,12 +25,6 @@ directory = "../web/build"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = true
-
-# Workers KV: ユーザー状態を 1 ユーザー 1 key で保持する。
-# `wrangler kv namespace create USER_KV` で作成し、出力された id を埋める。
-kv_namespaces = [
-  { binding = "USER_KV", id = "171403a15680458abc9da653d4931403", preview_id = "365e6244b925476b9fecea11cf792e24" }
-]
 
 [vars]
 # フロント(SvelteKit)のオリジン。CORS / Origin チェックに使用する。
