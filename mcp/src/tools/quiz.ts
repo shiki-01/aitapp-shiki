@@ -225,7 +225,9 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
         '設問文(text)・正答(rightAnswer。教員がレビューでの正答表示を許可している場合のみ、' +
         'それ以外はnull)を返す。moodle_finish_quiz_attemptで確定した後の点数確認や、' +
         '再受験前の誤答箇所の特定に使う。進行中(inprogress)のattemptには使えず、' +
-        'Moodle側がエラーを返す。',
+        'Moodle側がエラーを返す。なお、結果が取得できるかはクイズのレビュー設定（教員側の公開設定）次第であり、' +
+        '受験直後や成績公開前は review_not_available エラーになることがある。これは障害ではなく未公開なだけで、' +
+        '提出自体は成立している（後で公開されてから再取得すればよい）。',
       inputSchema: { attemptId: z.number().int() },
     },
     async ({ attemptId }) => {

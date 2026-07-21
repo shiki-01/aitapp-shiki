@@ -1097,6 +1097,21 @@ app.onError((err, c) => {
   if (err instanceof ValidationError) {
     return c.json({ error: 'validation_error', message: 'リクエストが不正です', correlationId }, 400);
   }
+  // クイズ採点結果のレビュー非公開（教員のレビュー設定による）。障害ではなく
+  // 「まだ/そもそも公開されていない」状態なので、汎用の上流エラーと区別して返す。
+  // Moodle は mod_quiz_get_attempt_review で review が許可されていないとき
+  // errorcode "noreview" 系の exception を返す。
+  if (err instanceof UpstreamError && err.upstreamCode?.startsWith('noreview')) {
+    return c.json(
+      {
+        error: 'review_not_available',
+        message:
+          '採点結果は公開されていません。クイズのレビュー設定によっては、受験直後や成績公開前は結果を取得できません（提出自体は成立しています）。',
+        correlationId,
+      },
+      409,
+    );
+  }
   if (err instanceof UpstreamError) {
     return c.json({ error: 'upstream_error', message: '上流エラー', correlationId }, 502);
   }
