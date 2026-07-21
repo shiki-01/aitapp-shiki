@@ -108,9 +108,19 @@ export async function fetchNoticeDetail(
   const tempToken = tokenOrThrow(tokenBody);
   const listBody = await getNoticeBody(cookies, tempToken, isCommon);
   assertNotExpired(listBody);
-  const token = tokenOrThrow(listBody);
+  const listToken = tokenOrThrow(listBody);
 
-  const body = await getNoticeDetailBody(index, cookies, token, isCommon);
+  // goDetail/{index} の index はサーバー側の「現在ロード済み累積リスト」に対する通し番号。
+  // select（listPageNo=1, 先頭約10件）だけでは index が範囲外だと詳細テーブルが空になり
+  // NotFoundError → 404 になる。一覧取得と同様に nextSelect で index を含む深さまで
+  // リストを読み込んでから goDetail する（listPageNo は累積表示件数）。token は各応答から
+  // 再抽出する（nextSelect 応答の TOKEN を goDetail に渡す）。
+  const depth = Math.ceil((index + 1) / 10) * 10;
+  const nextBody = await getNoticeBodyNext(cookies, listToken, depth, isCommon);
+  assertNotExpired(nextBody);
+  const detailToken = tokenOrThrow(nextBody);
+
+  const body = await getNoticeDetailBody(index, cookies, detailToken, isCommon);
   assertNotExpired(body);
   return isCommon ? parseUnivNoticeDetail(body) : parseClassNoticeDetail(body);
 }
