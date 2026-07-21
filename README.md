@@ -107,7 +107,9 @@ bunx wrangler secret put SESSION_SECRET  # → 全 session 失効。全員の再
 ### 3. `APP_ORIGIN`
 
 `wrangler.toml` の `[vars] APP_ORIGIN` をフロントのオリジンに合わせる。
-ローカルは `http://localhost:5173`、本番は Pages のオリジン。
+本番は Pages のオリジン `https://app.shiki-01.com`（wrangler.toml に記載済み）。
+ローカル開発時は `worker/.dev.vars` に `APP_ORIGIN=http://localhost:5173` を書いて
+上書きする（`.dev.vars` は `[vars]` より優先される）。
 
 > **SameSite=Strict の制約**: session cookie は `SameSite=Strict` のため、フロントと
 > Worker は**同一 registrable domain（eTLD+1）**に揃える必要がある
@@ -200,10 +202,19 @@ bun run dev             # http://localhost:5173
 ビルド / デプロイ（Cloudflare Pages, 出力は `web/build`）:
 
 ```sh
-bun run build
-# Pages へ: ビルド出力 build/ を Pages プロジェクトに割り当てる
-# 例: bunx wrangler pages deploy build
+VITE_API_BASE=https://aitapp.shiki-01.com bun run build
+bunx wrangler pages deploy build --project-name aitapp-web --branch main
 ```
+
+本番構成（デプロイ済み）:
+
+- Pages プロジェクト: `aitapp-web`（既定 URL `https://aitapp-web.pages.dev`）
+- カスタムドメイン: **`https://app.shiki-01.com`** ← 通常はこちらを使う。
+  session cookie が `SameSite=Strict` のため、`*.pages.dev` から Worker
+  （`aitapp.shiki-01.com`）へは cookie が送られず**ログインできない**。
+  必ず同一 registrable domain のカスタムドメイン経由でアクセスする。
+- 必要な DNS: `shiki-01.com` ゾーンに CNAME `app` → `aitapp-web.pages.dev`
+  （Proxied）。Pages 側のカスタムドメイン登録は API で済ませてある。
 
 Pages のビルド設定例:
 

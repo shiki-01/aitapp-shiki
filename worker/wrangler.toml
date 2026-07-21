@@ -16,8 +16,10 @@ kv_namespaces = [
 
 [vars]
 # フロント(SvelteKit)のオリジン。CORS / Origin チェックに使用する。
-# 本番では Pages のオリジンに、ローカルでは Vite dev server に合わせる。
-APP_ORIGIN = "http://localhost:5173"
+# 本番は Pages (aitapp-web) のカスタムドメイン。session cookie が SameSite=Strict の
+# ため Worker (aitapp.shiki-01.com) と同一 registrable domain に揃える（*.pages.dev 不可）。
+# ローカル開発時は worker/.dev.vars に APP_ORIGIN=http://localhost:5173 を書いて上書きする。
+APP_ORIGIN = "https://app.shiki-01.com"
 # /api/schedule の reload ループ回数（subrequest 上限のため Dart の 25 から縮小）。
 SCHEDULE_WEEKS = "8"
 # LCAM 中継 relay の URL。LCAM の WAF が Cloudflare の egress IP を拒否するため
