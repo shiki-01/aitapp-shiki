@@ -15,11 +15,15 @@
   let mcpBusy = $state(false);
   let mcpError = $state('');
   let mcpCopied = $state(false);
+  let mcpWrites = $state<boolean | undefined>(undefined);
 
   $effect(() => {
     api
       .me()
-      .then((r) => (mcpIssued = r.mcp))
+      .then((r) => {
+        mcpIssued = r.mcp;
+        mcpWrites = r.mcpWrites;
+      })
       .catch(() => {});
   });
 
@@ -62,6 +66,28 @@
       mcpCopied = true;
     } catch {
       // clipboard 不可の環境ではテキストを手動選択してもらう。
+    }
+  }
+
+  async function toggleMcpWrites() {
+    const next = !(mcpWrites === true);
+    if (
+      next &&
+      !confirm(
+        'Claude がこの MCP 接続から、クイズの受験開始・課題やアンケートの提出など取り消せない操作を実行できるようになります。許可しますか？',
+      )
+    ) {
+      return;
+    }
+    mcpBusy = true;
+    mcpError = '';
+    try {
+      const r = await api.mcpWritesSet(next);
+      mcpWrites = r.allow;
+    } catch (e) {
+      mcpError = e instanceof Error ? e.message : String(e);
+    } finally {
+      mcpBusy = false;
     }
   }
 
@@ -184,6 +210,18 @@
         <button class="mcp-revoke" onclick={revokeMcp} disabled={mcpBusy}>失効</button>
       {/if}
     </div>
+    <label class="mcp-writes">
+      <input
+        type="checkbox"
+        checked={mcpWrites === true}
+        disabled={mcpBusy || mcpWrites === undefined}
+        onchange={toggleMcpWrites}
+      />
+      <span>
+        不可逆操作を許可（クイズ受験開始・課題/アンケート提出）
+        <small>オフの間、Claude からの提出系操作はすべて拒否されます。</small>
+      </span>
+    </label>
   </div>
 </section>
 
@@ -436,6 +474,21 @@
   .mcp-issue:disabled,
   .mcp-revoke:disabled {
     opacity: 0.5;
+  }
+  .mcp-writes {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 0.82rem;
+    color: var(--fg);
+  }
+  .mcp-writes input {
+    margin-top: 2px;
+  }
+  .mcp-writes small {
+    display: block;
+    color: var(--muted);
+    font-size: 0.72rem;
   }
   .version {
     text-align: center;

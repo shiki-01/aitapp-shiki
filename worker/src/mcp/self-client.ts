@@ -48,6 +48,9 @@ export interface SelfAuth {
    * 本人 state をそのまま使う。
    */
   internal: boolean;
+  /** 不可逆書き込みツールへ CONFIRM_SECRET を注入するか。owner は常に true、
+   *  user モードは本人が Web 画面で許可した場合のみ true。 */
+  allowWrites: boolean;
 }
 
 export class SelfClient implements ToolClient {
@@ -58,26 +61,24 @@ export class SelfClient implements ToolClient {
   ) {}
 
   /**
-   * out-of-band 確認秘密。owner モードのみ worker の CONFIRM_SECRET を注入する。
-   * user モードでは常に空（＝不可逆書き込みツールは confirm_secret_unset で拒否）。
-   * ユーザー別トークンには out-of-band の確認経路（トークンと別に人間が保持する秘密の
-   * 伝達手段）が無いため、fail-closed に倒す。
+   * out-of-band 確認秘密。owner モード、または本人が Web 画面で不可逆書き込みを
+   * 許可した user モードにのみ worker の CONFIRM_SECRET を注入する。
+   * 許可していない user モードでは常に空（＝不可逆書き込みツールは実行前に拒否）。
    */
   get confirmSecret(): string {
-    return this.auth.internal ? (this.env.CONFIRM_SECRET ?? '') : '';
+    return this.auth.internal || this.auth.allowWrites ? (this.env.CONFIRM_SECRET ?? '') : '';
   }
 
   /**
-   * user モードでは CONFIRM_SECRET を設定しても不可逆書き込みは実行できない。
-   * 「worker に secret を設定すれば動く」という誤案内を避けるため理由を返す。
+   * 許可していない user モードでは、worker に CONFIRM_SECRET を設定しても実行できない。
+   * 「secret を設定すれば動く」という誤案内を避け、正しい許可経路（Web 画面）へ誘導する。
    */
   get confirmUnavailableReason(): string | undefined {
-    if (this.auth.internal) return undefined;
+    if (this.auth.internal || this.auth.allowWrites) return undefined;
     return (
-      'この接続はユーザー別 MCP トークン（user モード）のため、不可逆書き込みツールは実行できません。' +
-      'worker の CONFIRM_SECRET を設定しても user モードには適用されません。' +
-      '不可逆操作が必要な場合は、オーナー用 MCP_TOKEN を使った /mcp 接続に切り替えた上で、' +
-      'worker に CONFIRM_SECRET を設定してください（bunx wrangler secret put CONFIRM_SECRET）。'
+      'この接続のユーザーは不可逆書き込み（受験開始・提出等）を許可していません。' +
+      'Web 画面（その他 → Claude 連携）で「不可逆操作を許可」をオンにしてから再実行してください。' +
+      'MCP URL の再発行は不要です。'
     );
   }
 

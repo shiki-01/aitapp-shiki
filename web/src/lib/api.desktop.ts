@@ -68,6 +68,9 @@ export const desktopApi: ApiClient = {
   async mcpTokenRevoke() {
     return call('/api/auth/mcp-token/revoke', 'POST');
   },
+  async mcpWritesSet(allow) {
+    return call('/api/auth/mcp-writes', 'POST', { allow });
+  },
   async notices(type, count = 10) {
     return call(`/api/notices${qs({ type, count })}`);
   },

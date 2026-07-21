@@ -282,6 +282,7 @@ app.post('/api/auth/login', async (c) => {
     moodleToken,
     credential,
     mcpTokenHash: prev?.mcpTokenHash ?? null,
+    mcpAllowWrites: prev?.mcpAllowWrites ?? false,
   };
   await writeState(c.env, id, state);
 
@@ -326,7 +327,12 @@ app.get('/api/auth/me', async (c) => {
     return c.json({ error: 'unauthorized' }, 401);
   }
   // mcp: ユーザー別 MCP トークンを発行済みかどうか（UI の表示用。トークン自体は返さない）。
-  return c.json({ userId: payload.uid, mcp: Boolean(state.mcpTokenHash) });
+  // mcpWrites: user モード MCP からの不可逆書き込みを許可しているか。
+  return c.json({
+    userId: payload.uid,
+    mcp: Boolean(state.mcpTokenHash),
+    mcpWrites: state.mcpAllowWrites === true,
+  });
 });
 
 // ---- POST /api/auth/mcp-token（ユーザー別 MCP トークンの発行/再発行） ----
@@ -356,6 +362,26 @@ app.post('/api/auth/mcp-token/revoke', async (c) => {
     await writeState(c.env, userId, { ...state, mcpTokenHash: null });
   }
   return c.json({ ok: true });
+});
+
+// ---- POST /api/auth/mcp-writes（user モード MCP からの不可逆書き込み許可の切替） ----
+// ユーザー別 MCP トークン(user モード)は既定で不可逆書き込みを拒否する。ここで本人が
+// 明示的に許可した場合のみ、/mcp user モードに CONFIRM_SECRET が注入されて実行可能になる。
+// セッション cookie + Origin 検証必須の Web UI からのみ呼ばれる想定で、MCP ツール経由の
+// 経路は存在しない(モデルはこのフラグを立てられない)。
+app.post('/api/auth/mcp-writes', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  let body: { allow?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid body' }, 400);
+  }
+  const allow = body.allow === true;
+  const userId = c.get('userId');
+  const state = c.get('state');
+  await writeState(c.env, userId, { ...state, mcpAllowWrites: allow });
+  return c.json({ ok: true, allow });
 });
 
 // ---- GET /api/notices?type=common|class&count=10 ----
