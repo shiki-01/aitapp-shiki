@@ -14,6 +14,11 @@ export type ConfirmGate = { ok: true; confirm: string } | { ok: false; message: 
 export function resolveConfirm(client: ToolClient): ConfirmGate {
   const confirm = client.confirmSecret;
   if (!confirm) {
+    // 実装側が「設定しても使えない」理由を持つ場合（/mcp user モード等）はそれを優先し、
+    // 設定漏れ（未設定）とは区別して案内する。
+    if (client.confirmUnavailableReason) {
+      return { ok: false, message: `confirm_unavailable: ${client.confirmUnavailableReason}` };
+    }
     return {
       ok: false,
       message:

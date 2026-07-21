@@ -1037,6 +1037,17 @@ app.all('*', (c) => {
 app.onError((err, c) => {
   const path = new URL(c.req.url).pathname;
   const correlationId = c.get('correlationId') ?? 'unknown';
+  // handler が throw すると cors ミドルウェアは応答ヘッダを設定できないため、
+  // /api のエラー応答にはここで CORS ヘッダを付ける（付けないとブラウザが本文を
+  // 読めず、フロントでは一律「通信エラー」になり correlationId も見えない）。
+  if (path.startsWith('/api/')) {
+    const allowed = c.env.APP_ORIGIN ?? 'http://localhost:5173';
+    if (c.req.header('Origin') === allowed) {
+      c.header('Access-Control-Allow-Origin', allowed);
+      c.header('Access-Control-Allow-Credentials', 'true');
+      c.header('Vary', 'Origin');
+    }
+  }
   // 診断用の詳細はサーバーログにのみ残す（client には返さない）。
   log('error', correlationId, 'request failed', {
     method: c.req.method,

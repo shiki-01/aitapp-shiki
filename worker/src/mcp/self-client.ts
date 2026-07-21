@@ -67,6 +67,20 @@ export class SelfClient implements ToolClient {
     return this.auth.internal ? (this.env.CONFIRM_SECRET ?? '') : '';
   }
 
+  /**
+   * user モードでは CONFIRM_SECRET を設定しても不可逆書き込みは実行できない。
+   * 「worker に secret を設定すれば動く」という誤案内を避けるため理由を返す。
+   */
+  get confirmUnavailableReason(): string | undefined {
+    if (this.auth.internal) return undefined;
+    return (
+      'この接続はユーザー別 MCP トークン（user モード）のため、不可逆書き込みツールは実行できません。' +
+      'worker の CONFIRM_SECRET を設定しても user モードには適用されません。' +
+      '不可逆操作が必要な場合は、オーナー用 MCP_TOKEN を使った /mcp 接続に切り替えた上で、' +
+      'worker に CONFIRM_SECRET を設定してください（bunx wrangler secret put CONFIRM_SECRET）。'
+    );
+  }
+
   private origin(): string {
     return this.env.APP_ORIGIN ?? 'http://localhost:5173';
   }

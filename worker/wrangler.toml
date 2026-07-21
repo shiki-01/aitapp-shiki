@@ -45,6 +45,7 @@ LCAM_RELAY_URL = "https://relay.shiki-01.com"
 # シークレットは vars に書かず wrangler secret で投入する:
 #   wrangler secret put CRED_KEY        # credential 暗号化鍵（AES-GCM）
 #   wrangler secret put SESSION_SECRET  # session cookie 署名鍵（HMAC-SHA256）
+#   wrangler secret put CONFIRM_SECRET  # 不可逆書き込み操作の out-of-band 確認秘密（MCP ホストの AITAPP_CONFIRM_SECRET と同一値）
 #   wrangler secret put LCAM_RELAY_TOKEN # LCAM 中継 relay の Bearer トークン（LCAM_RELAY_URL とセット）
 #
 # /mcp（Streamable HTTP MCP サーバー）を有効にする場合は追加で:
