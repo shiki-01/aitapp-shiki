@@ -60,6 +60,14 @@ export const desktopApi: ApiClient = {
     if (!uid) throw new ApiError(401, 'unauthorized');
     return { userId: uid };
   },
+  // MCP トークンの発行/失効は worker の /api を Rust backend 経由で叩くだけ（GET/POST のみで
+  // 済むよう worker 側のエンドポイントを POST に揃えてある）。
+  async mcpTokenIssue() {
+    return call('/api/auth/mcp-token', 'POST');
+  },
+  async mcpTokenRevoke() {
+    return call('/api/auth/mcp-token/revoke', 'POST');
+  },
   async notices(type, count = 10) {
     return call(`/api/notices${qs({ type, count })}`);
   },

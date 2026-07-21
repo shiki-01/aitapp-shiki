@@ -72,6 +72,7 @@ import {
   ValidationError,
 } from './upstream/errors';
 import { handleMcpRequest } from './mcp/handler';
+import { mintUserMcpToken } from './mcp/token';
 import { log } from './log';
 
 type Variables = { userId: string; state: UserState; correlationId: string };
@@ -264,7 +265,15 @@ app.post('/api/auth/login', async (c) => {
     moodleOrigin,
     ...(hasMoodleCred ? { moodleId, moodlePassword } : {}),
   });
-  const state: UserState = { lcamCookies: cookies, moodleToken, credential };
+  // 再ログイン（新端末・cookie 失効後など）で発行済みのユーザー別 MCP トークンを
+  // 失効させないよう、既存 state の mcpTokenHash だけ引き継ぐ。
+  const prev = await readState(c.env, id);
+  const state: UserState = {
+    lcamCookies: cookies,
+    moodleToken,
+    credential,
+    mcpTokenHash: prev?.mcpTokenHash ?? null,
+  };
   await writeState(c.env, id, state);
 
   const session = await signSession(c.env.SESSION_SECRET, {
@@ -307,7 +316,37 @@ app.get('/api/auth/me', async (c) => {
   if (!state) {
     return c.json({ error: 'unauthorized' }, 401);
   }
-  return c.json({ userId: payload.uid });
+  // mcp: ユーザー別 MCP トークンを発行済みかどうか（UI の表示用。トークン自体は返さない）。
+  return c.json({ userId: payload.uid, mcp: Boolean(state.mcpTokenHash) });
+});
+
+// ---- POST /api/auth/mcp-token（ユーザー別 MCP トークンの発行/再発行） ----
+// ログイン済みユーザーが自分専用の /mcp/<token> URL を自己発行する。
+// 平文トークンはこの応答でのみ返し、KV には SHA-256 ハッシュだけを保存する。
+// 再発行するとハッシュが置き換わり、旧トークンは無効になる。
+// 認証ミドルウェア対象（session cookie + KV state 必須）。
+app.post('/api/auth/mcp-token', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const { token, hash } = await mintUserMcpToken(userId);
+  await writeState(c.env, userId, { ...state, mcpTokenHash: hash });
+  // URL は worker 自身のオリジンから組み立てる（クライアント入力を混ぜない）。
+  const url = `${new URL(c.req.url).origin}/mcp/${token}`;
+  return c.json({ ok: true, token, url });
+});
+
+// ---- POST /api/auth/mcp-token/revoke（ユーザー別 MCP トークンの失効） ----
+// DELETE ではなく POST なのは、CORS の allowMethods と desktop(Tauri) 側の
+// api_request（GET/POST のみ）を変えずに済ませるため。
+app.post('/api/auth/mcp-token/revoke', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  if (state.mcpTokenHash) {
+    await writeState(c.env, userId, { ...state, mcpTokenHash: null });
+  }
+  return c.json({ ok: true });
 });
 
 // ---- GET /api/notices?type=common|class&count=10 ----
