@@ -195,6 +195,12 @@ const MOODLE_ORIGIN_PATTERN =
 // dev 環境が丸ごと壊れる）。MOODLE_ORIGIN_OVERRIDE（dev:sandbox 用）が設定されて
 // いれば、その値も許可対象に加える（実効 allowlist に合流させる）。
 const MOODLE_ORIGIN_ALLOWLIST = ['cms.aitech.ac.jp', 'moodle.shiki-01.com'];
+
+// クライアント（web/desktop）は login で moodleOrigin を送らないため、本番では
+// MOODLE_ORIGIN_OVERRIDE も無く moodleOrigin が空になり、以後の Moodle 呼び出しが
+// すべて UpstreamError（token.ts: origin 未設定）で 502 になっていた。単一大学前提の
+// 本アプリでは本番ホストを既定値にする（allowlist・形式チェックにも適合する値）。
+const DEFAULT_MOODLE_ORIGIN = 'cms.aitech.ac.jp';
 function isMoodleOriginAllowed(origin: string, env: Env): boolean {
   if (MOODLE_ORIGIN_ALLOWLIST.includes(origin)) return true;
   return Boolean(env.MOODLE_ORIGIN_OVERRIDE) && origin === env.MOODLE_ORIGIN_OVERRIDE;
@@ -221,7 +227,10 @@ app.post('/api/auth/login', async (c) => {
   if (!id || !password) return c.json({ error: 'id/password required' }, 400);
 
   // ローカル開発時は .dev.vars の MOODLE_ORIGIN_OVERRIDE が常にクライアント指定より優先される。
-  const moodleOrigin = c.env.MOODLE_ORIGIN_OVERRIDE || (bodyIn.moodleOrigin ?? '').trim();
+  // クライアントは moodleOrigin を送らないため、未指定時は本番ホストを既定値にする
+  // （空のままだと credential に空 origin が保存され、以後の Moodle 呼び出しが 502 になる）。
+  const moodleOrigin =
+    c.env.MOODLE_ORIGIN_OVERRIDE || (bodyIn.moodleOrigin ?? '').trim() || DEFAULT_MOODLE_ORIGIN;
   if (moodleOrigin && !MOODLE_ORIGIN_PATTERN.test(moodleOrigin)) {
     return c.json({ error: 'invalid moodleOrigin' }, 400);
   }
