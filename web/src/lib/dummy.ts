@@ -1,0 +1,370 @@
+// デザイン・コンポーネント実装用のダミーデータ集。
+// 型は shared/contract.ts を単一情報源とする。成績・アンケートは contract 未昇格のため
+// worker/src/upstream/lcam/parse.ts の型に合わせた暫定型をここに置く（昇格時に import へ差し替え）。
+// 本番コードのフォールバックには使わない（DESIGN.md 第4節）。
+
+import type {
+  Notice,
+  NoticeDetail,
+  TimetableEntry,
+  ScheduleDay,
+  Assignment,
+  SyllabusFilters,
+  SyllabusListItem,
+  SyllabusDetail,
+} from '../../../shared/contract';
+
+// ---- 連絡（LCAM） ----
+
+export const dummyUnivNotices: Notice[] = [
+  {
+    type: 'common',
+    sender: '教務課',
+    title: '【重要】前期末試験の時間割公開について',
+    sendAt: '2026-07-21 10:00',
+    isImportant: true,
+    index: 0,
+  },
+  {
+    type: 'common',
+    sender: '学生課',
+    title: '夏季休業期間中の窓口業務について',
+    sendAt: '2026-07-18 15:30',
+    isImportant: false,
+    index: 1,
+  },
+  {
+    type: 'common',
+    sender: '情報教育センター',
+    title: '計算機演習室 定期メンテナンスのお知らせ（8/1-8/3）',
+    sendAt: '2026-07-15 09:00',
+    isImportant: false,
+    index: 2,
+  },
+  {
+    type: 'common',
+    sender: 'キャリアセンター',
+    title: '3年生対象 インターンシップ説明会の開催について',
+    sendAt: '2026-07-10 13:00',
+    isImportant: false,
+    index: 3,
+  },
+];
+
+export const dummyClassNotices: Notice[] = [
+  {
+    type: 'class',
+    sender: '山田 太郎',
+    title: '第14回 講義資料の訂正について',
+    subject: 'データ構造とアルゴリズム',
+    makeupClassAt: '',
+    isImportant: true,
+    index: 0,
+  },
+  {
+    type: 'class',
+    sender: '佐藤 花子',
+    title: '補講の実施について',
+    subject: 'コンピュータネットワーク',
+    makeupClassAt: '2026-07-29 3限',
+    isImportant: false,
+    index: 1,
+  },
+  {
+    type: 'class',
+    sender: '鈴木 一郎',
+    title: 'レポート提出方法の変更',
+    subject: 'ソフトウェア工学',
+    makeupClassAt: '',
+    isImportant: false,
+    index: 2,
+  },
+];
+
+export const dummyNoticeDetail: NoticeDetail = {
+  sender: '教務課',
+  title: '【重要】前期末試験の時間割公開について',
+  content:
+    '前期末試験の時間割を公開しました。\n試験期間は 8月3日（月）〜 8月7日（金）です。\n\n受験上の注意:\n・学生証を必ず持参してください。\n・試験開始20分以降の入室は認められません。\n・詳細は添付ファイルを確認してください。',
+  sendAt: '2026-07-21 10:00',
+  url: ['https://www.example.ac.jp/exam/2026-spring'],
+  files: { '前期末試験時間割.pdf': 'file/12345', '受験上の注意.pdf': 'file/12346' },
+};
+
+// ---- 時間割（LCAM） ----
+
+export const dummyTimetable: TimetableEntry[] = [
+  { day: 'monday', period: 1, title: '線形代数II', classRoom: '2-201', teacher: '高橋 誠' },
+  { day: 'monday', period: 3, title: 'データ構造とアルゴリズム', classRoom: '4-301', teacher: '山田 太郎' },
+  { day: 'monday', period: 4, title: 'データ構造とアルゴリズム演習', classRoom: '計算機演習室A', teacher: '山田 太郎' },
+  { day: 'tuesday', period: 2, title: 'コンピュータネットワーク', classRoom: '3-102', teacher: '佐藤 花子' },
+  { day: 'tuesday', period: 4, title: '技術英語I', classRoom: '1-105', teacher: 'Smith J.' },
+  { day: 'wednesday', period: 1, title: '確率統計', classRoom: '2-203', teacher: '伊藤 健' },
+  { day: 'wednesday', period: 3, title: 'ソフトウェア工学', classRoom: '4-201', teacher: '鈴木 一郎' },
+  { day: 'thursday', period: 2, title: 'オペレーティングシステム', classRoom: '3-301', teacher: '渡辺 隆' },
+  { day: 'thursday', period: 5, title: 'キャリアデザイン', classRoom: '大講義室', teacher: '中村 由美' },
+  { day: 'friday', period: 1, title: 'データベース', classRoom: '4-102', teacher: '小林 修' },
+  { day: 'friday', period: 2, title: 'データベース演習', classRoom: '計算機演習室B', teacher: '小林 修' },
+];
+
+// ---- スケジュール（LCAM） ----
+
+export const dummySchedule: ScheduleDay[] = [
+  {
+    date: '2026-07-22',
+    events: [
+      {
+        title: 'コンピュータネットワーク',
+        startTime: '2026-07-22T10:40',
+        endTime: '2026-07-22T12:10',
+        location: '3-102',
+        teacher: '佐藤 花子',
+        period: 2,
+      },
+      {
+        title: '技術英語I',
+        startTime: '2026-07-22T14:50',
+        endTime: '2026-07-22T16:20',
+        location: '1-105',
+        teacher: 'Smith J.',
+        period: 4,
+      },
+    ],
+  },
+  {
+    date: '2026-07-24',
+    events: [
+      {
+        title: 'オペレーティングシステム（最終回）',
+        startTime: '2026-07-24T10:40',
+        endTime: '2026-07-24T12:10',
+        location: '3-301',
+        teacher: '渡辺 隆',
+        period: 2,
+      },
+    ],
+  },
+  {
+    date: '2026-08-03',
+    events: [
+      {
+        title: '前期末試験: データ構造とアルゴリズム',
+        startTime: '2026-08-03T09:00',
+        endTime: '2026-08-03T10:00',
+        location: '4-301',
+      },
+    ],
+  },
+];
+
+// ---- 課題（Moodle） ----
+
+export const dummyAssignments: Assignment[] = [
+  {
+    id: 101,
+    name: '最終レポート: ダイクストラ法の実装と考察',
+    description: '<p>最短経路アルゴリズムを実装し、計算量について考察せよ。</p>',
+    dueDate: '2026-07-24T23:59:00+09:00',
+    dueEpochMs: Date.parse('2026-07-24T23:59:00+09:00'),
+    cutoffDate: '2026-07-27T23:59:00+09:00',
+    cutoffEpochMs: Date.parse('2026-07-27T23:59:00+09:00'),
+    courseId: 11,
+    courseName: 'データ構造とアルゴリズム',
+  },
+  {
+    id: 102,
+    name: '第13回 小テスト（TCP/IP）',
+    description: '',
+    dueDate: '2026-07-23T12:10:00+09:00',
+    dueEpochMs: Date.parse('2026-07-23T12:10:00+09:00'),
+    cutoffDate: null,
+    cutoffEpochMs: 0,
+    courseId: 12,
+    courseName: 'コンピュータネットワーク',
+  },
+  {
+    id: 103,
+    name: '要求仕様書の提出',
+    description: '<p>グループで作成した要求仕様書を代表者が提出すること。</p>',
+    dueDate: '2026-07-31T23:59:00+09:00',
+    dueEpochMs: Date.parse('2026-07-31T23:59:00+09:00'),
+    cutoffDate: null,
+    cutoffEpochMs: 0,
+    courseId: 13,
+    courseName: 'ソフトウェア工学',
+  },
+  {
+    id: 104,
+    name: '自由課題: SQL チューニングレポート',
+    description: '',
+    dueDate: null,
+    dueEpochMs: 0,
+    cutoffDate: null,
+    cutoffEpochMs: 0,
+    courseId: 14,
+    courseName: 'データベース',
+  },
+];
+
+// ---- シラバス ----
+
+export const dummySyllabusFilters: SyllabusFilters = {
+  year: { '2026': '2026年度', '2025': '2025年度' },
+  folder: { '01': '共通教育', '02': '工学部', '03': '情報科学部', '04': '経営学部' },
+  campus: { '1': '八草', '2': '本山', '3': '自由ヶ丘' },
+  hour: { '1': '1限', '2': '2限', '3': '3限', '4': '4限', '5': '5限', '6': '6限', '7': '7限' },
+  week: { '1': '月', '2': '火', '3': '水', '4': '木', '5': '金', '6': '土' },
+  semester: { '1': '前期', '2': '後期' },
+};
+
+export const dummySyllabusResults: SyllabusListItem[] = [
+  {
+    unitsNumber: 2,
+    classification: '専門・必修',
+    teacher: '山田 太郎',
+    subject: 'データ構造とアルゴリズム',
+    url: '/syllabus/2026/detail/1101',
+  },
+  {
+    unitsNumber: 1,
+    classification: '専門・必修',
+    teacher: '山田 太郎',
+    subject: 'データ構造とアルゴリズム演習',
+    url: '/syllabus/2026/detail/1102',
+  },
+  {
+    unitsNumber: 2,
+    classification: '専門・選択',
+    teacher: '小林 修',
+    subject: 'データベース',
+    url: '/syllabus/2026/detail/1201',
+  },
+];
+
+export const dummySyllabusDetail: SyllabusDetail = {
+  unitsNumber: 2,
+  classification: '専門・必修',
+  teachers: [{ name: '山田 太郎', ruby: 'やまだ たろう' }],
+  semester: '前期',
+  subject: 'データ構造とアルゴリズム',
+  classPeriod: '月曜 3限',
+  classRoom: '4-301',
+  content: [
+    '基本的なデータ構造（配列・連結リスト・スタック・キュー・木・グラフ）を学ぶ。',
+    '代表的なアルゴリズム（整列・探索・最短経路）の設計と計算量解析を行う。',
+  ],
+  plan: [
+    'ガイダンス / 計算量の基礎',
+    '配列と連結リスト',
+    'スタックとキュー',
+    '再帰とアルゴリズム設計',
+    '整列アルゴリズム(1) 単純整列',
+    '整列アルゴリズム(2) クイックソート・マージソート',
+    '中間まとめと演習',
+    '木構造と二分探索木',
+    'ヒープと優先度付きキュー',
+    'ハッシュ法',
+    'グラフの表現と探索',
+    '最短経路アルゴリズム',
+    '動的計画法入門',
+    '総合演習',
+    '期末試験と解説',
+  ],
+  learningGoal: '基本データ構造を適切に選択し、計算量を意識したプログラムを設計・実装できる。',
+  features: '毎回の講義に対応する演習課題を Moodle で出題する。',
+  records: '期末試験 60% / 演習課題 30% / 小テスト 10%',
+  teachersMessage: '手を動かして実装することが理解への近道です。',
+  textBook: '『アルゴリズムとデータ構造』（例示出版, 2024）',
+  referenceBook: '『プログラミングコンテスト攻略のためのアルゴリズム』（例示社）',
+};
+
+// ---- 成績（LCAM /api/performance） ----
+// 暫定型: worker/src/upstream/lcam/parse.ts の PerformanceEntry と同形。
+// shared/contract.ts へ昇格したら import へ差し替える。
+
+export interface DummyPerformanceEntry {
+  category: string;
+  subject: string;
+  teacher: string;
+  year: string;
+  semester: string;
+  credits: number | null;
+  grade: string;
+  inProgress: boolean;
+}
+
+export const dummyPerformance: DummyPerformanceEntry[] = [
+  { category: '共通教育科目', subject: '技術英語I', teacher: 'Smith J.', year: '2026', semester: '前期', credits: 1, grade: '', inProgress: true },
+  { category: '共通教育科目', subject: '基礎数学', teacher: '高橋 誠', year: '2025', semester: '前期', credits: 2, grade: '優', inProgress: false },
+  { category: '共通教育科目', subject: '物理学基礎', teacher: '田中 実', year: '2025', semester: '後期', credits: 2, grade: '良', inProgress: false },
+  { category: '専門科目', subject: 'プログラミング入門', teacher: '山田 太郎', year: '2025', semester: '前期', credits: 2, grade: '秀', inProgress: false },
+  { category: '専門科目', subject: '計算機アーキテクチャ', teacher: '渡辺 隆', year: '2025', semester: '後期', credits: 2, grade: '優', inProgress: false },
+  { category: '専門科目', subject: '離散数学', teacher: '伊藤 健', year: '2025', semester: '後期', credits: 2, grade: '可', inProgress: false },
+  { category: '専門科目', subject: 'データ構造とアルゴリズム', teacher: '山田 太郎', year: '2026', semester: '前期', credits: 2, grade: '', inProgress: true },
+];
+
+// ---- アンケート（LCAM /api/enquetes） ----
+// 暫定型: worker/src/upstream/lcam/parse.ts の EnqueteListItem / EnqueteQuestion と同形。
+
+export interface DummyEnqueteListItem {
+  fields: Record<string, string>;
+}
+
+export const dummyEnqueteList: DummyEnqueteListItem[] = [
+  {
+    fields: {
+      科目: 'データ構造とアルゴリズム',
+      教員: '山田 太郎',
+      実施期間: '2026/07/13 〜 2026/07/27',
+      回答状況: '未回答',
+    },
+  },
+  {
+    fields: {
+      科目: 'コンピュータネットワーク',
+      教員: '佐藤 花子',
+      実施期間: '2026/07/13 〜 2026/07/27',
+      回答状況: '回答済',
+    },
+  },
+];
+
+export interface DummyEnqueteQuestion {
+  index: number;
+  label: string;
+  prompt: string;
+  maxLength: number | null;
+  answerType: 'text' | 'unsupported';
+  fieldName: string;
+}
+
+export const dummyEnqueteQuestions: DummyEnqueteQuestion[] = [
+  {
+    index: 1,
+    label: 'ア',
+    prompt: 'この授業で最も理解が深まった内容を記入してください。',
+    maxLength: 200,
+    answerType: 'text',
+    fieldName: 'value1',
+  },
+  {
+    index: 2,
+    label: 'イ',
+    prompt: '授業の進め方について改善してほしい点があれば記入してください。',
+    maxLength: 200,
+    answerType: 'text',
+    fieldName: 'value2',
+  },
+  {
+    index: 3,
+    label: 'ウ',
+    prompt: '総合満足度を選択してください。',
+    maxLength: null,
+    answerType: 'unsupported',
+    fieldName: 'value3',
+  },
+];
+
+// ---- 集約（ビュー実装時の取り回し用） ----
+
+export const dummyNotices: Notice[] = [...dummyUnivNotices, ...dummyClassNotices];
