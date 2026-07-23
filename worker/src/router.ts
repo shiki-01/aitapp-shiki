@@ -71,6 +71,7 @@ import {
   UpstreamError,
   ValidationError,
 } from './upstream/errors';
+import { classifyUpstreamService } from './upstream/service';
 import { handleMcpRequest } from './mcp/handler';
 import { mintUserMcpToken } from './mcp/token';
 import { log } from './log';
@@ -1074,10 +1075,12 @@ app.onError((err, c) => {
       c.header('Vary', 'Origin');
     }
   }
+  const upstreamService = classifyUpstreamService(path, err.message);
   // 診断用の詳細はサーバーログにのみ残す（client には返さない）。
   log('error', correlationId, 'request failed', {
     method: c.req.method,
     path,
+    upstreamService,
     errorName: err.name,
     detail: err.message,
     stack: err.stack,
