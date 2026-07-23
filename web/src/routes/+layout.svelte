@@ -1,9 +1,15 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { isDesktop } from '$lib/platform';
+  import { setupPwa } from '$lib/pwa';
   import "@master/normal.css";
   import "../app.css";
-  
+
   let { children } = $props();
+
+  onMount(() => {
+    setupPwa();
+  });
 </script>
 
 <div class="app-shell" class:desktop={isDesktop}>

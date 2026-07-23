@@ -7,6 +7,8 @@ const config = {
   kit: {
     // SPA: 全ルートを index.html にフォールバック。Cloudflare Pages で配信する。
     adapter: adapter({ fallback: 'index.html' }),
+    // service worker は $lib/pwa.ts で手動登録する(更新検知と reload 制御のため)。
+    serviceWorker: { register: false },
   },
 };
 
