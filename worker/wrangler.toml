@@ -62,4 +62,9 @@ LCAM_RELAY_URL = "https://relay.shiki-01.com"
 # node_modules に一本化する（mcp/node_modules との二重バンドルを防ぐ）。
 [alias]
 "zod" = "./node_modules/zod"
-"@modelcontextprotocol/sdk" = "./node_modules/@modelcontextprotocol/sdk"
+# esbuild(wrangler) の alias は subpath を書き換えず specifier 完全一致でのみ効く。
+# また bare package を alias 先ディレクトリに向けても package.json の exports マップ
+# （"./*" -> "./dist/esm/*"）は経由されないため、実際に import される subpath を
+# 個別に実ファイル（esm）へ向ける。worker が bundle するのは register.ts の
+# `server/mcp.js` のみ（tools 側は type-only import で消える）。
+"@modelcontextprotocol/sdk/server/mcp.js" = "./node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js"
