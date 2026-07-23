@@ -49,7 +49,20 @@ export async function handleMcpRequest<E extends { Bindings: Env }>(
   const token = headerToken || pathToken || '';
   const selfAuth = await authenticate(c.env, token);
   if (!selfAuth) {
-    return c.json({ error: 'unauthorized' }, 401);
+    // 401 は返さない: Claude のカスタムコネクタは 401 を「OAuth サインインが必要」と
+    // 解釈して動的クライアント登録を試み、OAuth 非対応の本サーバーでは
+    // 「サインインサービスに登録できませんでした」という無関係なエラーになる。
+    // 認証はトークン URL のみで、サインインしても解決しないため 403 が正しい。
+    // 発行/再発行直後は KV の伝播遅延（最大 1 分程度）で新トークンが未反映のことが
+    // あるため、メッセージで再試行を案内する。
+    return c.json(
+      {
+        error: 'invalid_token',
+        message:
+          'MCP トークンが無効です。発行直後の場合は反映まで最大 1 分ほどかかることがあるため、少し待ってから再試行してください。再発行した場合は新しい URL に更新してください。',
+      },
+      403,
+    );
   }
 
   const server = createAitappServer(new SelfClient(c.env, dispatch, selfAuth));
