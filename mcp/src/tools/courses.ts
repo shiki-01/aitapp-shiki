@@ -16,6 +16,7 @@ export function registerMoodleCourseTools(server: McpServer, client: ToolClient)
         '（参照のみ）。moodle_get_quiz_info・moodle_get_course_filesが要求するcourseIdは' +
         'このツールで調べる。コース名しか分からない状態からMoodleを操作するときの起点。',
       inputSchema: {},
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async () => {
       const res = await client.request<{ courses: MoodleCourse[] }>('/api/moodle/courses');

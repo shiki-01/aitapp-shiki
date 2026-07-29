@@ -14,6 +14,7 @@ export function registerPerformanceTools(server: McpServer, client: ToolClient):
       description:
         'LCAMの成績情報(科目名・教員・年度・学期・単位数・評価)を取得する。' +
         '履修中で未評価の科目はinProgress=trueでgradeは空になる。',
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async () => {
       const res = await client.request<{ performance: PerformanceEntry[] }>('/api/performance');

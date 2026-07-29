@@ -35,6 +35,7 @@ export function registerSyllabusTools(server: McpServer, client: ToolClient): vo
         'シラバス検索で使えるフィルタ選択肢（年度/キャンパス/学期/曜日/時限/フォルダ）を取得する。' +
         'yearを指定すると、その年度に応じたフィルタ選択肢に絞り込む。',
       inputSchema: { year: z.string().optional() },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ year }) => {
       const res = await client.request<{ filters: SyllabusFilters }>(
@@ -50,6 +51,7 @@ export function registerSyllabusTools(server: McpServer, client: ToolClient): vo
       title: 'シラバス検索',
       description: '条件に合致する科目のシラバス一覧を検索する。detailを見るにはsyllabus_get_detailを使う。',
       inputSchema: searchFields,
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async (params) => {
       const res = await client.request<{ results: SyllabusListItem[] }>(
@@ -67,6 +69,7 @@ export function registerSyllabusTools(server: McpServer, client: ToolClient): vo
         'syllabus_searchの結果に含まれるurlを指定してシラバス詳細を取得する。' +
         '検索状態の再現のためsyllabus_searchと同じ検索条件を一緒に渡すこと。',
       inputSchema: { url: z.string().describe('syllabus_searchの結果のurl'), ...searchFields },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ url, ...context }) => {
       const res = await client.request<{ detail: SyllabusDetail }>(
