@@ -12,6 +12,7 @@ export function registerTimetableTools(server: McpServer, client: ToolClient): v
     {
       title: 'LCAM時間割の取得',
       description: 'LCAMに登録済みの週間時間割を取得する。',
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async () => {
       const res = await client.request<{ timetable: TimetableEntry[] }>('/api/timetable');
@@ -24,6 +25,7 @@ export function registerTimetableTools(server: McpServer, client: ToolClient): v
     {
       title: 'LCAM予定（休講・補講等）の取得',
       description: 'LCAMから今後数週間分の授業予定（休講・補講・行事等）を日付ごとに取得する。',
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async () => {
       const res = await client.request<{ schedule: ScheduleDay[] }>('/api/schedule');

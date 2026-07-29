@@ -50,6 +50,7 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
           .optional()
           .describe('trueで受験期限超過済みのテストも含める（デフォルトfalse）'),
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ quizId, courseId, nameFilter, closeWithinDays, includeClosed }) => {
       const params = new URLSearchParams();
@@ -84,6 +85,7 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
           .optional()
           .describe('クイズ名の部分一致で絞り込む（大文字小文字を区別しない）'),
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ courseId, quizId, nameFilter }) => {
       const params = new URLSearchParams({ courseId: String(courseId) });
@@ -113,6 +115,8 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
         'それを読んで回答する。全設問の生HTMLが必要ならmoodle_get_quiz_questions_htmlで取り直せる' +
         '(試行回数は消費しない)。',
       inputSchema: { quizId: z.number().int() },
+      // 新規受験を開始し試行回数を1回消費する。取り消し不可・非冪等。
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
     },
     async ({ quizId }) => {
       // 確認秘密は config/env（out-of-band）から取り、LLM 引数からは取らない。
@@ -150,6 +154,13 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
           .record(z.string(), z.string())
           .describe('設問HTML中のinput/select要素のname属性 → 回答値'),
       },
+      // 一時保存は本提出前で何度でも上書き可能な可逆書き込み。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ attemptId, answers }) => {
       const res = await client.request<{
@@ -181,6 +192,8 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
       inputSchema: {
         attemptId: z.number().int(),
       },
+      // 受験の確定。取り消し不可。
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
     },
     async ({ attemptId }) => {
       // 確認秘密は config/env（out-of-band）から取り、LLM 引数からは取らない。
@@ -206,6 +219,7 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
         '要約パーサ未対応の設問形式を精査するときのフォールバック。結果は設問数によっては' +
         '非常に大きい(実測: 20問で約29万文字)ので、まず要約で足りるか確認してから使うこと。',
       inputSchema: { attemptId: z.number().int() },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ attemptId }) => {
       const res = await client.request<{ questions: MoodleQuizQuestionHtml[] }>(
@@ -229,6 +243,7 @@ export function registerQuizTools(server: McpServer, client: ToolClient): void {
         '受験直後や成績公開前は review_not_available エラーになることがある。これは障害ではなく未公開なだけで、' +
         '提出自体は成立している（後で公開されてから再取得すればよい）。',
       inputSchema: { attemptId: z.number().int() },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ attemptId }) => {
       const res = await client.request<MoodleQuizAttemptResult>(
