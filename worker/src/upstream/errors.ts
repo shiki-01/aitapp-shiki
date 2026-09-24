@@ -8,9 +8,26 @@ export class LcamExpiredError extends Error {
   }
 }
 
+/** LCAM アプリ用の key（lamyapp://lcam?key=...）が無効または期限切れなときに投げる。 */
+export class LcamAppKeyRejectedError extends Error {
+  constructor(message = 'LCAM app key rejected') {
+    super(message);
+    this.name = 'LcamAppKeyRejectedError';
+  }
+}
+
+/** LCAM アプリ用の資格情報（userId/password）が無効なときに投げる（保存済みが拒否された等）。 */
+export class LcamAppCredentialRejectedError extends Error {
+  constructor(message = 'LCAM app credential rejected') {
+    super(message);
+    this.name = 'LcamAppCredentialRejectedError';
+  }
+}
+
 /**
- * LCAM の Cookie が未登録、または失効していて、ユーザー本人による再ログイン＋再登録が
- * 必要なときに投げる。LCAM は MFA（Entra SSO）のため Worker からは自動で再ログインできない。
+ * LCAM が未登録、または失効していて、ユーザー本人による再ログイン＋再登録が必要なときに投げる。
+ * LCAM は MFA（Entra SSO）のため、保存済みのアプリ用資格情報（MIGRATION_NOTES §15）が無い、
+ * または拒否された場合は Worker が自動で再ログインできない。
  */
 export type LcamReauthReason = 'not_registered' | 'expired';
 export class LcamReauthRequiredError extends Error {

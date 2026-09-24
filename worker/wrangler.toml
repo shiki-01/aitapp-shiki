@@ -69,16 +69,9 @@ LCAM_RELAY_URL = "https://relay.shiki-01.com"
 # `server/mcp.js` のみ（tools 側は type-only import で消える）。
 "@modelcontextprotocol/sdk/server/mcp.js" = "./node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js"
 
-# LCAM セッションの keep-alive（src/keepalive.ts）。LCAM は無操作 1h30m で切れるため、
-# 登録済みユーザーを 30 分ごとに軽く GET して維持する。10 分ごとに起動し、ユーザーを
-# 3 グループに分けて 1 回に 1 グループだけ処理する（KEEPALIVE_SHARDS と揃えること）。
-# [triggers] / [observability] の後にトップレベルのキーを置かないこと（[triggers] 配下と解釈される）。
-[triggers]
-crons = ["*/10 * * * *"]
-
 # Workers Logs（ダッシュボードの Workers → aitapp-worker → Logs で過去のログを検索できる）。
-# keep-alive の成否（`keepalive done`）や失敗の調査に使う。ログには userId・Cookie は出さない
-# （相関 ID・件数・例外名のみ）。保持期間・件数の無料枠は Cloudflare の現行ドキュメントで確認すること。
+# ログには userId・Cookie は出さない（相関 ID・件数・例外名のみ）。
+# 保持期間・件数の無料枠は Cloudflare の現行ドキュメントで確認すること。
 [observability]
 enabled = true
 

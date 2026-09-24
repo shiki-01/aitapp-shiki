@@ -30,7 +30,7 @@ export function configureLcamRelay(env: Env): void {
  * 未設定なら従来どおり LCAM へ直接 fetch。Cookie/Origin/Sec-Fetch-* 等の全ヘッダと body は
  * relay がそのまま LCAM へ素通しする前提。
  */
-function lcamFetch(
+export function lcamFetch(
   url: string,
   init: RequestInit,
   timeoutMs?: number,
@@ -52,7 +52,7 @@ function lcamFetch(
 
 // SP（スマホ）系エンドポイントはモバイル UA を前提とするため必須。
 // Workers の fetch は既定で UA を送らないので Worker 側で付与する。
-const USER_AGENT =
+export const USER_AGENT =
   'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
 
 const constHeader: Record<string, string> = {

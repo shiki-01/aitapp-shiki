@@ -33,10 +33,10 @@ const baseState = (over: Partial<UserState> = {}): UserState => ({
 });
 
 describe('withLcamSession', () => {
-  it('Cookie 未登録なら not_registered', async () => {
+  it('Cookie 未登録で資格情報もなければ not_registered', async () => {
     const { env } = makeEnv();
     await expect(
-      withLcamSession(env, 'u', baseState({ lcamCookies: null, lcamSession: null }), async () => 1),
+      withLcamSession(env, 'u', baseState({ lcamCookies: null, lcamSession: null, lcamApp: null }), async () => 1),
     ).rejects.toMatchObject({ name: 'LcamReauthRequiredError', reason: 'not_registered' });
   });
 

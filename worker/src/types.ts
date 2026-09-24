@@ -92,6 +92,12 @@ export interface LcamSessionMeta {
   expiredAt?: number;
 }
 
+/** LCAM アプリ用の資格情報（userId + アプリ用パスワード / トークン）。 */
+export interface LcamAppCredential {
+  userId: string;
+  password: string;
+}
+
 /**
  * KV に格納するユーザー状態。要件 §6 のとおり 1 key に集約し、
  * 1 read で全状態を取得する。credential 部分は暗号文のみ。
@@ -101,6 +107,8 @@ export interface UserState {
   lcamCookies: LcamCookies | null;
   /** LCAM セッションの登録・失効の記録。旧 state には存在しないため optional。 */
   lcamSession?: LcamSessionMeta | null;
+  /** LCAM アプリ用資格情報（AES-GCM 暗号文）。未登録なら undefined/null。旧 state には存在しないため optional。 */
+  lcamApp?: Encrypted | null;
   /** Moodle token（長命・password 非依存）。 */
   moodleToken: string | null;
   /** 認証情報（AES-GCM 暗号文）。 */

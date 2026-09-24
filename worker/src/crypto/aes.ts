@@ -28,14 +28,14 @@ async function deriveKey(secret: string): Promise<CryptoKey> {
   ]);
 }
 
-/** 認証情報を暗号化する。IV は毎回ランダム生成。 */
-export async function encryptCredential(
+/** 任意の型を JSON に暗号化する。IV は毎回ランダム生成。 */
+export async function encryptJson<T>(
   secret: string,
-  cred: Credential,
+  value: T,
 ): Promise<Encrypted> {
   const key = await deriveKey(secret);
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const plaintext = enc.encode(JSON.stringify(cred));
+  const plaintext = enc.encode(JSON.stringify(value));
   const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
   return {
     iv: toBase64(iv),
@@ -43,14 +43,30 @@ export async function encryptCredential(
   };
 }
 
+/** 暗号文から JSON を復号する。 */
+export async function decryptJson<T>(
+  secret: string,
+  payload: Encrypted,
+): Promise<T> {
+  const key = await deriveKey(secret);
+  const iv = fromBase64(payload.iv);
+  const ct = fromBase64(payload.ciphertext);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+  return JSON.parse(dec.decode(pt)) as T;
+}
+
+/** 認証情報を暗号化する。IV は毎回ランダム生成。 */
+export async function encryptCredential(
+  secret: string,
+  cred: Credential,
+): Promise<Encrypted> {
+  return encryptJson(secret, cred);
+}
+
 /** 暗号文を復号する。復号は再ログインの瞬間のみ呼ぶ。 */
 export async function decryptCredential(
   secret: string,
   payload: Encrypted,
 ): Promise<Credential> {
-  const key = await deriveKey(secret);
-  const iv = fromBase64(payload.iv);
-  const ct = fromBase64(payload.ciphertext);
-  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
-  return JSON.parse(dec.decode(pt)) as Credential;
+  return decryptJson(secret, payload);
 }

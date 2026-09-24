@@ -16,6 +16,8 @@ import { readState, writeState, deleteState } from './store/kv';
 import { configureLcamRelay } from './upstream/lcam/access';
 import { parseLcamCookies } from './upstream/lcam/cookies';
 import { withLcamSession } from './upstream/lcam/session';
+import { parseAppKey, exchangeAppKey, appLogin } from './upstream/lcam/app-login';
+import { encryptJson } from './crypto/aes';
 import {
   fetchNotices,
   fetchNoticeDetail,
@@ -67,6 +69,8 @@ import {
   AuthFailedError,
   LcamExpiredError,
   LcamReauthRequiredError,
+  LcamAppKeyRejectedError,
+  LcamAppCredentialRejectedError,
   MoodleTokenError,
   NotFoundError,
   UpstreamError,
@@ -125,21 +129,26 @@ const CONFIRM_REQUIRED_MESSAGE =
   'MCP ホストの AITAPP_CONFIRM_SECRET（/mcp 実行時は worker の CONFIRM_SECRET）を同一値に設定してください。';
 
 // ---- LCAM セッション（Entra SSO + MFA）の再登録案内 ----
-// LCAM は MFA のため Worker からは自動で再ログインできない。本人がブラウザでログインして
-// Cookie を登録し直す手順を、MCP・Web の両方へ固定文言で返す（上流本文は含めない）。
+// 保存済みの資格情報（アプリ方式）があれば Worker が自動で再ログインするため、この案内は
+// 「未登録」または「資格情報が拒否された」ときだけ出る。MFA は自動化できないので、本人がブラウザで
+// ログインして得た lamyapp:// の URL（key）を登録し直す手順を、MCP・Web の両方へ固定文言で返す（上流本文は含めない）。
 const LCAM_REAUTH_STEPS =
-  '手順: ①PC のブラウザで https://lcam.aitech.ac.jp/portalv2/ にログイン（MFA 込み。/portalv2/sp はアプリ連携用で Cookie が発行されない）→ ' +
-  '②DevTools の Cookie で lcam.aitech.ac.jp の JSESSIONID と LiveApps-Cookie をコピー' +
-  '（ログアウトはしない。ログアウトするとセッションが無効になります）→ ' +
-  '③Web 画面（その他 → LCAM 連携）またはチャットの lcam_set_session ツールで登録。';
+  '手順: ①PC のブラウザで DevTools（F12）→ Network →「Preserve log」を ON にして ' +
+  'https://lcam.aitech.ac.jp/portalv2/sp を開き、ログイン（MFA 込み）→ ' +
+  '②最後に遷移する lamyapp://lcam?key=… の URL（Network の 302 の Location、または Console のエラー文言）をコピー → ' +
+  '③Web 画面（その他 → LCAM 連携）またはチャットの lcam_set_session ツールでその URL を登録' +
+  '（key は使い捨てで短時間で無効になるため、コピーしたらすぐ登録する。デスクトップ版アプリは「LCAM に接続」で自動登録できる）。';
 const LCAM_REAUTH_MESSAGE: Record<'not_registered' | 'expired', string> = {
-  not_registered: `LCAM のセッションが未登録です。${LCAM_REAUTH_STEPS}`,
-  expired: `LCAM のセッションが失効しています（再ログインと再登録が必要です）。${LCAM_REAUTH_STEPS}`,
+  not_registered: `LCAM が未登録です。${LCAM_REAUTH_STEPS}`,
+  expired: `LCAM の資格情報が失効しています（再登録が必要です）。${LCAM_REAUTH_STEPS}`,
 };
 const LCAM_COOKIE_REJECTED_MESSAGE =
   'この Cookie では LCAM に入れませんでした。値の貼り間違い・古い Cookie・ログアウト済み・' +
   'ログインしたセッションが SP 画面で認められない（PC 画面ログインの場合。要確認）・mellon 系 Cookie の不足のいずれかの可能性があります。' +
   'ログイン直後に、ログアウトせずコピーし直してください。';
+const LCAM_KEY_REJECTED_MESSAGE =
+  'key が無効か期限切れです。もう一度 LCAM にログインして、lamyapp:// の URL を取り直してください' +
+  '（key は使い捨てで短時間で無効になります）。';
 
 // ---- 認証ミドルウェア（auth 配下以外の /api を保護） ----
 app.use('/api/*', async (c, next) => {
@@ -194,7 +203,7 @@ app.use('/api/*', async (c, next) => {
     });
     state = state
       ? { ...state, credential }
-      : { lcamCookies: null, moodleToken: null, credential };
+      : { lcamCookies: null, lcamApp: null, moodleToken: null, credential };
   }
 
   if (!state) {
@@ -290,11 +299,12 @@ app.post('/api/auth/login', async (c) => {
     ...(hasMoodleCred ? { moodleId, moodlePassword } : {}),
   });
   // 再ログイン（新端末・cookie 失効後など）で、発行済みのユーザー別 MCP トークンと、
-  // 登録済みの LCAM Cookie（ログインでは再取得できない）を失わないよう既存 state から引き継ぐ。
+  // 登録済みの LCAM Cookie・資格情報（ログインでは再取得できない）を失わないよう既存 state から引き継ぐ。
   const prev = await readState(c.env, id);
   const state: UserState = {
     lcamCookies: prev?.lcamCookies ?? null,
     lcamSession: prev?.lcamSession ?? null,
+    lcamApp: prev?.lcamApp ?? null,
     moodleToken,
     credential,
     mcpTokenHash: prev?.mcpTokenHash ?? null,
@@ -307,7 +317,7 @@ app.post('/api/auth/login', async (c) => {
     iat: Date.now(),
   });
   c.header('Set-Cookie', buildSessionCookie(session));
-  return c.json({ ok: true, userId: id, moodle: true, lcam: state.lcamCookies !== null });
+  return c.json({ ok: true, userId: id, moodle: true, lcam: state.lcamCookies !== null || !!state.lcamApp });
 });
 
 // ---- POST /api/auth/logout ----
@@ -403,30 +413,93 @@ app.post('/api/auth/mcp-writes', async (c) => {
 // ---- GET /api/lcam/session（LCAM セッションの登録状況。値は返さない） ----
 // registeredAt / lastOkAt / expiredAt から、セッション寿命を自然な利用で測れる
 // （寿命は [lastOkAt - registeredAt, expiredAt - registeredAt] の範囲）。
+// registered: Cookie またはアプリ用資格情報が登録済み（資格情報があれば、Cookie が失効していても
+// 次のリクエストで自動再ログインするため「登録済み」）。appRegistered: アプリ用資格情報が登録済み。
 app.get('/api/lcam/session', async (c) => {
   const state = c.get('state');
   const meta = state.lcamSession;
   return c.json({
-    registered: state.lcamCookies !== null,
+    registered: state.lcamCookies !== null || !!state.lcamApp,
+    appRegistered: !!state.lcamApp,
     registeredAt: meta?.registeredAt || null,
     lastOkAt: meta?.lastOkAt ?? null,
     expiredAt: meta?.expiredAt ?? null,
   });
 });
 
-// ---- POST /api/lcam/session（LCAM の Cookie を登録） ----
-// ユーザーがブラウザで LCAM に SSO（MFA 込み）ログインして取得した Cookie
-// （JSESSIONID / LiveApps-Cookie、必要なら mellon*）を登録する。値は SP 画面へ 1 回だけ
-// アクセスして有効性を確認してから保存する（無効な Cookie で既存の登録を上書きしない）。
-// Microsoft 側の Cookie は受け付けない（cookies.ts）。
+// ---- POST /api/lcam/session（LCAM の Cookie または app key を登録） ----
+// appKey: lamyapp://lcam?key=... または key の値。key を交換して userId/password を得て、
+//         資格情報を暗号化保存。以後は自動再ログイン可能。
+// cookies: ユーザーがブラウザで LCAM に SSO（MFA 込み）ログインして取得した Cookie。
+//          （JSESSIONID / LiveApps-Cookie、必要なら mellon*）
+// いずれか一方のみ（両方 または 両方なしなら 400）。
 app.post('/api/lcam/session', async (c) => {
   if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
-  let bodyIn: { cookies?: unknown };
+
+  let bodyIn: { appKey?: unknown; cookies?: unknown };
   try {
     bodyIn = await c.req.json();
   } catch {
     return c.json({ error: 'invalid body' }, 400);
   }
+
+  const hasAppKey = Boolean(bodyIn.appKey);
+  const hasCookies = Boolean(bodyIn.cookies);
+  if ((hasAppKey && hasCookies) || (!hasAppKey && !hasCookies)) {
+    return c.json({ error: 'invalid body', message: 'appKey または cookies いずれか一方だけを指定してください' }, 400);
+  }
+
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const now = Date.now();
+
+  // appKey 方式: key を交換して資格情報を取得・保存。
+  if (hasAppKey) {
+    if (typeof bodyIn.appKey !== 'string' || bodyIn.appKey.length === 0 || bodyIn.appKey.length > 2048) {
+      return c.json({ error: 'invalid_app_key', message: 'appKey は 1～2048 文字の文字列です' }, 400);
+    }
+
+    const appKey = parseAppKey(bodyIn.appKey);
+    if (!appKey) {
+      return c.json(
+        {
+          error: 'invalid_app_key',
+          message: 'key の形式が無効です。lamyapp://lcam?key=... または key の値を指定してください。',
+          correlationId: c.get('correlationId'),
+        },
+        400,
+      );
+    }
+
+    try {
+      const cred = await exchangeAppKey(appKey);
+      const cookies = await appLogin(cred);
+      const encrypted = await encryptJson(c.env.CRED_KEY, cred);
+
+      await writeState(c.env, userId, {
+        ...state,
+        lcamCookies: cookies,
+        lcamApp: encrypted,
+        lcamSession: { registeredAt: now, lastOkAt: now },
+      });
+
+      return c.json({ ok: true, registeredAt: now, viaApp: true });
+    } catch (e) {
+      if (e instanceof LcamAppKeyRejectedError || e instanceof LcamAppCredentialRejectedError) {
+        return c.json(
+          {
+            error: 'lcam_key_rejected',
+            message: LCAM_KEY_REJECTED_MESSAGE,
+            correlationId: c.get('correlationId'),
+          },
+          422,
+        );
+      }
+      throw e;
+    }
+  }
+
+  // cookies 方式: 従来の Cookie 貼り付け。
   if (typeof bodyIn.cookies !== 'string' || bodyIn.cookies.length === 0 || bodyIn.cookies.length > 4096) {
     return c.json({ error: 'invalid_cookies', message: 'cookies（文字列）が必要です' }, 400);
   }
@@ -449,15 +522,30 @@ app.post('/api/lcam/session', async (c) => {
     }
     throw e;
   }
-  const userId = c.get('userId');
-  const state = c.get('state');
-  const now = Date.now();
+  // Cookie は登録するが lcamApp には触れない（既存の資格情報を失わない）。
   await writeState(c.env, userId, {
     ...state,
     lcamCookies: parsed.cookies,
     lcamSession: { registeredAt: now, lastOkAt: now },
   });
   return c.json({ ok: true, registeredAt: now });
+});
+
+// ---- POST /api/lcam/session/revoke（LCAM セッションと資格情報を削除） ----
+// Cookie と資格情報の両方をクリア。以後は再登録が必要になる。
+// DELETE ではなく POST なのは、CORS の allowMethods と desktop(Tauri) 側の api_request（GET/POST のみ）を
+// 変えずに済ませるため（/api/auth/mcp-token/revoke と同じ）。
+app.post('/api/lcam/session/revoke', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  await writeState(c.env, userId, {
+    ...state,
+    lcamCookies: null,
+    lcamApp: null,
+    lcamSession: null,
+  });
+  return c.json({ ok: true });
 });
 
 // ---- GET /api/notices?type=common|class&count=10 ----
