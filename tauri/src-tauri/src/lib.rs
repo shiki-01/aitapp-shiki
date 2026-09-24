@@ -16,7 +16,11 @@ pub fn run() {
         .manage(state::SessionState::default())
         .manage(lcam_login::ConnectState::default())
         .setup(|app| {
+            // 自動再接続はデスクトップのみ（スマホはバックグラウンドで動かせず、非表示ウィンドウも使えない）。
+            #[cfg(desktop)]
             tauri::async_runtime::spawn(lcam_auto::run_loop(app.handle().clone()));
+            #[cfg(mobile)]
+            let _ = app;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

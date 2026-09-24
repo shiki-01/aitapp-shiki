@@ -75,7 +75,7 @@ export interface LcamSessionStatus {
 }
 
 // browser版はブラウザの<a>にURLを渡して開き、desktop版は一時ファイルへ
-// 保存してOS既定アプリで開く。呼び出し側(Notices.svelte)は isDesktop で
+// 保存してOS既定アプリで開く。呼び出し側(Notices.svelte)は isTauri で
 // どちらの方式か分かった上でどちらかだけを呼ぶため、未使用側は投げてよい。
 export interface ApiClient {
   // lcam: LCAM の Cookie が登録済みか（ログインでは LCAM に入れないため別途登録が要る）。

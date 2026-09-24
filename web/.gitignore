@@ -5,4 +5,5 @@ build/
 .env.*
 !.env.example
 !.env.desktop
+!.env.mobile
 *.log

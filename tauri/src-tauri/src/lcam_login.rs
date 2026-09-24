@@ -38,6 +38,11 @@ const SILENT_LIMIT: Duration = Duration::from_secs(20);
 /// 全体のタイムアウト（ユーザーが MFA を通す時間を含む）。
 const TOTAL_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// スマホの UA だと LCAM が SP 画面（/portalv2/sp。SSO の終端が lamyapp:// でアプリ連携になる）へ
+/// 回す可能性があるため、モバイルのログイン用 WebView には PC ブラウザの UA を付ける。
+#[cfg(mobile)]
+const DESKTOP_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
+
 /// 同時に 1 回だけ実行するためのフラグ。
 #[derive(Default)]
 pub struct ConnectState(pub AtomicBool);
@@ -186,15 +191,18 @@ pub async fn connect(app: &AppHandle, start_visible: bool, allow_show: bool) -> 
     let login_url: Url = LOGIN_URL.parse().map_err(|_| err(500, "internal", "invalid url"))?;
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Url>();
     let tx_in_window = tx.clone();
-    let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External("about:blank".parse().unwrap()))
+    let builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External("about:blank".parse().unwrap()))
         .title("LCAM ログイン")
-        .inner_size(480.0, 760.0)
-        .visible(start_visible)
         .on_page_load(move |_w, payload| {
             if matches!(payload.event(), PageLoadEvent::Finished) {
                 let _ = tx_in_window.send(payload.url().clone());
             }
-        })
+        });
+    #[cfg(desktop)]
+    let builder = builder.inner_size(480.0, 760.0).visible(start_visible);
+    #[cfg(mobile)]
+    let builder = builder.user_agent(DESKTOP_UA);
+    let window = builder
         .build()
         .map_err(|e| err(500, "window", &e.to_string()))?;
     // ウィンドウ側だけが送信側を持つ状態にする（ウィンドウが閉じたら rx が終わる）。

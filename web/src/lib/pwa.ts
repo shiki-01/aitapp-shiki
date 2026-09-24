@@ -1,4 +1,4 @@
-import { isDesktop } from '$lib/platform';
+import { isTauri } from '$lib/platform';
 
 /**
  * service worker の登録と自動更新。
@@ -6,7 +6,7 @@ import { isDesktop } from '$lib/platform';
  * controllerchange を受けてページを1回だけ再読み込みして新版に切り替える。
  */
 export function setupPwa(): void {
-  if (isDesktop) return; // Tauri 版は PWA 化しない
+  if (isTauri) return; // Tauri 版（デスクトップ/スマホ）は PWA 化しない
   if (!import.meta.env.PROD) return; // dev では SW を使わない
   if (!('serviceWorker' in navigator)) return;
 

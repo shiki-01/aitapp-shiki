@@ -4,6 +4,7 @@
   import Icon from '$lib/components/Icon.svelte';
   import Syllabus from './Syllabus.svelte';
   import { api, ApiError, type LcamSessionStatus } from '$lib/api';
+  import { isDesktop } from '$lib/platform';
 
   let { userId = '', onLogout }: { userId?: string; onLogout?: () => void } = $props();
 
@@ -344,6 +345,7 @@
         開いたウィンドウで Microsoft のログイン（番号入力など）を通すと、自動で登録されます。
         Cookie を手で貼る必要はありません。接続すると、ほかの端末・ブラウザの LCAM は切れます。
       </p>
+      {#if isDesktop}
       <label class="mcp-writes">
         <input
           type="checkbox"
@@ -356,6 +358,7 @@
           <small>アプリを開いている間だけ。番号入力などが要るときは自動では進めず、6 時間止まります。</small>
         </span>
       </label>
+      {/if}
       <p class="mcp-note">または、Cookie を手動で貼り付けて登録:</p>
     {/if}
     <textarea

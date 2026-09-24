@@ -8,6 +8,8 @@
     "dev:desktop": "vite dev --mode desktop",
     "build": "vite build",
     "build:desktop": "vite build --mode desktop",
+    "dev:mobile": "vite dev --mode mobile",
+    "build:mobile": "vite build --mode mobile",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },

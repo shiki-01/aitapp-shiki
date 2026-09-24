@@ -1,0 +1,85 @@
+name: iOS IPA (unsigned)
+
+# 署名なしの .ipa をビルドして artifact にする（手動実行）。
+# 端末へは AltStore / SideStore / Sideloadly 等で、自分の Apple ID で再署名して入れる
+# （無料アカウントの署名は 7 日で失効する。有料の Apple Developer Program は不要）。
+# macOS ランナーは private リポジトリだと無料枠を 10 倍で消費する（1 回 15 分前後 = 150 分相当）ため、手動実行のみ。
+on:
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      # アプリが接続する Worker（ビルド時に埋め込む。tauri/src-tauri/src/config.rs）
+      AITAPP_WORKER_BASE_URL: https://aitapp.shiki-01.com
+      AITAPP_APP_ORIGIN: https://aitapp.shiki-01.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/src-tauri
+
+      - name: Install web dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Install iOS tooling
+        run: brew install xcodegen
+
+      - name: Generate iOS icons and project
+        working-directory: tauri/src-tauri
+        run: |
+          npx --yes @tauri-apps/cli@2 icon icons/icon.png
+          npx --yes @tauri-apps/cli@2 ios init --ci
+
+      - name: Disable code signing in the generated project
+        working-directory: tauri/src-tauri/gen/apple
+        run: |
+          ls
+          python3 - <<'PY'
+          import re, pathlib
+          p = pathlib.Path("project.yml")
+          s = p.read_text()
+          # ターゲットの settings.base に署名無効の設定を足す
+          add = "\n        CODE_SIGNING_ALLOWED: NO\n        CODE_SIGNING_REQUIRED: NO\n        CODE_SIGN_IDENTITY: \"\"\n"
+          s2, n = re.subn(r"(\n      base:\n)", r"\1        CODE_SIGNING_ALLOWED: NO\n        CODE_SIGNING_REQUIRED: NO\n        CODE_SIGN_IDENTITY: \"\"\n", s, count=1)
+          if n == 0:
+              raise SystemExit("project.yml の settings.base が見つからない: 構造を確認すること")
+          p.write_text(s2)
+          print(s2)
+          PY
+          xcodegen generate
+
+      - name: Build (archive)
+        working-directory: tauri/src-tauri
+        # export（署名が要る）は失敗してよい。archive が出来ていれば .app を取り出せる。
+        run: npx --yes @tauri-apps/cli@2 ios build --target aarch64 --export-method debugging --ci || true
+
+      - name: Package unsigned IPA
+        run: |
+          set -eux
+          ARCHIVE=$(find tauri/src-tauri/gen/apple -name '*.xcarchive' -maxdepth 4 | head -1)
+          test -n "$ARCHIVE"
+          APP=$(find "$ARCHIVE/Products/Applications" -name '*.app' -maxdepth 1 | head -1)
+          test -n "$APP"
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry aitapp-unsigned.ipa Payload
+          ls -la aitapp-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aitapp-unsigned-ipa
+          path: aitapp-unsigned.ipa
+          retention-days: 7
