@@ -37,11 +37,15 @@ jobs:
       - name: Install iOS tooling
         run: brew install xcodegen
 
+      - name: Install Tauri CLI
+        working-directory: tauri
+        run: bun install --frozen-lockfile
+
       - name: Generate iOS icons and project
-        working-directory: tauri/src-tauri
+        working-directory: tauri
         run: |
-          npx --yes @tauri-apps/cli@2 icon icons/icon.png
-          npx --yes @tauri-apps/cli@2 ios init --ci
+          bun run tauri icon src-tauri/icons/icon.png
+          bun run tauri ios init --ci
 
       - name: Disable code signing in the generated project
         working-directory: tauri/src-tauri/gen/apple
@@ -62,9 +66,9 @@ jobs:
           xcodegen generate
 
       - name: Build (archive)
-        working-directory: tauri/src-tauri
+        working-directory: tauri
         # export（署名が要る）は失敗してよい。archive が出来ていれば .app を取り出せる。
-        run: npx --yes @tauri-apps/cli@2 ios build --target aarch64 --export-method debugging --ci || true
+        run: bun run tauri ios build --target aarch64 --export-method debugging --ci || true
 
       - name: Package unsigned IPA
         run: |

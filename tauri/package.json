@@ -1,0 +1,11 @@
+{
+  "name": "aitapp-tauri",
+  "private": true,
+  "description": "Tauri CLI の入口。iOS の Xcode ビルド手順が `npm run tauri` / `bun tauri` を上位ディレクトリから探すために必要。",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
