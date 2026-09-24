@@ -1043,6 +1043,9 @@ Tauri モバイルの流用可否（リポジトリ確認）:
 
 ### 14.6 keep-alive（Cron Trigger）と無料枠の見積もり
 
+> **【廃止 2026-09-24】** アプリ方式（§15）への移行で、失効しても Worker が保存済みの資格情報で透過再ログインできるように
+> なったため、keep-alive（`keepalive.ts`・Cron Trigger）は削除した。以下は当時の記録（1 時間 40 分以上の維持を確認した根拠）。
+
 LCAM のセッションは「無操作 1 時間 30 分」で切れ、操作でリセットされる（ユーザー実測 2026-09-24）。
 これを受け、**登録済みユーザーに 30 分ごとに SP 時間割へ 1 回 GET する keep-alive** を実装した
 （要件 §11 の「keep-alive は実装しない」をユーザー指示で外した。`worker/src/keepalive.ts`）。
@@ -1193,3 +1196,95 @@ IPA の入手と導入:
    （zip の中に `aitapp-unsigned.ipa`）。
 2. AltStore / SideStore / Sideloadly で、自分の Apple ID を使って端末に入れる（7 日で再署名が要る）。
 3. アプリで Moodle にログインし、「その他 → LCAM 連携」→「LCAM に接続」を押して、開いた画面で Microsoft のログインを通す。
+
+## 15. 本家 L-Cam アプリ（Android v2.1.2）の静的解析（2026-09-24）
+
+目的: PC 版ブラウザで LCAM にログインしても aitapp のセッションが失効しない（本家スマホアプリと同様）ようにする方法の調査。
+方法: 公式 APK（`lcam-2.1.2.apk`、Ionic/Angular + Cordova のハイブリッド。`assets/www/main.js` に平文の JS が入っている）を
+**展開して JS を読んだだけ**（LCAM へのアクセス・ログインは一切していない）。APK と展開物は repo に含めない。
+
+### 15.1 判明した本家アプリのログイン方式（コード上の事実）
+
+1. **初回サインイン**: 標準ブラウザで `POST /portalv2/login/login/smartPhoneLogin/sso`（§14.1 の SP 経路の SSO）を開く。MFA を通すと
+   終端が `lamyapp://lcam?key=<K>` でアプリに戻る（Deeplink ルート `/lcam`、クエリ `key`）。
+2. **`key` の交換**: アプリは `POST https://lcam.aitech.ac.jp/portalv2/login/login/spAppLogin/`
+   （`Content-Type: application/x-www-form-urlencoded`、body: `userId=<K>`, `password=`（空））を送る。
+   応答 JSON: `status`（`success` / `fail` / `stop_login`）、`userId`、`password`、`role`。
+   ※旧方式（§3.2 `canLoginLcam`）と同じエンドポイントで、`userId` に key を入れる使い方。**`password` は SSO ユーザーの本物のパスワードではなく、
+   サーバーが発行するアプリ用の値と推測される（未確認）**。アプリはこの `userId` / `password` をローカルに AES-GCM で暗号化保存する。
+3. **以後の認証（画面を開くたび）**: `GET /portalv2/sp` → `POST /portalv2/login/login/smartPhoneLogin/`
+   （body: `userID`, `password`（2 の値）, `selectLocale=ja`, `mode=sp`, `userDivision=2`, `spAppFlag=1`, `spFlg=1`, `locale=ja`,
+   **`lCamApp=Y`**, `clientLocationUrl=https://lcam.aitech.ac.jp/`）。応答 JSON の `status` が `fail` なら失敗、`stop_login`（`stopLoginFlag=1`）はログイン制限。
+   得た Cookie に **`L-CamApp=Y`** を足して WebView に渡す。つまり本家アプリは長寿命のセッションを持たず、
+   保存済みの `userId` / `password` で **MFA なしに SP セッションを作り直している**。
+4. アプリの PC 版・Moodle への遷移（`preLogin/preSpAppSso`）も、同じ保存値を Blowfish で暗号化した `para` で渡している
+   （Dart 実装 `main_drawer_usecase.dart` と同じ。今回は扱わない）。
+
+### 15.2 意味すること
+
+- PC 版ブラウザと共存できるのは、アプリ経路が **`spAppFlag=1` / `lCamApp=Y` の別種のログイン**（アプリ用の資格情報）だからと考えられる。
+  Worker が現在使っている Cookie は PC 画面（`/portalv2/`）の SSO で得たもの（§14.1、SP 経路の SSO はブラウザに Cookie を出さないため）で、
+  PC 版ブラウザと同一の単一セッション枠にある。
+- 方式案: 初回だけ、SP 経路の SSO を Tauri の WebView で通し、`lamyapp://lcam?key=…` へのナビゲーションを傍受して `key` を得る →
+  `spAppLogin/` で交換 → 得た `userId` / `password` を **AES-GCM（`CRED_KEY`）で暗号化して KV に保存** → Worker が `smartPhoneLogin/`
+  （上記 3）で SP セッションを作る。
+
+### 15.3 当初の未確認事項（§15.5 で実測。残りは下表の「未確認」）
+
+| 項目 | 備考 |
+|------|------|
+| `key` が使い捨て・短命か | 交換に失敗すると再度 MFA が要る |
+| `spAppLogin/` の `password` が再利用できるか、有効期間 | アプリは毎回この値でログインしているため再利用可の見込み |
+| **アプリ経路のログインが PC 版ブラウザのセッションを無効化しないか／逆に無効化されないか**（本要望の核心） | **実測済み: 互いに無効化する（単一セッション）**。§15.5 |
+| `lCamApp=Y` の必須性、`L-CamApp=Y` Cookie の意味 | 両方送るのが安全。SP データページ（時間割・連絡・成績・アンケート）で通るかも要確認 |
+| `key` を Tauri WebView（Windows: WebView2 / iOS: WKWebView）で傍受できるか | カスタムスキームのナビゲーションを `on_navigation` で捕捉する想定 |
+| Worker（relay 経由）からの `spAppLogin/`・`smartPhoneLogin/` の可否 | 旧方式は Worker から動いていた（§9.4）。CF egress IP の WAF 拒否（§13.1）は relay で回避 |
+
+### 15.4 方針上の論点
+
+- §14.3「MFA の自動化/回避はしない」「公式アプリのローカル保存領域からの資格情報抽出はしない」との関係:
+  本案は、ユーザーが自分で MFA を通した直後に公式と同じ手順で発行される値を受け取るだけで、アプリの保存領域は読まない。
+  ただし以後は保存した値で **MFA なしにセッションを再作成できる**ため、自動再ログインをしない方針（要件 §11）とは性質が変わる。
+  実装する場合は、この保存値を資格情報として扱う（暗号化・ログに出さない・失効時は破棄）。
+
+### 15.5 実測結果（2026-09-24、`worker/scripts/lcam-app-login-probe.ts` で本人のアカウントを使って実施）
+
+| 確認 | 結果 |
+|------|------|
+| `spAppLogin/` での key 交換 | **成功**。`{status, userId(8 文字), password(90 文字), role}`。`password` はサーバー発行のアプリ用トークン |
+| 保存値での `smartPhoneLogin/`（`spAppFlag=1`・`lCamApp=Y`・`L-CamApp=Y` Cookie） | **成功**。応答は HTTP 200 の HTML（約 17 KB。JSON ではない）、`Set-Cookie` なし。**`GET /portalv2/sp` で得た JSESSIONID をそのまま使える**（rotate されない）。SP 時間割が取得できた |
+| ログイン後、PC 版ログインをせずに 5 秒後に確認 | セッションは有効（OK） |
+| **PC 版ブラウザでログイン後**、直前のアプリ経路セッションで SP 時間割 | **失効（NG）**。PC 版ログインはアプリ経路のセッションも無効化する |
+| **アプリ経路でログイン後**、PC 版ブラウザの画面 | **PC 版がログアウトされた**（ユーザー確認） |
+
+結論:
+- アプリ経路でも**ユーザーあたり単一セッション**は変わらない。「本家アプリが PC 版ログインで切れない」ように見えるのは、セッションを持ち続けている
+  のではなく、**画面を開くたびに保存済みの資格情報でログインし直している**ため（アプリの `authCookies` は `openUrl` のたびに呼ばれる）。
+- 得られる利点は「PC 版などで切れても、次の操作で MFA・再登録なしに自動復帰する」こと。代償は、再ログインのたびに他の場所（PC 版ブラウザ・
+  公式アプリ）のログインが切れること。
+- そのため **keep-alive は削除**した（失効しても再ログインで復帰でき、定期的なアクセスの利点が無い。定期的な再ログインは他の場所を切り続けるので行わない）。
+
+### 15.6 実装（2026-09-24）
+
+- `worker/src/upstream/lcam/app-login.ts`: `parseAppKey`（URL 丸ごと / key のみ）、`exchangeAppKey`、`appLogin`（`GET /portalv2/sp` → `POST smartPhoneLogin/`
+  → SP 時間割で有効性確認）。LCAM への通信は relay 対応の `lcamFetch`（access.ts）を使う（本番は LCAM が Cloudflare の egress IP を拒否するため。§13.1）。
+- `UserState.lcamApp`: `{userId, password}` を AES-GCM（`CRED_KEY`）で暗号化した値。`/api/auth/login` での state 再構築でも引き継ぐ。
+- `withLcamSession`: Cookie が無ければ資格情報でログイン。失効を検知したら、KV の Cookie が他のリクエストで更新済みならそれを採用し、そうでなければ
+  再ログインして op を **1 回だけ**再試行。再ログイン後も失効なら諦める。資格情報が拒否されたら `lcamApp` を破棄して再登録を求める
+  （拒否を繰り返さない）。上流のログイン制限（`stop_login`）は資格情報を捨てずに 502 として返す。
+- 並行リクエストの直列化はしない。同時に失効を検知した複数リクエストが、互いのセッションを奪い合う可能性がある（既知の制限。後から来たリクエストは
+  KV の新しい Cookie を採用するため、1 回の再ログインに収束する見込み。未実測）。
+- API: `POST /api/lcam/session` に `{appKey}`（既存の `{cookies}` も可）、`POST /api/lcam/session/revoke`（DELETE ではなく POST。CORS と Tauri の
+  `api_request` が GET/POST のみのため）、`GET` に `appRegistered`（`registered` は Cookie または資格情報がある場合に true）。MCP `lcam_set_session` は `appKey` にも対応。
+- Web「その他 → LCAM 連携」: URL 貼り付け登録・状態表示・登録解除。Tauri `lcam_login.rs`: SP 経路（モバイル UA）を WebView で開き、
+  `on_navigation` で `lamyapp://` を傍受して `appKey` として登録（**実機での傍受は未検証**）。
+- `lamyapp://` の URL・key・アプリ用トークンはログ・エラー文言に出さない（テストで確認）。
+
+### 15.7 残る未確認事項
+
+- Tauri（Windows の WebView2 / macOS の WKWebView / iOS）で `lamyapp://` への遷移が `on_navigation` に届くか。
+- `key` の有効期限（使い捨てか、何分で失効するか）。実測では取得直後に交換して成功した。
+- アプリ用トークン（`password`）の有効期間（失効したら 424 で再登録を求める）。
+- `smartPhoneLogin/` 失敗時の実応答（アプリのコード上は JSON `{status:'fail'}`。実応答は未観測。未観測のため、ログイン後の SP 時間割の
+  確認（`probeSpSession`）でも失効として扱い、資格情報の拒否と判定する）。
+- 本番（relay 経由）での `spAppLogin/` / `smartPhoneLogin/`（relay が `Set-Cookie` を複数ヘッダのまま返すか）。

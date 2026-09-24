@@ -132,23 +132,26 @@ bunx wrangler deploy   # 本番へ
 ## LCAM 連携（多要素認証への対応）
 
 LCAM は 2026-09 から Entra ID の SSO + 多要素認証になり、ID/パスワードの直接ログインは
-拒否される。`/api/auth/login` は **Moodle の認証のみ**で通り、LCAM は Cookie を別途登録する
-（詳細・未確定事項は `MIGRATION_NOTES.md` §14）。
+拒否される。`/api/auth/login` は **Moodle の認証のみ**で通る。LCAM は **本家 L-Cam アプリと同じ方式**
+（`MIGRATION_NOTES.md` §15）で、初回の 1 回だけ登録する。
 
-1. PC のブラウザで `https://lcam.aitech.ac.jp/portalv2/` にログイン（MFA 込み）。`/portalv2/sp` の SSO は
-   アプリ連携（`lamyapp://` へ引き渡し）でブラウザに Cookie が発行されないため使わない。
-2. DevTools（Application → Cookies → `lcam.aitech.ac.jp`）で `JSESSIONID` と `LiveApps-Cookie` をコピー。
-   **ログアウトしない**（ログアウトするとセッションが無効になる。タブを閉じるだけにする）。
-3. Web 画面「その他 → LCAM 連携」に `JSESSIONID=…; LiveApps-Cookie=…` を貼り付けて登録。
-   またはチャットで MCP ツール `lcam_set_session` に渡す（Cookie がチャット履歴に残るため、
-   Web 画面のほうを推奨）。
+1. SP 経路の SSO（`https://lcam.aitech.ac.jp/portalv2/sp`、MFA 込み）を通すと、終端が `lamyapp://lcam?key=…`
+   になる。この URL（key）を Worker に登録する。key は使い捨てで短時間で無効になる。
+   - デスクトップ版（Tauri）: 「その他 → LCAM 連携 → LCAM に接続」。WebView が `lamyapp://` を傍受して
+     自動で登録する（実機での傍受は未検証）。
+   - Web 版: DevTools（F12）→ Network →「Preserve log」を ON にして `/portalv2/sp` にログインし、
+     `lamyapp://…` の URL（302 の `Location`、または Console のエラー文言）をコピーして
+     「その他 → LCAM 連携」に貼り付ける。または MCP ツール `lcam_set_session` の `appKey` に渡す。
+2. Worker が key を `spAppLogin/` で資格情報（userId + アプリ用トークン）に交換し、AES-GCM（`CRED_KEY`）で
+   暗号化して KV に保存する。以後は `smartPhoneLogin/`（`spAppFlag=1`・`lCamApp=Y`）で MFA なしにセッションを作れる。
 
-- 登録時に LCAM へ 1 回アクセスして有効性を確認し、無効なら保存しない。
-- LCAM は無操作 1 時間 30 分で切れるため、Cron（10 分ごと・`worker/src/keepalive.ts`）が登録済みユーザーへ
-  30 分ごとに軽い GET を行って維持する。別端末/ブラウザ/アプリで LCAM にログインすると単一セッションのため
-  失効するので、再登録が必要（`MIGRATION_NOTES.md` §14.6）。
-- 失効を検知すると（`lcam_*` / `/api/*` が HTTP 424・`reauth_required`・`target: lcam`）、
-  Cookie を破棄して再登録の手順を返す。Worker はパスワードや MFA の自動化・再ログインをしない。
+- 失効を検知したら（別の場所で LCAM にログインした場合、1 時間 30 分の無操作など）、保存した資格情報で
+  自動的に再ログインし、同じ操作を **1 回だけ**再試行する。定期的な ping（keep-alive）はしない。
+- LCAM は**ユーザーあたり単一セッション**。PC 版ブラウザや公式アプリで LCAM にログインすると Worker のセッションが
+  切れ、Worker が再ログインすると他の場所のログインが切れる（実測済み。`MIGRATION_NOTES.md` §15.5）。
+- 資格情報が拒否された（アプリ用トークンの失効など）場合は破棄し、HTTP 424（`reauth_required`・`target: lcam`）で
+  再登録を求める。「その他 → LCAM 連携 → 登録を解除」（`POST /api/lcam/session/revoke`）で資格情報ごと削除できる。
+- 従来の Cookie 貼り付け登録（`POST /api/lcam/session` の `cookies`）も残してあるが、こちらは失効したら再登録が必要。
 - `GET /api/lcam/session` で登録時刻・最終成功時刻・失効検知時刻を確認できる（Cookie の値は返さない）。
 - 最小 Cookie の実測: `cd worker && LCAM_COOKIES='JSESSIONID=…; LiveApps-Cookie=…' bun run scripts/lcam-cookie-probe.ts`
   （SP 時間割への GET のみ・最大 4 リクエスト）。**PC 画面へ GET で直接アクセスしないこと**（セッションが破棄される）。
@@ -424,11 +427,10 @@ cd web && bun run build                                   # 本番ビルド
 ## 制約・スコープ外
 
 - Cloudflare 有料機能（Durable Objects 等）は不使用。状態は Workers KV。
-- 並行再ログインの直列化・即時失効・自動復旧は実装しない（要件 §11）。LCAM セッションの keep-alive のみ、
-  ユーザー指示で実装した（Cron、`MIGRATION_NOTES.md` §14.6）。
-- LCAM は MFA のため自動再ログインしない。失効を検知してエラー（424）を返すのみ（回復は
-  ユーザーによる再ログイン＋Cookie 再登録）。MFA/番号入力の自動化・回避策は作らない。
-- 上流 HTML 構造は非公式かつ変動し得る。壊れたら手動修正する運用。
+- 並行再ログインの直列化・即時失効・keep-alive・自動復旧は実装しない（要件 §11）。LCAM は、保存済みの資格情報
+  （アプリ方式。`MIGRATION_NOTES.md` §15）による透過再ログイン（失効検知 → 再ログイン → 1 回だけ再試行）のみ行う。
+- MFA/番号入力の自動化・回避策は作らない。資格情報が無い・拒否された場合は、失効を検知してエラー（424）を返すのみ
+  （回復はユーザーによる再登録）。
 
 ## 注意
 
