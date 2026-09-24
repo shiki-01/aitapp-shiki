@@ -1157,19 +1157,39 @@ Worker は Microsoft のセッションを持たない（Cookie を保存しな�
   `cookies_for_url`/`cookies()` が HttpOnly の JSESSIONID を返すか、初回の `excludeSubmit()` 実行のタイミング。
   これらは LCAM に実際にログインするため、登録済みセッションが無効になる。試すときは他の LCAM 利用が無い状態で行う。
 
-### 14.10 スマホ版（Tauri モバイル）の現状
+### 14.10 スマホ版（Tauri モバイル / iOS）の現状
 
-- 構成: `lib.rs`（`run()` + `#[cfg_attr(mobile, tauri::mobile_entry_point)]`）と `main.rs` に分割し、`Cargo.toml` に
-  `[lib] crate-type = [staticlib, cdylib, rlib]` を追加した。デスクトップのビルド・テストは通る。
-- **この環境では iOS/Android のビルドも実機確認もできていない**（Xcode 本体・Android SDK が無い。Command Line Tools のみ）。
-  以下は未着手・未検証:
-  1. `tauri ios init` / `tauri android init`（Xcode / Android Studio・SDK・NDK が要る）。
-  2. 資格情報の保存: `keyring` は iOS（apple-native）は使える見込みだが、Android の保存先が無い。代替（Android Keystore 系プラグイン等）が要る。
-  3. UI: `isDesktop`（ビルドフラグ）が「Tauri 経由の API」と「PC 用の SideNav」を兼ねているため、モバイルでは分離が要る。
-  4. WebView ウィンドウ: モバイルでは新しいウィンドウが現在の UI を置き換える/別 Activity になる（公式ドキュメント）。
-     ログイン用 WebView から本体へ戻る導線を実機で確認する必要がある。
-  5. Android の `cookies()` は常に空を返す（`cookies_for_url` を使う。実装済み）。wry 0.55.1 の Android は Cookie が無い URL で
-     NPE の可能性があり、wry の更新が要る。
-  6. 配布: iOS は Apple Developer Program（有料）が事実上必須。無料アカウントは 7 日で失効し自分の端末のみ。Android は APK で配布可。
-- 着手順の推奨: Android 実機（自分の端末）で 1〜5 を確認 → 動けば iOS は有料プランの可否を判断してから。
+方針: **署名なしの IPA を GitHub Actions でビルドして配布**する。端末へは AltStore / SideStore / Sideloadly 等が、
+自分の（無料の）Apple ID で再署名して入れる。**有料の Apple Developer Program は不要**（無料アカウントの署名は 7 日で失効。
+AltStore/SideStore は同じ Wi-Fi 上で自動更新できる。同時に入れられるアプリ数などの制限あり）。
 
+実装済み（2026-09-24）:
+- `lib.rs`（`run()` + `#[cfg_attr(mobile, tauri::mobile_entry_point)]`）/ `main.rs` の分割、`[lib] crate-type`。
+- `tauri/src-tauri/tauri.ios.conf.json`: iOS 用のビルドコマンド（`build:mobile`/`dev:mobile`）と最低 OS（15.0）。
+- web: `isTauri`（invoke 経由の API・PWA 無効化）と `isDesktop`（PC 用レイアウト）を分離。`--mode mobile`（`.env.mobile`）で
+  スマホ用レイアウト（BottomNav）＋ Tauri API。自動再接続の切替は PC のみ。
+- ログイン用 WebView: モバイルでは **PC の User-Agent を付ける**（スマホ UA だと LCAM が SP 画面へ回し、SSO の終端が
+  `lamyapp://` のアプリ連携になって Cookie が出ない可能性があるため。UA 依存の挙動自体は未確認）。自動再接続ループはデスクトップのみ。
+- 資格情報の保存: `keyring`（iOS は Keychain。crate が iOS 対応）。
+- **`.github/workflows/ios-ipa.yml`**（手動実行）: macOS ランナーで `tauri ios init` → 署名無効化 → `tauri ios build` →
+  `.xcarchive` の `.app` を `Payload/` に入れて署名なし `.ipa` を作り、artifact（保持 7 日）にする。
+  **ビルドが通り、arm64・Bundle ID `com.aitapp.desktop`・iOS 15.0・署名なしの IPA が出来ることを確認済み**（run 35962295698、約 3 MB）。
+  private リポジトリでは macOS ランナーが無料枠を 10 倍で消費する（1 回 1〜数分だが、キャッシュなしだと 10 分超もあり得る）ため手動のみ。
+- `tauri/package.json`: Xcode の「Build Rust Code」手順が `npm/bun run tauri` を `gen/apple` の上位で探すために必要（無いと失敗する）。
+
+**実機では未検証**（以下は端末で確認が要る）:
+1. 再署名して起動できるか。Bundle ID は再署名ツールが変更する場合がある（無料アカウントでは一意化されることが多い）。Keychain が動くか。
+2. ログイン用 WebView（`WebviewWindowBuilder` の追加ウィンドウ）が iOS でどう表示され、閉じたあとにアプリ本体へ戻るか
+   （公式ドキュメント: iPhone では新しいウィンドウが現在の UI を置き換えることが多い）。
+3. WKWebView で `cookies_for_url` / `cookies()` が HttpOnly の `JSESSIONID` を返すか、`delete_cookie` が効くか。
+4. `/portalv2/` に PC の UA で入って SSO が通り、番号入力（Authenticator/Outlook）を WebView 内で完了できるか。
+5. 連絡の添付ファイルの取得（`download_file` → `tauri-plugin-opener` で開く）が iOS で動くか。
+
+Android: 構成上は `lib.rs`/`tauri.conf` の流用が可能だが未着手。Android には `keyring` の保存先が無く代替が要る。`cookies()` は空を返す
+（`cookies_for_url` を使う実装済み）。wry 0.55.1 の Android は Cookie が無い URL で NPE の可能性があり wry の更新が要る。
+
+IPA の入手と導入:
+1. GitHub の Actions →「iOS IPA (unsigned)」→「Run workflow」。完了後、その実行の Artifacts から `aitapp-unsigned-ipa` をダウンロード
+   （zip の中に `aitapp-unsigned.ipa`）。
+2. AltStore / SideStore / Sideloadly で、自分の Apple ID を使って端末に入れる（7 日で再署名が要る）。
+3. アプリで Moodle にログインし、「その他 → LCAM 連携」→「LCAM に接続」を押して、開いた画面で Microsoft のログインを通す。

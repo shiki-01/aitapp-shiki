@@ -360,6 +360,12 @@ LCAM は多要素認証のため、アプリの「その他 → LCAM 連携」�
 アプリを開いている間、LCAM が失効していれば自動で再接続する。LCAM は単一セッションのため、接続するとブラウザ等の
 LCAM は切れる。詳細は `MIGRATION_NOTES.md` §14.9。
 
+### iOS 版（署名なし IPA）
+
+GitHub の Actions →「iOS IPA (unsigned)」→「Run workflow」で、署名なしの `.ipa` を作れる（artifact を 7 日間ダウンロード可）。
+AltStore / SideStore / Sideloadly で自分の Apple ID により再署名して端末に入れる（無料アカウントは 7 日で失効。有料プログラム不要）。
+ビルドまでは CI で確認済みだが、端末での動作は未確認。詳細と確認項目は `MIGRATION_NOTES.md` §14.10。
+
 ### PC版のフロント差分
 
 `web/src/lib/platform.ts` の `isDesktop`（ビルド時フラグ）で、ブラウザ版と以下を切り替える。
