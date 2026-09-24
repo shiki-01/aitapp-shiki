@@ -3,6 +3,7 @@
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { HTTPException } from 'hono/http-exception';
 import type { Env, UserState } from './types';
 import { encryptCredential, decryptCredential } from './crypto/aes';
 import {
@@ -1233,6 +1234,13 @@ app.all('*', (c) => {
 // client には固定の汎用メッセージ + correlationId のみ返し、上流本文・例外文字列・
 // 内部パーサ/クラス名は透過させない。詳細は構造化ログ（error レベル）にのみ出す。
 app.onError((err, c) => {
+  // 依存ライブラリが意図して返す応答（HTTPException の res）はそのまま返す。500 に潰さない。
+  // 例: @hono/mcp は、未対応の mcp-protocol-version を受けると JSON-RPC エラー入りの 4xx を投げ、
+  // クライアントはそれを見て対応バージョンへ切り替える。ここで 500 にすると切り替えが起きず、
+  // コネクタの接続が断続的に失敗する（SDK が最新の 2026-07-28 に未対応の間に発生した）。
+  if (err instanceof HTTPException) {
+    return err.getResponse();
+  }
   const path = new URL(c.req.url).pathname;
   const correlationId = c.get('correlationId') ?? 'unknown';
   // handler が throw すると cors ミドルウェアは応答ヘッダを設定できないため、
