@@ -69,6 +69,7 @@ export interface SyllabusDetailContext {
 
 export interface LcamSessionStatus {
   registered: boolean;
+  appRegistered: boolean;
   registeredAt: number | null;
   lastOkAt: number | null;
   expiredAt: number | null;
@@ -101,6 +102,15 @@ export interface ApiClient {
    * 無効な Cookie は 422（code: lcam_session_rejected）で拒否される。
    */
   lcamSessionSet(cookies: string): Promise<{ ok: boolean; registeredAt: number }>;
+  /**
+   * LCAM アプリ方式で登録する。lamyapp:// URL または key を渡す。
+   * key が無効か期限切れなら 422（code: lcam_key_rejected）、形式が違えば 400（code: invalid_app_key）。
+   */
+  lcamAppKeySet(appKey: string): Promise<{ ok: boolean; registeredAt: number; viaApp: boolean }>;
+  /**
+   * LCAM セッション（Cookie またはアプリ方式）の登録をすべて解除する。
+   */
+  lcamSessionDelete(): Promise<{ ok: boolean }>;
   /**
    * （デスクトップ版のみ）WebView で LCAM の SSO ログインを通し、Cookie を自動で登録する。
    * ウィンドウが開き、番号入力などが要ればそのまま操作する。ブラウザ版には無い。

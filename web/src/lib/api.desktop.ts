@@ -77,6 +77,12 @@ export const desktopApi: ApiClient = {
   async lcamSessionSet(cookies) {
     return call('/api/lcam/session', 'POST', { cookies });
   },
+  async lcamAppKeySet(appKey) {
+    return call('/api/lcam/session', 'POST', { appKey });
+  },
+  async lcamSessionDelete() {
+    return call('/api/lcam/session/revoke', 'POST');
+  },
   async lcamConnect() {
     try {
       return await invoke('lcam_connect');

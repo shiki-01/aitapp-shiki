@@ -39,11 +39,11 @@
     }
   });
 
-  // ---- LCAM 連携（Cookie 登録）----
-  // LCAM は多要素認証のため、ブラウザでログインして取得した Cookie を登録して使う。
-  // Cookie の値はサーバーから返らない（登録状況の時刻のみ）。
+  // ---- LCAM 連携（アプリ方式 / Cookie 登録）----
+  // LCAM は多要素認証のため、アプリ方式（URL キー）または Cookie で登録して使う。
+  // セッション情報（時刻）のみサーバーから返される。
   let lcam = $state<LcamSessionStatus | undefined>(undefined);
-  let lcamCookies = $state('');
+  let lcamAppKey = $state('');
   let lcamBusy = $state(false);
   let lcamError = $state('');
   let lcamDone = $state(false);
@@ -114,14 +114,30 @@
     }
   }
 
-  async function registerLcam() {
+  async function registerLcamAppKey() {
     lcamBusy = true;
     lcamError = '';
     lcamDone = false;
     try {
-      await api.lcamSessionSet(lcamCookies.trim());
-      lcamCookies = '';
+      await api.lcamAppKeySet(lcamAppKey.trim());
+      lcamAppKey = '';
       lcamDone = true;
+      loadLcam();
+    } catch (e) {
+      lcamError = e instanceof ApiError || e instanceof Error ? e.message : String(e);
+    } finally {
+      lcamBusy = false;
+    }
+  }
+
+  async function deleteLcam() {
+    if (!(await ask('LCAM の登録を解除します。時間割・連絡などが見られなくなります。よろしいですか？', '解除する'))) {
+      return;
+    }
+    lcamBusy = true;
+    lcamError = '';
+    try {
+      await api.lcamSessionDelete();
       loadLcam();
     } catch (e) {
       lcamError = e instanceof ApiError || e instanceof Error ? e.message : String(e);
@@ -309,24 +325,27 @@
   </ul>
 </section>
 
-<!-- LCAM 連携（Cookie 登録） -->
+<!-- LCAM 連携 -->
 <section class="block">
   <div class="block-h">
     <span><Icon name="grid" size={18} color="var(--primary)" /> LCAM 連携</span>
   </div>
   <div class="mcp card">
     <p class="mcp-desc">
-      LCAM（連絡・時間割・成績・アンケート）は多要素認証のため、ブラウザでのログイン結果を登録して使います。
-      ① PC のブラウザで <code>lcam.aitech.ac.jp/portalv2/</code>（<code>/sp</code> ではない）にログイン → ② 開発者ツールの Cookie から
-      <code>JSESSIONID</code> と <code>LiveApps-Cookie</code> の値をコピー（<b>ログアウトはしない</b>）→ ③ 下に貼り付けて登録。
-      形式は <code>JSESSIONID=…; LiveApps-Cookie=…</code>。Microsoft 側の Cookie は貼らないでください。
+      LCAM（連絡・時間割・成績・アンケート）は多要素認証のため、アプリ登録方式または Cookie 登録で使います。
+      アプリ登録方式は公式アプリと同じで、一度登録すると失効しても自動で再ログインします。
+      LCAM は同時に 1 か所しかログインできないため、PC 版ブラウザや公式アプリで LCAM にログインするとこの連携は切れます。
+      その場合は次の操作で自動的に再ログインしますが、そのとき他の場所のログインが切れます。
     </p>
     {#if lcam}
       <p class="mcp-note">
-        {#if lcam.registered}
-          登録済み（登録 {fmtTime(lcam.registeredAt)} ／ 最終成功 {fmtTime(lcam.lastOkAt)}）
+        {#if lcam.appRegistered}
+          <b>アプリ方式で登録済み</b>（登録 {fmtTime(lcam.registeredAt)} ／ 最終成功 {fmtTime(lcam.lastOkAt)}）
+          <br />失効しても自動で再ログインします。
+        {:else if lcam.registered}
+          Cookie で登録済み（登録 {fmtTime(lcam.registeredAt)} ／ 最終成功 {fmtTime(lcam.lastOkAt)}）
         {:else if lcam.expiredAt}
-          失効を検知しました（{fmtTime(lcam.expiredAt)}。登録 {fmtTime(lcam.registeredAt)}）。再ログインして登録し直してください。
+          失効を検知しました（{fmtTime(lcam.expiredAt)}）。再登録してください。
         {:else}
           未登録です。
         {/if}
@@ -342,8 +361,8 @@
         <p class={lcamConnectResult.ok ? 'lcam-ok' : 'mcp-error'}>{lcamConnectResult.text}</p>
       {/if}
       <p class="mcp-note">
-        開いたウィンドウで Microsoft のログイン（番号入力など）を通すと、自動で登録されます。
-        Cookie を手で貼る必要はありません。接続すると、ほかの端末・ブラウザの LCAM は切れます。
+        デスクトップ版です。開いたウィンドウで Microsoft のログイン（番号入力など）を通すと、自動でアプリ方式で登録されます。
+        下の URL 貼り付けは不要です。
       </p>
       {#if isDesktop}
       <label class="mcp-writes">
@@ -359,22 +378,36 @@
         </span>
       </label>
       {/if}
-      <p class="mcp-note">または、Cookie を手動で貼り付けて登録:</p>
+      <p class="mcp-note">または、lamyapp:// URL を貼り付けて登録（手動方式）:</p>
     {/if}
     <textarea
       class="lcam-input"
       rows="3"
-      placeholder="JSESSIONID=...; LiveApps-Cookie=..."
-      bind:value={lcamCookies}
+      placeholder="lamyapp://lcam?key=… または key=… の部分だけ"
+      bind:value={lcamAppKey}
       autocomplete="off"
       spellcheck="false"
     ></textarea>
+    <p class="mcp-note">
+      <b>登録手順（手動方式）:</b> PC のブラウザで DevTools（F12）→ Network →「Preserve log」ON にして、
+      https://lcam.aitech.ac.jp/portalv2/sp を開き、「ログイン」から MFA まで完了する。
+      最後に <code>lamyapp://lcam?key=…</code> へ遷移する（Network の 302 Location、または Console のエラーメッセージに URL が出ます）。
+      その URL をコピーして下に貼り付けます。key は使い捨てで短時間で無効になるため、コピーしたらすぐ登録してください。
+    </p>
+    <p class="mcp-note">
+      手動の登録が要るのは初回だけです。デスクトップ版（上の「LCAM に接続」ボタン）なら、この手順なしで登録できます。
+    </p>
     {#if lcamError}<p class="mcp-error">{lcamError}</p>{/if}
     {#if lcamDone}<p class="mcp-note">登録しました。</p>{/if}
     <div class="mcp-actions">
-      <button class="mcp-issue" onclick={registerLcam} disabled={lcamBusy || !lcamCookies.trim()}>
-        {lcamBusy ? '確認中…' : lcam?.registered ? 'Cookie を更新' : 'Cookie を登録'}
+      <button class="mcp-issue" onclick={registerLcamAppKey} disabled={lcamBusy || !lcamAppKey.trim()}>
+        {lcamBusy ? '確認中…' : 'URL を登録'}
       </button>
+      {#if lcam?.registered}
+        <button class="mcp-revoke" onclick={deleteLcam} disabled={lcamBusy}>
+          登録を解除
+        </button>
+      {/if}
     </div>
   </div>
 </section>

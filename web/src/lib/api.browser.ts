@@ -85,6 +85,16 @@ export const browserApi: ApiClient = {
       body: JSON.stringify({ cookies }),
     });
   },
+  async lcamAppKeySet(appKey) {
+    return request('/api/lcam/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ appKey }),
+    });
+  },
+  async lcamSessionDelete() {
+    return request('/api/lcam/session/revoke', { method: 'POST' });
+  },
   // count は累積表示件数（上流の listPageNo）。ページ番号ではなく「先頭から何件
   // 表示するか」を表す。上流は 1..count の全件を返すため、毎回全件を取り直す。
   async notices(type, count = 10) {
