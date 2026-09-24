@@ -996,10 +996,10 @@ SAML の返り先はブラウザから LCAM へ直接（`/mellon/postResponse`�
 |------|------|----------|
 | 必要な Cookie の最小セット | **確認済み（2026-09-24、ユーザー実測）**: SP 時間割は `JSESSIONID` のみで通る。`LiveApps-Cookie`・`mellon*` は不要（mellon の Cookie はブラウザには存在した）。ただし書き込み系（アンケート提出等）での要否は未確認のため、登録 API は当面 `LiveApps-Cookie` も要求する | `lcam-cookie-probe.ts` |
 | LCAM セッションの寿命 | 未確認 | 登録後は普通に使い、`GET /api/lcam/session` の `registeredAt`/`lastOkAt`/`expiredAt` を見る |
-| Worker（relay 経由を含む）から Cookie を使ったときの動作。ブラウザとは IP・User-Agent が異なる（Worker は Android UA 固定）ため、セッションが IP/UA に紐付いていれば拒否される可能性 | 未確認（**全ての Cookie 方式の前提なので最初に確認**） | ①ローカル `wrangler dev`（同一 IP・別 UA）で登録 ②本番（relay 経由の Oracle IP）で登録。登録 API が実 LCAM で有効性を確認するため、成功/422 がそのまま結果になる |
+| Worker（relay 経由を含む）から Cookie を使ったときの動作。ブラウザとは IP・User-Agent が異なる（Worker は Android UA 固定）ため、セッションが IP/UA に紐付いていれば拒否される可能性 | **確認済み（2026-09-24）**: ローカル `wrangler dev`（ブラウザと同一 IP・Worker の Android UA）と、本番 `aitapp.shiki-01.com`（relay 経由の Oracle IP・Android UA）の両方で、ブラウザ（デスクトップ UA）で取得した Cookie の登録と SP 画面の表示に成功。**IP/UA への紐付けは無い**（少なくとも SP 画面では）。relay が 3xx/ヘッダを素通しする点は失効時の実動作のみ未確認 | – |
 | PC 画面ログインの Cookie が SP 画面（時間割・連絡等）で通るか。SP 経路の SSO はアプリ連携のためブラウザで Cookie を得られず、PC 画面ログインが唯一の取得経路 | **確認済み（2026-09-24）**: PC 画面ログイン（`/portalv2/`）で得た Cookie で SP 時間割（題「個人時間割」）が取得できた（Mac から直接接続） | `lcam-cookie-probe.ts` |
 | PC スケジュール（`/api/schedule`） | **未対応で確定（2026-09-24 実測）**。PC ホーム `common/generalPurpose/` へ Worker から GET（デスクトップ UA・Referer・全 Cookie でも同じ）すると 200 で「不正な操作が行われました。システムエラーにより利用を継続することができなくなりました。ログインしなおして下さい」（題「総合ポータルシステム」、約 3 KB）が返り、**`Set-Cookie` で新しい `JSESSIONID` が発行されるが、旧・新どちらでも SP 時間割は無効＝登録済みセッションが破棄される**。ブラウザで動くのはアプリ内の画面遷移（POST・token・遷移元の状態）を経ているためと推測。SP 側に予定画面は Dart 定義に無い。→ Worker から PC 画面には**絶対に GET しない**。取得するなら、ブラウザ/Tauri の WebView がログイン済みセッションで正しく遷移して読み取る方式（§14.5 の B/A）が要る。旧メモ（参考）: 実測: `GET /portalv2/` は**認証済みでもログイン画面**（題「L-Cam」）を返すためホームではない。PC ホームはユーザー観測で `/portalv2/common/generalPurpose/`（ログイン直後は `initLogin/sso`）。その token で `POST home/home/reload`（Dart 由来）が通るかを試す | — |
-| ブラウザでの再ログイン/ログアウトが登録済みセッションを無効化するか（旧方式は単一セッションだった。§9.4） | 未確認。手順では「ログアウトしない」を案内 | 登録後にブラウザで別ログインし、`lcam_*` の応答を 1 回見る |
+| ブラウザでの再ログイン/ログアウトが登録済みセッションを無効化するか（旧方式は単一セッションだった。§9.4） | **強く示唆（2026-09-24）**: 有効だった Cookie が、ブラウザで再ログインした後に無効になっていた（時間経過による失効の可能性は完全には排除できないが、間隔は短時間）。手順では「ログアウト・再ログインしない」を案内 | 登録後に別ログインし `lcam_*` を 1 回見る（未実施） |
 | mellon の Cookie の有無・path | 未観測（未ログインでは発行されない） | 正規ログイン後の DevTools |
 | relay が 3xx と `Location` を素通しするか | `relay.mjs` は status と全応答ヘッダを返す実装（コード上は問題なし）。実 LCAM での動作は未確認 | 失効 Cookie で本番の `lcam_get_timetable` を 1 回叩く |
 | Moodle のローカル認証がいつまで使えるか | 不明（SAML ボタン追加済み。止まると `/api/auth/login` 自体が通らなくなる） | 定期的に `login/token.php` の成否を見る。止まったら Moodle の SSO 対応が別途必要 |
@@ -1031,9 +1031,9 @@ Tauri モバイルの流用可否（リポジトリ確認）:
   Apple Developer Program（有料）が事実上必須で、「有料機能を使わない」方針と衝突する。Android は APK 配布で可。
 
 **おすすめ**:
-1. 先に PC で §14.4 の最初の 3 項目（最小 Cookie・IP/UA 紐付け・PC/SP の違い）を確定する。IP/UA 紐付けがあると
-   Cookie 方式（B・C）はスマホ端末の Cookie を Worker から使えず成立しない（その場合は A のスナップショット方式だけが残る）。
-2. 問題なければ **B（Tauri モバイル、Android 先行）** を自分の端末で PoC する。手間が最小（「接続」をタップして MFA を
+1. （完了）§14.4 の最初の 3 項目は確定済み: 最小 Cookie は JSESSIONID のみ、IP/UA 紐付けなし、PC 画面ログインの
+   Cookie が SP 画面で通る。よって Cookie 方式（B・C）は成立する見込み。
+2. **B（Tauri モバイル、Android 先行）** を自分の端末で PoC する。手間が最小（「接続」をタップして MFA を
    通すだけ）で、Worker 側は既存の `POST /api/lcam/session` をそのまま使える（アプリが Cookie を読んで登録するだけ）。
    iOS は PoC までは無料アカウントで可能、配布時のみ有料プランが論点になる。
 3. iOS の無料配布を優先するなら A を検討する。ただし読み取り専用のスナップショットで、
