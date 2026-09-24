@@ -1,20 +1,18 @@
-// LCAM の SSO ログインを WebView で通し、得た Cookie を Worker に登録する。
+// LCAM の SSO ログインを WebView で通し、アプリキーを Worker に登録する。
 //
 // LCAM は Entra ID の SAML SSO + MFA で、Worker は自動ログインできない。ここでは
-// ユーザー端末の WebView（OS 管理のプロファイル）で SSO を通す。Microsoft のセッション
-// （「サインインの状態を維持」）は WebView 内にだけ残り、Worker には一切送らない。
-// Worker へ送るのは LCAM の JSESSIONID（と任意で LiveApps-Cookie / mellon*）だけで、
-// 既存の POST /api/lcam/session が有効性を確認して保存する。
+// ユーザー端末の WebView（OS 管理のプロファイル）で SSO を通す。SP 経路（https://lcam.aitech.ac.jp/portalv2/sp）
+// は、SSO 完了時に lamyapp:// カスタムスキーム URL に遷移する。この URL を傍受してキーを抽出し、
+// Worker の POST /api/lcam/session に appKey として送ると、Worker が資格情報に交換して保存する。
+// キーは使い捨てで短命（傍受したらすぐ送るべき）。
 //
-// 流れ（MIGRATION_NOTES §14.9）:
-//   1. LCAM 側の Cookie を消してから https://lcam.aitech.ac.jp/portalv2/ を開く
-//      （毎回、SSO を通し直す。Microsoft 側の Cookie は消さない）
-//   2. PC ログイン画面の「ログイン」ボタン相当 `excludeSubmit()` を実行 → preLogin →
-//      initLogin/sso → mellon → Entra
-//   3. Entra のセッションが生きていれば番号入力なしで戻ってくる（ユーザー実測）。
-//      止まる（番号入力・kmsi 等）場合は、許可されていればウィンドウを表示してユーザーに操作してもらう
-//      （MFA の自動化・回避はしない）
-//   4. LCAM のログイン後ページに着地したら Cookie を読み、Worker に登録して WebView を閉じる
+// 流れ:
+//   1. LCAM 側の Cookie を消してから https://lcam.aitech.ac.jp/portalv2/sp を開く（毎回 SSO を通し直す）
+//   2. SP ログイン画面の `excludeSubmit()` を実行 → smartPhoneLogin/sso → Entra へ
+//   3. Entra のセッションが生きていれば番号入力なしで戻ってくる。止まる場合は、許可されていれば
+//      ウィンドウを表示してユーザーに操作してもらう（MFA の自動化・回避はしない）
+//   4. SSO 完了時に lamyapp:// URL に遷移する → これを傍受してキーを抽出し Worker に登録
+//      またはログイン後ページ着地（key 無し）→ エラーで失敗
 //
 // 注意: LCAM は単一セッションのため、ここでログインすると他の端末・ブラウザ・公式アプリの
 // LCAM セッションは切れる。
@@ -23,14 +21,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use tauri::webview::{Cookie, PageLoadEvent};
+use tauri::webview::{PageLoadEvent, PageLoadPayload};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::commands;
 use crate::state::SessionState;
 
 pub const LABEL: &str = "lcam-login";
-const LOGIN_URL: &str = "https://lcam.aitech.ac.jp/portalv2/";
+const LOGIN_URL: &str = "https://lcam.aitech.ac.jp/portalv2/sp";
 const LCAM_HOST: &str = "lcam.aitech.ac.jp";
 
 /// 表示しない状態で SSO が完了しない場合に「対話が要る」と判断するまでの時間。
@@ -38,10 +36,8 @@ const SILENT_LIMIT: Duration = Duration::from_secs(20);
 /// 全体のタイムアウト（ユーザーが MFA を通す時間を含む）。
 const TOTAL_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// スマホの UA だと LCAM が SP 画面（/portalv2/sp。SSO の終端が lamyapp:// でアプリ連携になる）へ
-/// 回す可能性があるため、モバイルのログイン用 WebView には PC ブラウザの UA を付ける。
-#[cfg(mobile)]
-const DESKTOP_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
+/// SP 経路に進むため、全プラットフォームでモバイル UA を使う。
+const MOBILE_UA: &str = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 
 /// 同時に 1 回だけ実行するためのフラグ。
 #[derive(Default)]
@@ -49,11 +45,11 @@ pub struct ConnectState(pub AtomicBool);
 
 #[derive(Debug, PartialEq)]
 pub enum Stage {
-    /// LCAM の PC ログイン画面（/portalv2/）。
+    /// LCAM の SP ログイン画面（/portalv2/sp）。
     LcamLogin,
     /// Microsoft（Entra）側の画面。
     Microsoft,
-    /// LCAM のログイン後ページ（initLogin/sso の着地、またはホーム等）。
+    /// LCAM のログイン後ページ（SSO 完了後のページ、またはホーム等）。
     LcamAuthed,
     Other,
 }
@@ -69,8 +65,11 @@ fn is_microsoft(host: &str) -> bool {
 pub fn classify(url: &Url) -> Stage {
     let host = url.host_str().unwrap_or("");
     if host == LCAM_HOST {
+        // LCAM は URL のパスに `;jsessionid=…` を付けることがあるため、その部分は除いて判定する。
         let p = url.path();
-        if p == "/portalv2" || p == "/portalv2/" {
+        let p = p.split(';').next().unwrap_or(p);
+        // SP ログイン画面。
+        if p == "/portalv2/sp" || p == "/portalv2/sp/" {
             return Stage::LcamLogin;
         }
         if p.starts_with("/mellon/") {
@@ -78,6 +77,7 @@ pub fn classify(url: &Url) -> Stage {
         }
         if p.starts_with("/portalv2/login/") {
             // ログイン系の画面のうち、SSO 完了後の着地だけをログイン後とみなす。
+            // smartPhoneLogin/sso は本新方式では使われない（lamyapp:// で先に傍受される）。
             return if p.trim_end_matches('/').ends_with("/initLogin/sso") {
                 Stage::LcamAuthed
             } else {
@@ -106,32 +106,6 @@ fn domain_is_lcam(domain: Option<&str>) -> bool {
     }
 }
 
-/// WebView の Cookie から、Worker に登録する Cookie 文字列を作る。
-/// JSESSIONID が無ければ None。LiveApps-Cookie と mellon* は、あれば付ける。
-/// Microsoft 側など、LCAM 以外の Cookie は含めない。
-pub fn build_cookie_header(cookies: &[Cookie<'_>]) -> Option<String> {
-    let mut jsession: Option<String> = None;
-    let mut liveapps: Option<String> = None;
-    let mut extra: Vec<String> = Vec::new();
-    for c in cookies {
-        if !domain_is_lcam(c.domain()) {
-            continue;
-        }
-        let pair = format!("{}={}", c.name(), c.value());
-        let lower = c.name().to_ascii_lowercase();
-        if lower == "jsessionid" {
-            jsession = Some(pair);
-        } else if lower == "liveapps-cookie" {
-            liveapps = Some(pair);
-        } else if lower.starts_with("mellon") && extra.len() < 4 {
-            extra.push(pair);
-        }
-    }
-    let mut parts = vec![jsession?];
-    parts.extend(liveapps);
-    parts.extend(extra);
-    Some(parts.join("; "))
-}
 
 fn err(status: u16, code: &str, message: &str) -> String {
     json!({ "status": status, "code": code, "message": message }).to_string()
@@ -153,28 +127,24 @@ impl Drop for WindowGuard {
     }
 }
 
-fn lcam_cookies(window: &WebviewWindow, url: &Url) -> Vec<Cookie<'static>> {
+/// LCAM ドメインの Cookie を消す（毎回 SSO を通し直すため。Microsoft 側は消さない）。
+fn clear_lcam_cookies(window: &WebviewWindow, url: &Url) {
+    let mut cookies = window.cookies_for_url(url.clone()).unwrap_or_default();
     // macOS/iOS の cookies_for_url は domain の完全一致で絞るため、取れなければ全件から自前で絞る。
-    let mut found = window.cookies_for_url(url.clone()).unwrap_or_default();
-    if !found.iter().any(|c| c.name().eq_ignore_ascii_case("jsessionid")) {
-        found = window
+    if !cookies.iter().any(|c| c.name().eq_ignore_ascii_case("jsessionid")) {
+        cookies = window
             .cookies()
             .unwrap_or_default()
             .into_iter()
             .filter(|c| domain_is_lcam(c.domain()))
             .collect();
     }
-    found
-}
-
-/// LCAM ドメインの Cookie を消す（毎回 SSO を通し直すため。Microsoft 側は消さない）。
-fn clear_lcam_cookies(window: &WebviewWindow, url: &Url) {
-    for c in lcam_cookies(window, url) {
+    for c in cookies {
         let _ = window.delete_cookie(c);
     }
 }
 
-/// SSO を通して Cookie を取得し、Worker に登録する。
+/// SSO を通してアプリキーを取得し、Worker に登録する。
 /// - `start_visible`: 最初からウィンドウを表示する（手動の「接続」ボタン）。
 /// - `allow_show`: 対話が要るときにウィンドウを表示してよいか（自動実行では false）。
 pub async fn connect(app: &AppHandle, start_visible: bool, allow_show: bool) -> Result<Value, String> {
@@ -189,22 +159,47 @@ pub async fn connect(app: &AppHandle, start_visible: bool, allow_show: bool) -> 
     }
 
     let login_url: Url = LOGIN_URL.parse().map_err(|_| err(500, "internal", "invalid url"))?;
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Url>();
-    let tx_in_window = tx.clone();
+
+    // ページロードと lamyapp:// スキーム傍受を同じチャネルで受け取るため、Event 列挙型を使う。
+    enum Event {
+        Page(Url),
+        AppKey(String),
+    }
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+
+    // ページロード検知
+    let tx_page = tx.clone();
+    let on_page_load = move |_window: WebviewWindow, payload: PageLoadPayload<'_>| {
+        if matches!(payload.event(), PageLoadEvent::Finished) {
+            let _ = tx_page.send(Event::Page(payload.url().clone()));
+        }
+    };
+
+    // lamyapp:// スキーム傍受
+    let tx_nav = tx.clone();
+    let on_navigation = move |url: &Url| -> bool {
+        if url.scheme() == "lamyapp" {
+            // キーはログに出さない。スキーム名のみを診断ログに出す。
+            eprintln!("[lcam_connect] navigation intercepted: scheme=lamyapp");
+            let _ = tx_nav.send(Event::AppKey(url.to_string()));
+            false // 遷移を止める
+        } else {
+            true // 通常の遷移を続ける
+        }
+    };
+
     let builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External("about:blank".parse().unwrap()))
         .title("LCAM ログイン")
-        .on_page_load(move |_w, payload| {
-            if matches!(payload.event(), PageLoadEvent::Finished) {
-                let _ = tx_in_window.send(payload.url().clone());
-            }
-        });
+        .on_page_load(on_page_load)
+        .on_navigation(on_navigation)
+        .user_agent(MOBILE_UA);
     #[cfg(desktop)]
     let builder = builder.inner_size(480.0, 760.0).visible(start_visible);
-    #[cfg(mobile)]
-    let builder = builder.user_agent(DESKTOP_UA);
     let window = builder
         .build()
         .map_err(|e| err(500, "window", &e.to_string()))?;
+
     // ウィンドウ側だけが送信側を持つ状態にする（ウィンドウが閉じたら rx が終わる）。
     drop(tx);
     let window = WindowGuard(window);
@@ -218,38 +213,43 @@ pub async fn connect(app: &AppHandle, start_visible: bool, allow_show: bool) -> 
     let start = Instant::now();
     let mut shown = start_visible;
     let mut submitted = false;
-    let header = loop {
+    let app_key = loop {
         match tokio::time::timeout(Duration::from_secs(1), rx.recv()).await {
-            Ok(Some(url)) => match {
-                let stage = classify(&url);
-                // 診断用。クエリ（SAMLRequest 等）は出さず、ホストとパスだけ。
-                eprintln!(
-                    "[lcam_connect] {:>5.1}s page={}{} stage={:?}",
-                    start.elapsed().as_secs_f32(),
-                    url.host_str().unwrap_or(""),
-                    url.path(),
+            Ok(Some(event)) => match event {
+                Event::Page(url) => match {
+                    let stage = classify(&url);
+                    // 診断用。クエリ（SAMLRequest 等）は出さず、ホストとパスだけ。
+                    eprintln!(
+                        "[lcam_connect] {:>5.1}s page={}{} stage={:?}",
+                        start.elapsed().as_secs_f32(),
+                        url.host_str().unwrap_or(""),
+                        url.path(),
+                        stage
+                    );
                     stage
-                );
-                stage
-            } {
-                Stage::LcamLogin => {
-                    if !submitted {
-                        submitted = true;
-                        window
-                            .0
-                            .eval("excludeSubmit()")
-                            .map_err(|e| err(500, "eval", &e.to_string()))?;
-                    } else {
-                        // 送信後にログイン画面へ戻された: 自動では進めない（対話が要る）。
-                        show_or_fail(&window.0, &mut shown, allow_show)?;
+                } {
+                    Stage::LcamLogin => {
+                        if !submitted {
+                            submitted = true;
+                            window
+                                .0
+                                .eval("excludeSubmit()")
+                                .map_err(|e| err(500, "eval", &e.to_string()))?;
+                        } else {
+                            // 送信後にログイン画面へ戻された: 自動では進めない（対話が要る）。
+                            show_or_fail(&window.0, &mut shown, allow_show)?;
+                        }
                     }
-                }
-                Stage::LcamAuthed => {
-                    if let Some(h) = build_cookie_header(&lcam_cookies(&window.0, &login_url)) {
-                        break h;
+                    Stage::LcamAuthed => {
+                        // key が得られないままログイン後ページに着地：失敗と判定
+                        return Err(err(502, "no_app_key", "LCAM のアプリキーが取得できませんでした"));
                     }
+                    Stage::Microsoft | Stage::Other => {}
+                },
+                Event::AppKey(key) => {
+                    // キーを取得したら終了
+                    break key;
                 }
-                Stage::Microsoft | Stage::Other => {}
             },
             // ウィンドウが閉じられた（ユーザーが閉じた）。
             Ok(None) => return Err(err(499, "cancelled", "LCAM ログインが中止されました")),
@@ -263,14 +263,14 @@ pub async fn connect(app: &AppHandle, start_visible: bool, allow_show: bool) -> 
         }
     };
 
-    // Worker に登録（Worker が LCAM へ 1 回アクセスして有効性を確認してから保存する）。
-    eprintln!("[lcam_connect] cookies read, registering to worker");
+    // Worker に登録。appKey は傍受した lamyapp:// URL 全体。
+    eprintln!("[lcam_connect] appKey received, registering to worker");
     commands::api_request(
         app.clone(),
         app.state::<SessionState>(),
         "/api/lcam/session".to_string(),
         "POST".to_string(),
-        Some(json!({ "cookies": header })),
+        Some(json!({ "appKey": app_key })),
     )
     .await
 }
@@ -302,19 +302,24 @@ mod tests {
     }
 
     #[test]
-    fn classify_lcam_and_microsoft() {
-        assert_eq!(classify(&u("https://lcam.aitech.ac.jp/portalv2/")), Stage::LcamLogin);
-        assert_eq!(classify(&u("https://lcam.aitech.ac.jp/portalv2")), Stage::LcamLogin);
+    fn classify_sp_login_screen() {
+        // SP ログイン画面（新方式）。
+        assert_eq!(classify(&u("https://lcam.aitech.ac.jp/portalv2/sp")), Stage::LcamLogin);
+        assert_eq!(classify(&u("https://lcam.aitech.ac.jp/portalv2/sp/")), Stage::LcamLogin);
+        // パスに付く jsessionid はログイン画面の判定に影響しない。
         assert_eq!(
-            classify(&u("https://lcam.aitech.ac.jp/mellon/postResponse")),
-            Stage::Other
+            classify(&u("https://lcam.aitech.ac.jp/portalv2/sp;jsessionid=abc.poap1")),
+            Stage::LcamLogin
         );
+    }
+
+    #[test]
+    fn classify_microsoft() {
         assert_eq!(
             classify(&u("https://login.microsoftonline.com/x/saml2?SAMLRequest=a")),
             Stage::Microsoft
         );
         assert_eq!(classify(&u("https://login.microsoftonline.com/kmsi")), Stage::Microsoft);
-        assert_eq!(classify(&u("https://example.com/")), Stage::Other);
     }
 
     #[test]
@@ -338,38 +343,12 @@ mod tests {
         );
     }
 
-    fn cookie(name: &str, value: &str, domain: Option<&str>) -> Cookie<'static> {
-        let mut b = Cookie::build((name.to_string(), value.to_string()));
-        if let Some(d) = domain {
-            b = b.domain(d.to_string());
-        }
-        b.build()
-    }
-
     #[test]
-    fn cookie_header_only_lcam_cookies() {
-        let cookies = vec![
-            cookie("JSESSIONID", "abc", Some("lcam.aitech.ac.jp")),
-            cookie("LiveApps-Cookie", "2026", Some("lcam.aitech.ac.jp")),
-            cookie("mellon-cookie", "m", Some("lcam.aitech.ac.jp")),
-            cookie("ESTSAUTHPERSISTENT", "secret", Some("login.microsoftonline.com")),
-            cookie("JSESSIONID", "other-site", Some("example.com")),
-        ];
+    fn classify_other() {
         assert_eq!(
-            build_cookie_header(&cookies).as_deref(),
-            Some("JSESSIONID=abc; LiveApps-Cookie=2026; mellon-cookie=m")
+            classify(&u("https://lcam.aitech.ac.jp/mellon/postResponse")),
+            Stage::Other
         );
-    }
-
-    #[test]
-    fn cookie_header_jsessionid_only_and_missing() {
-        let only = vec![cookie("JSESSIONID", "abc", Some(".lcam.aitech.ac.jp"))];
-        assert_eq!(build_cookie_header(&only).as_deref(), Some("JSESSIONID=abc"));
-        // domain が無い（Android）場合は URL で絞り込み済みとみなす。
-        let android = vec![cookie("JSESSIONID", "abc", None)];
-        assert_eq!(build_cookie_header(&android).as_deref(), Some("JSESSIONID=abc"));
-        let none = vec![cookie("LiveApps-Cookie", "1", Some("lcam.aitech.ac.jp"))];
-        assert_eq!(build_cookie_header(&none), None);
-        assert_eq!(build_cookie_header(&[]), None);
+        assert_eq!(classify(&u("https://example.com/")), Stage::Other);
     }
 }
