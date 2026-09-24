@@ -352,6 +352,14 @@ Keychainが「常に許可」を保持できず`restore_session`のキーチェ�
    ```
    証明書名を変えた場合は `AITAPP_CODESIGN_IDENTITY=<証明書名>` を付けて実行する。
 
+### LCAM への接続（多要素認証）
+
+LCAM は多要素認証のため、アプリの「その他 → LCAM 連携」に **「LCAM に接続」** ボタンがある。押すとログイン用の
+ウィンドウが開き、Microsoft のログイン（必要なら番号入力）を通すと Cookie が自動で Worker に登録される
+（Microsoft の Cookie は WebView の外に出さない）。**「切れたとき自動で再接続する」**（既定オフ）をオンにすると、
+アプリを開いている間、LCAM が失効していれば自動で再接続する。LCAM は単一セッションのため、接続するとブラウザ等の
+LCAM は切れる。詳細は `MIGRATION_NOTES.md` §14.9。
+
 ### PC版のフロント差分
 
 `web/src/lib/platform.ts` の `isDesktop`（ビルド時フラグ）で、ブラウザ版と以下を切り替える。

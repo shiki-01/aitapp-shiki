@@ -101,6 +101,14 @@ export interface ApiClient {
    * 無効な Cookie は 422（code: lcam_session_rejected）で拒否される。
    */
   lcamSessionSet(cookies: string): Promise<{ ok: boolean; registeredAt: number }>;
+  /**
+   * （デスクトップ版のみ）WebView で LCAM の SSO ログインを通し、Cookie を自動で登録する。
+   * ウィンドウが開き、番号入力などが要ればそのまま操作する。ブラウザ版には無い。
+   */
+  lcamConnect?(): Promise<{ ok: boolean; registeredAt: number }>;
+  /** （デスクトップ版のみ）切れたときに自動で再接続する設定の取得/変更（既定オフ）。 */
+  lcamAutoGet?(): Promise<boolean>;
+  lcamAutoSet?(enabled: boolean): Promise<void>;
   notices(type: 'common' | 'class', count?: number): Promise<{ notices: Notice[] }>;
   noticeDetail(type: 'common' | 'class', index: number): Promise<{ detail: NoticeDetail }>;
   timetable(): Promise<{ timetable: TimetableEntry[] }>;

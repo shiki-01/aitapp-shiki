@@ -7,6 +7,37 @@
 
   let { userId = '', onLogout }: { userId?: string; onLogout?: () => void } = $props();
 
+  // ---- 確認ダイアログ ----
+  // window.confirm() は Tauri の WebView（macOS の WKWebView）では常に false を返す
+  // （wry が JS の確認パネルを実装していない）。デスクトップ版でも動くよう、アプリ内の Sheet で確認する。
+  let confirmOpen = $state(false);
+  let confirmMessage = $state('');
+  let confirmOkLabel = $state('実行する');
+  let confirmResolve: ((ok: boolean) => void) | null = null;
+
+  function ask(message: string, okLabel = '実行する'): Promise<boolean> {
+    confirmMessage = message;
+    confirmOkLabel = okLabel;
+    confirmOpen = true;
+    return new Promise((resolve) => {
+      confirmResolve = resolve;
+    });
+  }
+  function answer(ok: boolean) {
+    const r = confirmResolve;
+    confirmResolve = null;
+    confirmOpen = false;
+    r?.(ok);
+  }
+  // 背景タップ・Esc・✕ で閉じた場合は「キャンセル」として扱う。
+  $effect(() => {
+    if (!confirmOpen && confirmResolve) {
+      const r = confirmResolve;
+      confirmResolve = null;
+      r(false);
+    }
+  });
+
   // ---- LCAM 連携（Cookie 登録）----
   // LCAM は多要素認証のため、ブラウザでログインして取得した Cookie を登録して使う。
   // Cookie の値はサーバーから返らない（登録状況の時刻のみ）。
@@ -26,6 +57,60 @@
 
   function fmtTime(ms: number | null): string {
     return ms ? new Date(ms).toLocaleString('ja-JP') : '—';
+  }
+
+  // デスクトップ版のみ: WebView で SSO を通して Cookie を自動登録する。
+  let lcamAuto = $state<boolean | undefined>(undefined);
+  let lcamConnecting = $state(false);
+  // 「LCAM に接続」の結果。ボタンの直下に表示する（貼り付け欄の下だと見落とすため）。
+  let lcamConnectResult = $state<{ ok: boolean; text: string } | null>(null);
+
+  $effect(() => {
+    api.lcamAutoGet?.().then((v) => (lcamAuto = v)).catch(() => {});
+  });
+
+  async function connectLcam() {
+    lcamConnecting = true;
+    lcamError = '';
+    lcamDone = false;
+    lcamConnectResult = null;
+    try {
+      await api.lcamConnect?.();
+      lcamConnectResult = {
+        ok: true,
+        text: `接続しました（${new Date().toLocaleTimeString('ja-JP')}）。LCAM のデータが見られます。`,
+      };
+      loadLcam();
+    } catch (e) {
+      lcamConnectResult = {
+        ok: false,
+        text: e instanceof ApiError || e instanceof Error ? e.message : String(e),
+      };
+    } finally {
+      lcamConnecting = false;
+    }
+  }
+
+  // checkbox は押した瞬間に見た目が変わるため、キャンセル/失敗時は保存済みの状態へ戻す。
+  async function toggleLcamAuto(el: HTMLInputElement) {
+    const next = !(lcamAuto === true);
+    if (
+      next &&
+      !(await ask(
+        'LCAM が切れたとき、アプリが自動でログインし直します。LCAM は 1 つの端末でしか使えないため、ブラウザや公式アプリで開いている LCAM は切れます。オンにしますか？',
+        'オンにする',
+      ))
+    ) {
+      el.checked = lcamAuto === true;
+      return;
+    }
+    try {
+      await api.lcamAutoSet?.(next);
+      lcamAuto = next;
+    } catch (e) {
+      lcamError = e instanceof ApiError || e instanceof Error ? e.message : String(e);
+      el.checked = lcamAuto === true;
+    }
   }
 
   async function registerLcam() {
@@ -65,7 +150,10 @@
   });
 
   async function issueMcp() {
-    if (mcpIssued && !confirm('再発行すると、いま設定済みの MCP URL は使えなくなります。続けますか？')) {
+    if (
+      mcpIssued &&
+      !(await ask('再発行すると、いま設定済みの MCP URL は使えなくなります。続けますか？', '再発行する'))
+    ) {
       return;
     }
     mcpBusy = true;
@@ -83,7 +171,9 @@
   }
 
   async function revokeMcp() {
-    if (!confirm('MCP URL を失効させます。設定済みのコネクタは使えなくなります。よろしいですか？')) return;
+    if (!(await ask('MCP URL を失効させます。設定済みのコネクタは使えなくなります。よろしいですか？', '失効させる'))) {
+      return;
+    }
     mcpBusy = true;
     mcpError = '';
     try {
@@ -106,14 +196,16 @@
     }
   }
 
-  async function toggleMcpWrites() {
+  async function toggleMcpWrites(el: HTMLInputElement) {
     const next = !(mcpWrites === true);
     if (
       next &&
-      !confirm(
+      !(await ask(
         'Claude がこの MCP 接続から、クイズの受験開始・課題やアンケートの提出など取り消せない操作を実行できるようになります。許可しますか？',
-      )
+        '許可する',
+      ))
     ) {
+      el.checked = mcpWrites === true;
       return;
     }
     mcpBusy = true;
@@ -239,6 +331,33 @@
         {/if}
       </p>
     {/if}
+    {#if api.lcamConnect}
+      <div class="mcp-actions">
+        <button class="mcp-issue" onclick={connectLcam} disabled={lcamConnecting || lcamBusy}>
+          {lcamConnecting ? '接続中…（開いた画面でログイン）' : 'LCAM に接続（ログイン画面を開く）'}
+        </button>
+      </div>
+      {#if lcamConnectResult}
+        <p class={lcamConnectResult.ok ? 'lcam-ok' : 'mcp-error'}>{lcamConnectResult.text}</p>
+      {/if}
+      <p class="mcp-note">
+        開いたウィンドウで Microsoft のログイン（番号入力など）を通すと、自動で登録されます。
+        Cookie を手で貼る必要はありません。接続すると、ほかの端末・ブラウザの LCAM は切れます。
+      </p>
+      <label class="mcp-writes">
+        <input
+          type="checkbox"
+          checked={lcamAuto === true}
+          disabled={lcamAuto === undefined}
+          onchange={(e) => toggleLcamAuto(e.currentTarget)}
+        />
+        <span>
+          切れたとき自動で再接続する
+          <small>アプリを開いている間だけ。番号入力などが要るときは自動では進めず、6 時間止まります。</small>
+        </span>
+      </label>
+      <p class="mcp-note">または、Cookie を手動で貼り付けて登録:</p>
+    {/if}
     <textarea
       class="lcam-input"
       rows="3"
@@ -298,7 +417,7 @@
         type="checkbox"
         checked={mcpWrites === true}
         disabled={mcpBusy || mcpWrites === undefined}
-        onchange={toggleMcpWrites}
+        onchange={(e) => toggleMcpWrites(e.currentTarget)}
       />
       <span>
         不可逆操作を許可（クイズ受験開始・課題/アンケート提出）
@@ -339,12 +458,44 @@
   </div>
 </Sheet>
 
+<!-- 確認ダイアログ（window.confirm の代わり。Tauri の WebView では confirm が常に false になるため） -->
+<Sheet bind:open={confirmOpen} title="確認">
+  <div class="form">
+    <p class="confirm-msg">{confirmMessage}</p>
+    <div class="confirm-actions">
+      <button class="confirm-cancel" onclick={() => answer(false)}>キャンセル</button>
+      <button class="save" onclick={() => answer(true)}>{confirmOkLabel}</button>
+    </div>
+  </div>
+</Sheet>
+
 <!-- シラバス -->
 <Sheet bind:open={syllabusOpen} title="シラバス検索">
   <Syllabus />
 </Sheet>
 
 <style>
+  .confirm-msg {
+    margin: 0 0 14px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: var(--fg);
+  }
+  .confirm-actions {
+    display: flex;
+    gap: 10px;
+  }
+  .confirm-actions button {
+    flex: 1;
+  }
+  .confirm-cancel {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--fg);
+    padding: 11px;
+    font-size: 0.95rem;
+  }
   .head h1 {
     margin: 0 0 14px;
     font-size: 1.4rem;
@@ -557,6 +708,12 @@
   .mcp-issue:disabled,
   .mcp-revoke:disabled {
     opacity: 0.5;
+  }
+  .lcam-ok {
+    margin: 0;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--primary);
   }
   .lcam-input {
     width: 100%;

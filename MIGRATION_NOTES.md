@@ -1114,7 +1114,7 @@ Worker は Microsoft のセッションを持たない（Cookie を保存しな�
 - KV の結果整合性: 登録・失効の書き込み直後、別のエッジからの読み取りが最大 60 秒ほど古い state を返し得る
   （登録直後に「未登録」エラーが一瞬出る、失効の二重検知など。害は小さい）。
 
-### 14.9 Tauri 自動再ログインの設計メモ（未実装。keep-alive の 1h30m 確認後に着手）
+### 14.9 Tauri 自動再ログイン（デスクトップ版は実装済み・実機での SSO 通過は未検証）
 
 目的: 失効/別端末ログインでセッションが切れたとき、デスクトップの Tauri が Cookie を自動で取り直して
 `POST /api/lcam/session` に登録し直す（手動の再登録をなくす）。Microsoft のセッションは Tauri の WebView
@@ -1144,4 +1144,32 @@ Worker は Microsoft のセッションを持たない（Cookie を保存しな�
 - Entra の持続セッションの期限（ユーザー報告では約 90 日）と、テナントの再認証ポリシー。
 - Tauri が起動していない間は更新されない（keep-alive で維持できる範囲に限る）。
 - 実装規模の見積もり: Rust コマンド 100 行前後、権限設定、Web に状態表示、実機の手動検証。単体テストで担保できない部分が大きい。
+
+実装状況（2026-09-24）:
+- `tauri/src-tauri/src/lcam_login.rs`: WebView（ラベル `lcam-login`）で上記の流れを実行し、Worker の `POST /api/lcam/session` に登録する。
+  純粋関数（URL の段階判定 `classify`、Cookie 文字列の組み立て `build_cookie_header`）は `cargo test` で単体テスト済み（4 件）。
+  LCAM ドメインの Cookie だけを送る（Microsoft 側の Cookie は WebView の外に出さない）。
+- 手動: 「その他 → LCAM 連携」の **「LCAM に接続」**（ウィンドウを表示。番号入力などはそのまま操作）。
+- 自動（オプトイン、既定オフ）: `lcam_auto.rs`。アプリ起動中、5 分ごとに Worker の登録状況を確認し、未登録/失効なら
+  ウィンドウを出さずに再接続する。対話が要るときは自動では進めず 6 時間停止、失敗後は 30 分のクールダウン。
+- Worker: 登録 API は `JSESSIONID` のみ必須に緩めた（`LiveApps-Cookie` は任意。§14.4 の実測による）。
+- **未検証**: WebView での実際の SSO 通過（Entra のセッション維持で番号入力なしに戻れるか）、macOS の WKWebView で
+  `cookies_for_url`/`cookies()` が HttpOnly の JSESSIONID を返すか、初回の `excludeSubmit()` 実行のタイミング。
+  これらは LCAM に実際にログインするため、登録済みセッションが無効になる。試すときは他の LCAM 利用が無い状態で行う。
+
+### 14.10 スマホ版（Tauri モバイル）の現状
+
+- 構成: `lib.rs`（`run()` + `#[cfg_attr(mobile, tauri::mobile_entry_point)]`）と `main.rs` に分割し、`Cargo.toml` に
+  `[lib] crate-type = [staticlib, cdylib, rlib]` を追加した。デスクトップのビルド・テストは通る。
+- **この環境では iOS/Android のビルドも実機確認もできていない**（Xcode 本体・Android SDK が無い。Command Line Tools のみ）。
+  以下は未着手・未検証:
+  1. `tauri ios init` / `tauri android init`（Xcode / Android Studio・SDK・NDK が要る）。
+  2. 資格情報の保存: `keyring` は iOS（apple-native）は使える見込みだが、Android の保存先が無い。代替（Android Keystore 系プラグイン等）が要る。
+  3. UI: `isDesktop`（ビルドフラグ）が「Tauri 経由の API」と「PC 用の SideNav」を兼ねているため、モバイルでは分離が要る。
+  4. WebView ウィンドウ: モバイルでは新しいウィンドウが現在の UI を置き換える/別 Activity になる（公式ドキュメント）。
+     ログイン用 WebView から本体へ戻る導線を実機で確認する必要がある。
+  5. Android の `cookies()` は常に空を返す（`cookies_for_url` を使う。実装済み）。wry 0.55.1 の Android は Cookie が無い URL で
+     NPE の可能性があり、wry の更新が要る。
+  6. 配布: iOS は Apple Developer Program（有料）が事実上必須。無料アカウントは 7 日で失効し自分の端末のみ。Android は APK で配布可。
+- 着手順の推奨: Android 実機（自分の端末）で 1〜5 を確認 → 動けば iOS は有料プランの可否を判断してから。
 

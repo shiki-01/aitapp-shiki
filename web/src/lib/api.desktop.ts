@@ -77,6 +77,27 @@ export const desktopApi: ApiClient = {
   async lcamSessionSet(cookies) {
     return call('/api/lcam/session', 'POST', { cookies });
   },
+  async lcamConnect() {
+    try {
+      return await invoke('lcam_connect');
+    } catch (err) {
+      throw toApiError(err);
+    }
+  },
+  async lcamAutoGet() {
+    try {
+      return await invoke<boolean>('lcam_auto_get');
+    } catch (err) {
+      throw toApiError(err);
+    }
+  },
+  async lcamAutoSet(enabled) {
+    try {
+      await invoke('lcam_auto_set', { enabled });
+    } catch (err) {
+      throw toApiError(err);
+    }
+  },
   async notices(type, count = 10) {
     return call(`/api/notices${qs({ type, count })}`);
   },
