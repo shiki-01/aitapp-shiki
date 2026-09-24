@@ -213,7 +213,7 @@ pub async fn download_file(
     Ok(file_path.to_string_lossy().to_string())
 }
 
-fn current_cookie(app: &AppHandle, state: &State<'_, SessionState>) -> Result<String, String> {
+pub(crate) fn current_cookie(app: &AppHandle, state: &State<'_, SessionState>) -> Result<String, String> {
     if let Some(s) = state.0.lock().unwrap().as_ref() {
         return Ok(s.cookie.clone());
     }
@@ -261,4 +261,21 @@ fn sanitize_filename(name: &str) -> String {
     name.chars()
         .map(|c| if "/\\:*?\"<>|".contains(c) { '_' } else { c })
         .collect()
+}
+
+// ---- LCAM 接続（WebView で SSO を通し、Cookie を Worker に登録する）。手動の「接続」ボタン用。
+//      ウィンドウを最初から表示し、番号入力などの対話が要ればそのまま操作してもらう。 ----
+#[tauri::command]
+pub async fn lcam_connect(app: AppHandle) -> Result<Value, String> {
+    crate::lcam_login::connect(&app, true, true).await
+}
+
+#[tauri::command]
+pub fn lcam_auto_get(app: AppHandle) -> bool {
+    crate::lcam_auto::enabled(&app)
+}
+
+#[tauri::command]
+pub fn lcam_auto_set(app: AppHandle, enabled: bool) -> Result<(), String> {
+    crate::lcam_auto::set_enabled(&app, enabled)
 }
