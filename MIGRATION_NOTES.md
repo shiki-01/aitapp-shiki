@@ -918,6 +918,11 @@ Cookie 透過・パースまで一連が機能。なお `LCAM_RELAY_URL` を `[v
 
 ## 14. LCAM の多要素認証（Entra ID SAML SSO）への対応（2026-09-24）
 
+> **【更新 2026-09-25】** 本節は、ユーザーがブラウザで取得した Cookie を登録する方式の記録。**§15 で、本家アプリと同じ方式
+> （`lamyapp://` の key → アプリ用資格情報で透過再ログイン）に置き換えた**。§14.2 の「再ログインとリトライは廃止」、§14.6 の
+> keep-alive、§14.9 の Cookie 読み取りによる Tauri 自動再ログインは、現在は使っていない（履歴として残す）。Cookie 貼り付け登録は
+> 代替として残っている。未確認・未対応の一覧は `docs/BACKLOG.md`。
+
 LCAM は 2026-09-07 に Microsoft Entra ID の SAML SSO（パスワード + Outlook 番号入力の MFA）へ
 移行した。旧方式（ID/パスワードを LCAM に直接 POST: `smartPhoneLogin` / `spAppLogin`）は
 「アカウント/パスワードが間違っています」で拒否される。LCAM の Cookie は全て HttpOnly、
@@ -1119,6 +1124,9 @@ Worker は Microsoft のセッションを持たない（Cookie を保存しな�
 
 ### 14.9 Tauri 自動再ログイン（デスクトップ版は実装済み・実機での SSO 通過は未検証）
 
+> **【置換 2026-09-25】** PC 経路（`/portalv2/`）の SSO を通して Cookie を読む方式は、§15 の SP 経路（`/portalv2/sp`）で
+> `lamyapp://` の key を傍受する方式に置き換えた（`tauri/src-tauri/src/lcam_login.rs`）。以下は当時の設計メモ。
+
 目的: 失効/別端末ログインでセッションが切れたとき、デスクトップの Tauri が Cookie を自動で取り直して
 `POST /api/lcam/session` に登録し直す（手動の再登録をなくす）。Microsoft のセッションは Tauri の WebView
 （OS 管理のプロファイル）内にだけ残り、Worker には送らない。
@@ -1287,4 +1295,7 @@ IPA の入手と導入:
 - アプリ用トークン（`password`）の有効期間（失効したら 424 で再登録を求める）。
 - `smartPhoneLogin/` 失敗時の実応答（アプリのコード上は JSON `{status:'fail'}`。実応答は未観測。未観測のため、ログイン後の SP 時間割の
   確認（`probeSpSession`）でも失効として扱い、資格情報の拒否と判定する）。
-- 本番（relay 経由）での `spAppLogin/` / `smartPhoneLogin/`（relay が `Set-Cookie` を複数ヘッダのまま返すか）。
+- 本番（relay 経由）での `spAppLogin/` / `smartPhoneLogin/`: **確認済み（2026-09-25）**。`tauri dev` を本番の Worker に向けて（ユーザー報告）
+  key を登録でき、本番のリモート MCP から時間割を取得できた（relay が `Set-Cookie` を返し、資格情報の保存と再利用が動いた）。
+
+未確認・未対応・要修正の項目は `docs/BACKLOG.md` に一覧を置く。

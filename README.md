@@ -20,8 +20,9 @@ vendor/aitapp  移植元 Dart 実装（git submodule）
 
 - proxy が認証情報を AES-GCM で暗号化し Workers KV に保存する。
 - Moodle は token 方式で、失効したら保存済み認証情報で再取得して 1 回だけリトライする。
-- LCAM は Entra ID の多要素認証（SSO）のため、Worker は自動ログインできない。ユーザーが
-  ブラウザでログインして取得した Cookie を登録して使う（下記「LCAM 連携」）。
+- LCAM は Entra ID の多要素認証（SSO）のため、Worker は最初のログインを自動化できない。初回に 1 回だけ、
+  本家アプリと同じ方式で `lamyapp://` の key を登録すると、以後は Worker が保存済みの資格情報で
+  自動的に再ログインする（下記「LCAM 連携」）。
 - ブラウザへ渡るのは HttpOnly な署名付き session cookie のみ。認証情報は渡さない。
 
 詳細なアーキテクチャは `REQUIREMENTS.md` 第5節を参照。
@@ -358,10 +359,13 @@ Keychainが「常に許可」を保持できず`restore_session`のキーチェ�
 ### LCAM への接続（多要素認証）
 
 LCAM は多要素認証のため、アプリの「その他 → LCAM 連携」に **「LCAM に接続」** ボタンがある。押すとログイン用の
-ウィンドウが開き、Microsoft のログイン（必要なら番号入力）を通すと Cookie が自動で Worker に登録される
-（Microsoft の Cookie は WebView の外に出さない）。**「切れたとき自動で再接続する」**（既定オフ）をオンにすると、
-アプリを開いている間、LCAM が失効していれば自動で再接続する。LCAM は単一セッションのため、接続するとブラウザ等の
-LCAM は切れる。詳細は `MIGRATION_NOTES.md` §14.9。
+ウィンドウ（SP 経路）が開き、Microsoft のログイン（必要なら番号入力）を通すと、終端の `lamyapp://lcam?key=…` への遷移を
+WebView が傍受し、その key を Worker に登録する（Worker が資格情報に交換して保存する。Microsoft の Cookie は
+WebView の外に出さない。key・URL はログに出さない）。以後は、失効しても Worker が自動で再ログインする。
+LCAM は単一セッションのため、再ログインするとブラウザ等の LCAM は切れる。
+**「切れたとき自動で再接続する」**（既定オフ）は、資格情報が未登録または拒否されたときだけ動く。
+Tauri の接続先の既定はローカルの Worker（`localhost:8787`）。本番向けには、ビルド時に
+`AITAPP_WORKER_BASE_URL` / `AITAPP_APP_ORIGIN` を指定する。詳細は `MIGRATION_NOTES.md` §15。
 
 ### iOS 版（署名なし IPA）
 
@@ -398,14 +402,15 @@ Claude Codeの `.mcp.json` に登録して使う。認証情報・上流ロジ�
 | メソッド | パス | 内容 |
 |----------|------|------|
 | POST | `/api/auth/login` | id/password → Moodle 認証で検証 → credential 暗号化保存 → session cookie 発行（LCAM は対象外） |
-| GET | `/api/lcam/session` | LCAM セッションの登録状況（登録/最終成功/失効の時刻） |
-| POST | `/api/lcam/session` | LCAM の Cookie を登録（`{ cookies }`。有効性を確認してから保存） |
+| GET | `/api/lcam/session` | LCAM の登録状況（`registered` / `appRegistered`、登録/最終成功/失効の時刻） |
+| POST | `/api/lcam/session` | LCAM を登録（`{ appKey }` = `lamyapp://` の URL または key。推奨。または `{ cookies }`。有効性を確認してから保存） |
+| POST | `/api/lcam/session/revoke` | LCAM の登録（Cookie・資格情報）を解除 |
 | POST | `/api/auth/logout` | session cookie 破棄 |
 | GET | `/api/auth/me` | ログイン中の userId |
-| GET | `/api/notices?type=common\|class&count=10` | LCAM 連絡（登録済み Cookie。失効時は 424） |
+| GET | `/api/notices?type=common\|class&count=10` | LCAM 連絡（登録済みの資格情報。失効しても自動で再ログイン。回復できないときは 424） |
 | GET | `/api/notices/detail?type=&index=` | 連絡詳細 |
 | GET | `/api/timetable` | LCAM 時間割（SP） |
-| GET | `/api/schedule` | 未対応（501）。予定は LCAM の PC 画面が必要で、Cookie 登録方式では取得できない（PC 画面への直接アクセスはセッションを破棄する） |
+| GET | `/api/schedule` | 未対応（501）。予定は LCAM の PC 画面が必要で、SP 経路のセッションでは取得できない（PC 画面への直接アクセスはセッションを破棄する） |
 | GET | `/api/assignments` | Moodle 課題（token 経由） |
 | GET | `/api/syllabus/filters?year=` | シラバス検索フィルタ |
 | GET | `/api/syllabus/search?year=&word=&campus=&semester=&week=&hour=&folder=` | シラバス検索 |
@@ -431,6 +436,7 @@ cd web && bun run build                                   # 本番ビルド
   （アプリ方式。`MIGRATION_NOTES.md` §15）による透過再ログイン（失効検知 → 再ログイン → 1 回だけ再試行）のみ行う。
 - MFA/番号入力の自動化・回避策は作らない。資格情報が無い・拒否された場合は、失効を検知してエラー（424）を返すのみ
   （回復はユーザーによる再登録）。
+- 未確認・未対応・要修正の項目は `docs/BACKLOG.md` に一覧がある。
 
 ## 注意
 

@@ -20,8 +20,9 @@
   let assignments = $state<Assignment[]>([]);
   let notices = $state<Notice[]>([]);
   let timetable = $state<TimetableEntry[]>([]);
-  // LCAM は MFA のため Cookie 登録式。未登録/失効なら再登録を促す（登録状況の取得は KV 読み取りのみで
-  // LCAM へはアクセスしない）。取得に失敗したら何も出さない。
+  // LCAM は MFA のため、初回に lamyapp:// の key（または Cookie）を登録する。登録済みなら Worker が自動で
+  // 再ログインするので、未登録（資格情報が拒否されて破棄された場合を含む）のときだけ登録を促す
+  // （登録状況の取得は KV 読み取りのみで LCAM へはアクセスしない）。取得に失敗したら何も出さない。
   let lcam = $state<LcamSessionStatus | undefined>(undefined);
 
   const now = new Date();

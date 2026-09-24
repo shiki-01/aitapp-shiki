@@ -11,8 +11,9 @@
   例えばスマホの Claude アプリのカスタムコネクタ向けには `/mcp/<MCP_TOKEN>` の
   URL 埋め込み方式もある）。セットアップはリポジトリ直下の README を参照。
   デプロイ版は LCAM が Cloudflare の egress IP を拒否するため、LCAM 宛は relay 経由
-  （`MIGRATION_NOTES.md` §13.1 / §13.4）。LCAM は多要素認証のため、最初に `lcam_set_session`
-  （または Web 画面）でブラウザのログイン Cookie を登録する（`MIGRATION_NOTES.md` §14）。
+  （`MIGRATION_NOTES.md` §13.1 / §13.4）。LCAM は多要素認証のため、最初の 1 回だけ、`lamyapp://lcam?key=…` の URL を
+  Web 画面（その他 → LCAM 連携）、Tauri の「LCAM に接続」、または `lcam_set_session`（`appKey`）で登録する。
+  登録後は、失効しても Worker が保存済みの資格情報で自動的に再ログインする（`MIGRATION_NOTES.md` §15）。
 
 以下はstdio（ローカル実行）の説明。
 
@@ -32,8 +33,8 @@ bun install
 
 | 変数 | 必須 | 説明 |
 |---|---|---|
-| `AITAPP_ID` | ○ | 大学ポータル(LCAM)のログインID |
-| `AITAPP_PASSWORD` | ○ | 大学ポータル(LCAM)のログインパスワード |
+| `AITAPP_ID` | ○ | 大学ポータルのログインID（`worker/` への Moodle ログインに使う。LCAM は別途 `lamyapp://` の key で登録する） |
+| `AITAPP_PASSWORD` | ○ | 大学ポータルのログインパスワード（Moodle 認証用。LCAM には使わない） |
 | `AITAPP_WORKER_URL` | - | `worker/` のベースURL。既定値 `http://localhost:8787` |
 | `AITAPP_APP_ORIGIN` | - | `worker/` の `APP_ORIGIN` と一致させるOrigin値。既定値 `http://localhost:5173` |
 | `AITAPP_MOODLE_ORIGIN` | - | Moodle接続先ホスト名（例 `cms.aitech.ac.jp`）。未設定ならMoodle系ツールは使えない |
@@ -89,7 +90,7 @@ Moodleへの認証は、ログイン時に一度だけID/パスワードで `log
 | `lcam_list_notices` | `GET /api/notices` |
 | `lcam_get_notice_detail` | `GET /api/notices/detail` |
 | `lcam_download_notice_attachment` | `GET /api/file/:id`（連絡の添付ファイルのみ対応） |
-| `lcam_set_session` | `POST /api/lcam/session`（LCAM の Cookie を登録。MFA のため必要。値は会話でユーザーが渡したものだけ） |
+| `lcam_set_session` | `POST /api/lcam/session`（LCAM を登録。`appKey`（`lamyapp://` の URL または key。推奨）か `cookies` のどちらか一方。MFA のため初回に必要。値は会話でユーザーが渡したものだけ） |
 | `lcam_get_timetable` | `GET /api/timetable` |
 | `lcam_get_grades` | `GET /api/performance` |
 | `lcam_list_enquetes` | `GET /api/enquetes` |
@@ -145,3 +146,7 @@ LLM（あるいは上流データに紛れたプロンプトインジェクシ�
   直列化・keep-alive・自動復旧は行わない（`worker/`側の再ログイン方針と同じ）。
 - MFA導入等でログイン自体が失敗するようになった場合は、エラーが返るだけで
   自動では回復しない。
+- LCAM は、この MCP ではなく `worker/` が再ログインする。登録済みの資格情報があれば、失効を検知した時点で
+  Worker が自動で再ログインして同じ操作を1回だけ再試行する。資格情報が無い・拒否された場合は HTTP 424
+  （`reauth_required`）が返るので、`lcam_set_session` か Web 画面で再登録する。LCAM は単一セッションのため、
+  再ログインすると PC 版ブラウザや公式アプリの LCAM は切れる。
