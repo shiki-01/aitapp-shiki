@@ -75,7 +75,7 @@ import {
 import { classifyUpstreamService } from './upstream/service';
 import { handleMcpRequest } from './mcp/handler';
 import { mintUserMcpToken } from './mcp/token';
-import { log } from './log';
+import { log, redactPath } from './log';
 
 type Variables = { userId: string; state: UserState; correlationId: string };
 
@@ -1162,7 +1162,7 @@ app.onError((err, c) => {
   // 診断用の詳細はサーバーログにのみ残す（client には返さない）。
   log('error', correlationId, 'request failed', {
     method: c.req.method,
-    path,
+    path: redactPath(path),
     upstreamService,
     errorName: err.name,
     detail: err.message,

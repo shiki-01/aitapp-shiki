@@ -12,6 +12,19 @@ export const UPSTREAM_TIMEOUT_MS = 15_000;
 export const UPSTREAM_FILE_TIMEOUT_MS = 60_000;
 
 /**
+ * エラー文・ログに出す接続先の表記。クエリは除く（Moodle のファイル取得は URL に
+ * `token=` を付けるため、そのまま出すと認証用の値がログに残る）。
+ */
+function describeTarget(input: string | URL | Request): string {
+  try {
+    const u = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return '[invalid url]';
+  }
+}
+
+/**
  * fetch に AbortSignal.timeout を付与する共通ラッパ。
  * タイムアウト/中断時は UpstreamError を投げる（失効判定と分離するため）。
  * ストリーム proxy 用途では body 読み切りまで signal が生きるため、
@@ -26,7 +39,7 @@ export async function fetchUpstream(
     return await fetch(input, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
     if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
-      throw new UpstreamError(`upstream timeout (${timeoutMs}ms): ${input.toString()}`);
+      throw new UpstreamError(`upstream timeout (${timeoutMs}ms): ${describeTarget(input)}`);
     }
     throw e;
   }
