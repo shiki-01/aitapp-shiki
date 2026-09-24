@@ -8,7 +8,21 @@ export class LcamExpiredError extends Error {
   }
 }
 
-/** 透過再ログインを試みても回復できなかったときに投げる（手動修正前提）。 */
+/**
+ * LCAM の Cookie が未登録、または失効していて、ユーザー本人による再ログイン＋再登録が
+ * 必要なときに投げる。LCAM は MFA（Entra SSO）のため Worker からは自動で再ログインできない。
+ */
+export type LcamReauthReason = 'not_registered' | 'expired';
+export class LcamReauthRequiredError extends Error {
+  readonly reason: LcamReauthReason;
+  constructor(reason: LcamReauthReason) {
+    super(`LCAM reauth required: ${reason}`);
+    this.name = 'LcamReauthRequiredError';
+    this.reason = reason;
+  }
+}
+
+/** Moodle token の再取得でも回復できなかったときに投げる（手動修正前提）。 */
 export class AuthFailedError extends Error {
   constructor(message = 'authentication failed') {
     super(message);

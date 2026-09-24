@@ -21,7 +21,7 @@ export interface Env {
    * それぞれ独自の認証を持つため対象外（Tauri/MCP クライアントを壊さない）。
    */
   WEB_BASIC_AUTH?: string;
-  /** /api/schedule の reload ループ回数。 */
+  /** （廃止）/api/schedule は未対応になったため未使用。MIGRATION_NOTES §14。 */
   SCHEDULE_WEEKS?: string;
   /** ローカル開発時に Moodle 接続先を強制的に上書きする（`.dev.vars` 専用、本番では未設定）。 */
   MOODLE_ORIGIN_OVERRIDE?: string;
@@ -66,10 +66,30 @@ export interface Encrypted {
   ciphertext: string;
 }
 
-/** LCAM 上流セッション Cookie。 */
+/**
+ * LCAM 上流セッション Cookie。値はいずれも `NAME=value` 形式（Cookie ヘッダにそのまま連結する）。
+ * ユーザーがブラウザで SSO（MFA）ログインして取得し、Worker に登録したもの。
+ */
 export interface LcamCookies {
   jsessionid: string;
   liveApps: string;
+  /**
+   * 追加で必要な Cookie（mod_auth_mellon の `mellon*` のみ許可。要否は実測で確認中）。
+   * Microsoft（Entra）側の Cookie は受け付けない。
+   */
+  extra?: string[];
+}
+
+/**
+ * LCAM セッションの寿命を自然な利用から測るための記録（ms epoch）。
+ * 寿命は [lastOkAt - registeredAt, expiredAt - registeredAt] の範囲に入る。
+ */
+export interface LcamSessionMeta {
+  registeredAt: number;
+  /** 最後にデータ取得へ成功した時刻（KV write 節約のため間引いて更新する）。 */
+  lastOkAt?: number;
+  /** 失効を検知した時刻。設定されていれば lcamCookies は null に落としてある。 */
+  expiredAt?: number;
 }
 
 /**
@@ -77,8 +97,10 @@ export interface LcamCookies {
  * 1 read で全状態を取得する。credential 部分は暗号文のみ。
  */
 export interface UserState {
-  /** LCAM 上流 Cookie。未ログイン/未取得なら null。 */
+  /** LCAM 上流 Cookie。未登録/失効検知後は null。 */
   lcamCookies: LcamCookies | null;
+  /** LCAM セッションの登録・失効の記録。旧 state には存在しないため optional。 */
+  lcamSession?: LcamSessionMeta | null;
   /** Moodle token（長命・password 非依存）。 */
   moodleToken: string | null;
   /** 認証情報（AES-GCM 暗号文）。 */

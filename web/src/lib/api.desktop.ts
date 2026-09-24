@@ -71,6 +71,12 @@ export const desktopApi: ApiClient = {
   async mcpWritesSet(allow) {
     return call('/api/auth/mcp-writes', 'POST', { allow });
   },
+  async lcamSession() {
+    return call('/api/lcam/session');
+  },
+  async lcamSessionSet(cookies) {
+    return call('/api/lcam/session', 'POST', { cookies });
+  },
   async notices(type, count = 10) {
     return call(`/api/notices${qs({ type, count })}`);
   },

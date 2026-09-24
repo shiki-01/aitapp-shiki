@@ -13,16 +13,15 @@ import {
   readSessionCookie,
 } from './session/cookie';
 import { readState, writeState, deleteState } from './store/kv';
-import { getCookie, loginLcam, configureLcamRelay } from './upstream/lcam/access';
-import { parseHtml } from './html/parser';
-import { isLoginSuccess } from './upstream/lcam/detect';
-import { withLcamRelogin } from './upstream/relogin';
+import { configureLcamRelay } from './upstream/lcam/access';
+import { parseLcamCookies } from './upstream/lcam/cookies';
+import { withLcamSession } from './upstream/lcam/session';
 import {
   fetchNotices,
   fetchNoticeDetail,
   fetchTimetable,
+  probeSpSession,
   fetchFile,
-  fetchSchedule,
   fetchPerformance,
   fetchEnqueteList,
   fetchEnqueteQuestions,
@@ -66,6 +65,8 @@ import {
 } from './upstream/syllabus/parse';
 import {
   AuthFailedError,
+  LcamExpiredError,
+  LcamReauthRequiredError,
   MoodleTokenError,
   NotFoundError,
   UpstreamError,
@@ -123,6 +124,23 @@ const CONFIRM_REQUIRED_MESSAGE =
   'out-of-band の確認値が未設定または不一致です。worker の CONFIRM_SECRET と ' +
   'MCP ホストの AITAPP_CONFIRM_SECRET（/mcp 実行時は worker の CONFIRM_SECRET）を同一値に設定してください。';
 
+// ---- LCAM セッション（Entra SSO + MFA）の再登録案内 ----
+// LCAM は MFA のため Worker からは自動で再ログインできない。本人がブラウザでログインして
+// Cookie を登録し直す手順を、MCP・Web の両方へ固定文言で返す（上流本文は含めない）。
+const LCAM_REAUTH_STEPS =
+  '手順: ①PC のブラウザで https://lcam.aitech.ac.jp/portalv2/ にログイン（MFA 込み。/portalv2/sp はアプリ連携用で Cookie が発行されない）→ ' +
+  '②DevTools の Cookie で lcam.aitech.ac.jp の JSESSIONID と LiveApps-Cookie をコピー' +
+  '（ログアウトはしない。ログアウトするとセッションが無効になります）→ ' +
+  '③Web 画面（その他 → LCAM 連携）またはチャットの lcam_set_session ツールで登録。';
+const LCAM_REAUTH_MESSAGE: Record<'not_registered' | 'expired', string> = {
+  not_registered: `LCAM のセッションが未登録です。${LCAM_REAUTH_STEPS}`,
+  expired: `LCAM のセッションが失効しています（再ログインと再登録が必要です）。${LCAM_REAUTH_STEPS}`,
+};
+const LCAM_COOKIE_REJECTED_MESSAGE =
+  'この Cookie では LCAM に入れませんでした。値の貼り間違い・古い Cookie・ログアウト済み・' +
+  'ログインしたセッションが SP 画面で認められない（PC 画面ログインの場合。要確認）・mellon 系 Cookie の不足のいずれかの可能性があります。' +
+  'ログイン直後に、ログアウトせずコピーし直してください。';
+
 // ---- 認証ミドルウェア（auth 配下以外の /api を保護） ----
 app.use('/api/*', async (c, next) => {
   const path = new URL(c.req.url).pathname;
@@ -155,7 +173,7 @@ app.use('/api/*', async (c, next) => {
   //   - 初回呼び出し時に /api/auth/login を経由せず state を確立する（KV の negative cache
   //     による write 直後の read miss にも影響されない）
   //   - LCAM が Worker の egress IP を拒否する環境でも、Moodle/シラバス系は動かせる
-  //     （lcamCookies は null のままにし、必要になった時点で withLcamRelogin が試行する）
+  //     （lcamCookies は null のままにし、必要になった時点で withLcamSession が「未登録」エラーを返す）
   //   - シークレット変更が即時反映される（credential は常に env から再構成）
   const internal =
     Boolean(c.env.MCP_TOKEN) && c.req.header('X-Aitapp-Internal') === c.env.MCP_TOKEN;
@@ -247,25 +265,21 @@ app.post('/api/auth/login', async (c) => {
   const moodlePassword = (bodyIn.moodlePassword ?? '').trim();
   const hasMoodleCred = Boolean(moodleId && moodlePassword);
 
-  // LCAM(SP) ログインで認証情報を検証しつつ上流 Cookie を確立する。
-  const initial = await getCookie();
-  const { body: loginBody, cookies } = await loginLcam(id, password, initial);
-  if (!isLoginSuccess(parseHtml(loginBody))) {
-    return c.json({ error: 'invalid credentials' }, 401);
-  }
-
-  // Moodle token を取得（moodleOrigin 未設定 or 失敗しても LCAM ログインは成立させる）。
-  let moodleToken: string | null = null;
-  if (moodleOrigin) {
-    try {
-      moodleToken = await getMoodleToken(
-        moodleOrigin,
-        hasMoodleCred ? moodleId : id,
-        hasMoodleCred ? moodlePassword : password,
-      );
-    } catch {
-      moodleToken = null;
+  // 認証情報は Moodle のローカル認証（login/token.php）で検証し、token を確立する。
+  // LCAM は Entra ID の SSO + MFA に移行したため、パスワードでのログイン検証はできない
+  // （LCAM の Cookie は POST /api/lcam/session で別途登録する。MIGRATION_NOTES §14）。
+  let moodleToken: string;
+  try {
+    moodleToken = await getMoodleToken(
+      moodleOrigin,
+      hasMoodleCred ? moodleId : id,
+      hasMoodleCred ? moodlePassword : password,
+    );
+  } catch (e) {
+    if (e instanceof UpstreamError && e.upstreamCode === 'invalidlogin') {
+      return c.json({ error: 'invalid credentials' }, 401);
     }
+    throw e;
   }
 
   // credential を即暗号化して保存。平文は browser に返さない。
@@ -275,11 +289,12 @@ app.post('/api/auth/login', async (c) => {
     moodleOrigin,
     ...(hasMoodleCred ? { moodleId, moodlePassword } : {}),
   });
-  // 再ログイン（新端末・cookie 失効後など）で発行済みのユーザー別 MCP トークンを
-  // 失効させないよう、既存 state の mcpTokenHash だけ引き継ぐ。
+  // 再ログイン（新端末・cookie 失効後など）で、発行済みのユーザー別 MCP トークンと、
+  // 登録済みの LCAM Cookie（ログインでは再取得できない）を失わないよう既存 state から引き継ぐ。
   const prev = await readState(c.env, id);
   const state: UserState = {
-    lcamCookies: cookies,
+    lcamCookies: prev?.lcamCookies ?? null,
+    lcamSession: prev?.lcamSession ?? null,
     moodleToken,
     credential,
     mcpTokenHash: prev?.mcpTokenHash ?? null,
@@ -292,7 +307,7 @@ app.post('/api/auth/login', async (c) => {
     iat: Date.now(),
   });
   c.header('Set-Cookie', buildSessionCookie(session));
-  return c.json({ ok: true, userId: id, moodle: moodleToken !== null });
+  return c.json({ ok: true, userId: id, moodle: true, lcam: state.lcamCookies !== null });
 });
 
 // ---- POST /api/auth/logout ----
@@ -385,6 +400,66 @@ app.post('/api/auth/mcp-writes', async (c) => {
   return c.json({ ok: true, allow });
 });
 
+// ---- GET /api/lcam/session（LCAM セッションの登録状況。値は返さない） ----
+// registeredAt / lastOkAt / expiredAt から、セッション寿命を自然な利用で測れる
+// （寿命は [lastOkAt - registeredAt, expiredAt - registeredAt] の範囲）。
+app.get('/api/lcam/session', async (c) => {
+  const state = c.get('state');
+  const meta = state.lcamSession;
+  return c.json({
+    registered: state.lcamCookies !== null,
+    registeredAt: meta?.registeredAt || null,
+    lastOkAt: meta?.lastOkAt ?? null,
+    expiredAt: meta?.expiredAt ?? null,
+  });
+});
+
+// ---- POST /api/lcam/session（LCAM の Cookie を登録） ----
+// ユーザーがブラウザで LCAM に SSO（MFA 込み）ログインして取得した Cookie
+// （JSESSIONID / LiveApps-Cookie、必要なら mellon*）を登録する。値は SP 画面へ 1 回だけ
+// アクセスして有効性を確認してから保存する（無効な Cookie で既存の登録を上書きしない）。
+// Microsoft 側の Cookie は受け付けない（cookies.ts）。
+app.post('/api/lcam/session', async (c) => {
+  if (!checkOrigin(c)) return c.json({ error: 'bad origin' }, 403);
+  let bodyIn: { cookies?: unknown };
+  try {
+    bodyIn = await c.req.json();
+  } catch {
+    return c.json({ error: 'invalid body' }, 400);
+  }
+  if (typeof bodyIn.cookies !== 'string' || bodyIn.cookies.length === 0 || bodyIn.cookies.length > 4096) {
+    return c.json({ error: 'invalid_cookies', message: 'cookies（文字列）が必要です' }, 400);
+  }
+  const parsed = parseLcamCookies(bodyIn.cookies);
+  if (!parsed.ok) {
+    return c.json({ error: 'invalid_cookies', message: parsed.error }, 400);
+  }
+  try {
+    await probeSpSession(parsed.cookies);
+  } catch (e) {
+    if (e instanceof LcamExpiredError) {
+      return c.json(
+        {
+          error: 'lcam_session_rejected',
+          message: LCAM_COOKIE_REJECTED_MESSAGE,
+          correlationId: c.get('correlationId'),
+        },
+        422,
+      );
+    }
+    throw e;
+  }
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const now = Date.now();
+  await writeState(c.env, userId, {
+    ...state,
+    lcamCookies: parsed.cookies,
+    lcamSession: { registeredAt: now, lastOkAt: now },
+  });
+  return c.json({ ok: true, registeredAt: now });
+});
+
 // ---- GET /api/notices?type=common|class&count=10 ----
 // count は累積表示件数（上流 listPageNo）。上流は先頭から count 件を返し、
 // index は全件通しの 0..N-1。ページ番号方式ではないため append しない。
@@ -396,7 +471,7 @@ app.get('/api/notices', async (c) => {
   // 「本当に0件」と「構造破壊」の分離はパーサ側で行う。
   // 0件はコンテナが在れば [] で返り、コンテナ欠落（構造変化）は UpstreamError(502) として
   // ここでは握り潰さず伝播させる（silent [] にしない）。
-  const notices = await withLcamRelogin(c.env, userId, state, (cookies) =>
+  const notices = await withLcamSession(c.env, userId, state, (cookies) =>
     fetchNotices(cookies, isCommon, count),
   );
   return c.json({ notices });
@@ -409,7 +484,7 @@ app.get('/api/notices/detail', async (c) => {
   if (Number.isNaN(index)) return c.json({ error: 'index required' }, 400);
   const userId = c.get('userId');
   const state = c.get('state');
-  const detail = await withLcamRelogin(c.env, userId, state, (cookies) =>
+  const detail = await withLcamSession(c.env, userId, state, (cookies) =>
     fetchNoticeDetail(cookies, isCommon, index),
   );
   return c.json({ detail });
@@ -419,21 +494,29 @@ app.get('/api/notices/detail', async (c) => {
 app.get('/api/timetable', async (c) => {
   const userId = c.get('userId');
   const state = c.get('state');
-  const timetable = await withLcamRelogin(c.env, userId, state, (cookies) =>
+  const timetable = await withLcamSession(c.env, userId, state, (cookies) =>
     fetchTimetable(cookies),
   );
   return c.json({ timetable });
 });
 
-// ---- GET /api/schedule ----
-app.get('/api/schedule', async (c) => {
-  const state = c.get('state');
-  const weeks = Math.max(1, parseInt(c.env.SCHEDULE_WEEKS ?? '8', 10) || 8);
-  // スケジュールは PC 経路でリクエストごとにフレッシュにログインする。
-  const cred = await decryptCredential(c.env.CRED_KEY, state.credential);
-  const schedule = await fetchSchedule(cred, weeks);
-  return c.json({ schedule });
-});
+// ---- GET /api/schedule（未対応） ----
+// 予定（休講・補講等）は LCAM の PC 画面が必要。Cookie 登録方式では取得できないため
+// LCAM へはアクセスせず 501 を返す。実測: PC 画面（common/generalPurpose/）へ直接 GET すると
+// 「不正な操作が行われました」となり、登録済みセッション自体が破棄される
+// （MIGRATION_NOTES §14.4）。誤って呼んで SP 系まで使えなくならないよう、PC 画面には触れない。
+app.get('/api/schedule', (c) =>
+  c.json(
+    {
+      error: 'not_supported',
+      message:
+        '予定（休講・補講等）は現在取得できません。LCAM の PC 画面が必要で、ログイン済み Cookie を' +
+        '登録する方式では取得できないためです。時間割・連絡・成績・アンケートは利用できます。',
+      correlationId: c.get('correlationId'),
+    },
+    501,
+  ),
+);
 
 // ---- GET /api/performance（成績情報） ----
 app.get('/api/performance', async (c) => {
@@ -441,7 +524,7 @@ app.get('/api/performance', async (c) => {
   const state = c.get('state');
   // 成績セル欠落（構造変化）はパーサ側で UpstreamError(502) を投げる。
   // ログイン済みの成績ページは常に科目を含むため silent [] にはしない。
-  const performance = await withLcamRelogin(c.env, userId, state, (cookies) =>
+  const performance = await withLcamSession(c.env, userId, state, (cookies) =>
     fetchPerformance(cookies),
   );
   return c.json({ performance });
@@ -455,7 +538,7 @@ app.get('/api/enquetes', async (c) => {
   }
   const userId = c.get('userId');
   const state = c.get('state');
-  const list = await withLcamRelogin(c.env, userId, state, (cookies) =>
+  const list = await withLcamSession(c.env, userId, state, (cookies) =>
     fetchEnqueteList(cookies, type),
   );
   return c.json(list);
@@ -467,7 +550,7 @@ app.get('/api/enquetes/questions', async (c) => {
   if (Number.isNaN(index)) return c.json({ error: 'index required' }, 400);
   const userId = c.get('userId');
   const state = c.get('state');
-  const form = await withLcamRelogin(c.env, userId, state, (cookies) =>
+  const form = await withLcamSession(c.env, userId, state, (cookies) =>
     fetchEnqueteQuestions(cookies, index),
   );
   return c.json(form);
@@ -510,7 +593,7 @@ app.post('/api/enquetes/answer', async (c) => {
 
   const userId = c.get('userId');
   const state = c.get('state');
-  const result = await withLcamRelogin(c.env, userId, state, (cookies) =>
+  const result = await withLcamSession(c.env, userId, state, (cookies) =>
     submitEnqueteAnswer(cookies, parsed.index, parsed.answers),
   );
   return c.json(result);
@@ -535,7 +618,7 @@ app.post('/api/enquetes/submit', async (c) => {
 
   const userId = c.get('userId');
   const state = c.get('state');
-  const result = await withLcamRelogin(c.env, userId, state, (cookies) =>
+  const result = await withLcamSession(c.env, userId, state, (cookies) =>
     finalizeEnqueteAnswer(cookies, parsed.index, parsed.answers),
   );
   return c.json(result);
@@ -1003,7 +1086,7 @@ app.get('/api/file/:id', async (c) => {
 
   const userId = c.get('userId');
   const state = c.get('state');
-  const upstream = await withLcamRelogin(c.env, userId, state, (cookies) =>
+  const upstream = await withLcamSession(c.env, userId, state, (cookies) =>
     fetchFile(cookies, path),
   );
   // Response body をそのまま pipe（バッファリングしない）。
@@ -1086,6 +1169,20 @@ app.onError((err, c) => {
     stack: err.stack,
   });
   // 既知の型付きエラーは stable な code / status を維持しつつ、メッセージは汎用化する。
+  // LCAM の再登録要求は Web の「401 → /login 誘導」やクライアントの「401 → 再ログイン」を
+  // 起動させないよう 424 で返す（アプリのセッションは有効で、LCAM 上流だけが要再登録）。
+  if (err instanceof LcamReauthRequiredError) {
+    return c.json(
+      {
+        error: 'reauth_required',
+        target: 'lcam',
+        reason: err.reason,
+        message: LCAM_REAUTH_MESSAGE[err.reason],
+        correlationId,
+      },
+      424,
+    );
+  }
   if (err instanceof AuthFailedError) {
     return c.json({ error: 'reauth_required', message: '再ログインが必要です', correlationId }, 401);
   }

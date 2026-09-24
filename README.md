@@ -19,8 +19,9 @@ vendor/aitapp  移植元 Dart 実装（git submodule）
 ```
 
 - proxy が認証情報を AES-GCM で暗号化し Workers KV に保存する。
-- 上流セッション失効を検知したら保存済み認証情報で透過再ログインし、同一リクエストを
-  1 回だけリトライする。
+- Moodle は token 方式で、失効したら保存済み認証情報で再取得して 1 回だけリトライする。
+- LCAM は Entra ID の多要素認証（SSO）のため、Worker は自動ログインできない。ユーザーが
+  ブラウザでログインして取得した Cookie を登録して使う（下記「LCAM 連携」）。
 - ブラウザへ渡るのは HttpOnly な署名付き session cookie のみ。認証情報は渡さない。
 
 詳細なアーキテクチャは `REQUIREMENTS.md` 第5節を参照。
@@ -125,9 +126,29 @@ bunx wrangler deploy   # 本番へ
 
 > **【重要な制約】LCAM は Cloudflare の egress IP を拒否する**: デプロイした worker からの
 > `lcam.aitech.ac.jp` へのアクセスは WAF（Zenedge）に拒否され、常に 500 になる
-> （Moodle・シラバスは正常）。そのため**デプロイ版では LCAM 系機能と
-> `/api/auth/login`（LCAM 検証を含む）が動かない**。LCAM を含む全機能を使う場合は
-> ローカル実行（`wrangler dev`）を使う。詳細は `MIGRATION_NOTES.md` §13.1。
+> （Moodle・シラバスは正常）。本番では LCAM 宛のみ非 Cloudflare の relay を経由する
+> （`LCAM_RELAY_URL`。`MIGRATION_NOTES.md` §13.1 / §13.4）。ローカル実行（`wrangler dev`）は直続。
+
+## LCAM 連携（多要素認証への対応）
+
+LCAM は 2026-09 から Entra ID の SSO + 多要素認証になり、ID/パスワードの直接ログインは
+拒否される。`/api/auth/login` は **Moodle の認証のみ**で通り、LCAM は Cookie を別途登録する
+（詳細・未確定事項は `MIGRATION_NOTES.md` §14）。
+
+1. PC のブラウザで `https://lcam.aitech.ac.jp/portalv2/` にログイン（MFA 込み）。`/portalv2/sp` の SSO は
+   アプリ連携（`lamyapp://` へ引き渡し）でブラウザに Cookie が発行されないため使わない。
+2. DevTools（Application → Cookies → `lcam.aitech.ac.jp`）で `JSESSIONID` と `LiveApps-Cookie` をコピー。
+   **ログアウトしない**（ログアウトするとセッションが無効になる。タブを閉じるだけにする）。
+3. Web 画面「その他 → LCAM 連携」に `JSESSIONID=…; LiveApps-Cookie=…` を貼り付けて登録。
+   またはチャットで MCP ツール `lcam_set_session` に渡す（Cookie がチャット履歴に残るため、
+   Web 画面のほうを推奨）。
+
+- 登録時に LCAM へ 1 回アクセスして有効性を確認し、無効なら保存しない。
+- 失効を検知すると（`lcam_*` / `/api/*` が HTTP 424・`reauth_required`・`target: lcam`）、
+  Cookie を破棄して再登録の手順を返す。Worker はパスワードや MFA の自動化・再ログインをしない。
+- `GET /api/lcam/session` で登録時刻・最終成功時刻・失効検知時刻を確認できる（Cookie の値は返さない）。
+- 最小 Cookie の実測: `cd worker && LCAM_COOKIES='JSESSIONID=…; LiveApps-Cookie=…' bun run scripts/lcam-cookie-probe.ts`
+  （SP 時間割への GET のみ・最大 4 リクエスト）。**PC 画面へ GET で直接アクセスしないこと**（セッションが破棄される）。
 
 ### 上流エラー（相関ID）の調査手順
 
@@ -158,7 +179,7 @@ Claude Code 等からクラウド経由でツールを使える（ローカル�
 
 ### ユーザー別トークン（自己発行・マルチユーザー）
 
-各ユーザーは自分の LCAM 資格情報で Web アプリにログインし、自分専用の
+各ユーザーは自分の愛工大 ID（Moodle 認証）で Web アプリにログインし、自分専用の
 `/mcp/<token>` URL を自己発行する（`POST /api/auth/mcp-token`）。worker 管理者が
 ユーザーごとに設定する項目はない。
 
@@ -356,13 +377,15 @@ Claude Codeの `.mcp.json` に登録して使う。認証情報・上流ロジ�
 
 | メソッド | パス | 内容 |
 |----------|------|------|
-| POST | `/api/auth/login` | id/password → 上流ログイン検証 → credential 暗号化保存 → session cookie 発行 |
+| POST | `/api/auth/login` | id/password → Moodle 認証で検証 → credential 暗号化保存 → session cookie 発行（LCAM は対象外） |
+| GET | `/api/lcam/session` | LCAM セッションの登録状況（登録/最終成功/失効の時刻） |
+| POST | `/api/lcam/session` | LCAM の Cookie を登録（`{ cookies }`。有効性を確認してから保存） |
 | POST | `/api/auth/logout` | session cookie 破棄 |
 | GET | `/api/auth/me` | ログイン中の userId |
-| GET | `/api/notices?type=common\|class&page=1` | LCAM 連絡（透過再ログイン） |
+| GET | `/api/notices?type=common\|class&count=10` | LCAM 連絡（登録済み Cookie。失効時は 424） |
 | GET | `/api/notices/detail?type=&index=` | 連絡詳細 |
 | GET | `/api/timetable` | LCAM 時間割（SP） |
-| GET | `/api/schedule` | LCAM スケジュール（PC 経路） |
+| GET | `/api/schedule` | 未対応（501）。予定は LCAM の PC 画面が必要で、Cookie 登録方式では取得できない（PC 画面への直接アクセスはセッションを破棄する） |
 | GET | `/api/assignments` | Moodle 課題（token 経由） |
 | GET | `/api/syllabus/filters?year=` | シラバス検索フィルタ |
 | GET | `/api/syllabus/search?year=&word=&campus=&semester=&week=&hour=&folder=` | シラバス検索 |
@@ -385,7 +408,8 @@ cd web && bun run build                                   # 本番ビルド
 
 - Cloudflare 有料機能（Durable Objects 等）は不使用。状態は Workers KV。
 - 並行再ログインの直列化・即時失効・keep-alive・自動復旧は実装しない（要件 §11）。
-- MFA 導入時は透過再ログインが破綻する。検知してエラーを返すのみ（回復は手動）。
+- LCAM は MFA のため自動再ログインしない。失効を検知してエラー（424）を返すのみ（回復は
+  ユーザーによる再ログイン＋Cookie 再登録）。MFA/番号入力の自動化・回避策は作らない。
 - 上流 HTML 構造は非公式かつ変動し得る。壊れたら手動修正する運用。
 
 ## 注意

@@ -1,11 +1,11 @@
 // LCAM の高レベル操作。move元: get_lcam_data.dart のフロー。
 // 各 op は失効を検知したら LcamExpiredError を投げ、relogin ラッパに委ねる。
 
-import type { LcamCookies, Credential } from '../../types';
+import type { LcamCookies } from '../../types';
 import { parseHtml } from '../../html/parser';
 import { extractStrutsToken, extractStrutsTokenByForm } from './csrf';
 import { looksLikeLoginPage } from './detect';
-import { LcamExpiredError, UpstreamError, ValidationError } from '../errors';
+import { LcamExpiredError, ValidationError } from '../errors';
 import {
   getStrutsTokenBody,
   getNoticeBody,
@@ -13,11 +13,6 @@ import {
   getNoticeDetailBody,
   getClassTimeTableBody,
   getFile,
-  pcGetCookie,
-  preAccess,
-  initLogin,
-  reload,
-  getScheduleNext,
   getPerformanceBody,
   getEnqueteBody,
   getEnqueteDetailBody,
@@ -33,7 +28,6 @@ import {
   parseUnivNoticeDetail,
   parseClassNoticeDetail,
   parseClassTimeTable,
-  parseSchedule,
   parsePerformance,
   parseEnqueteList,
   parseEnqueteAnswerForm,
@@ -42,7 +36,6 @@ import {
   type ClassNotice,
   type NoticeDetail,
   type TimetableEntry,
-  type ScheduleDay,
   type PerformanceEntry,
   type EnqueteList,
   type EnqueteAnswerForm,
@@ -132,6 +125,16 @@ export async function fetchTimetable(
   const body = await getClassTimeTableBody(cookies);
   assertSpSessionAlive(body); // stub（セッション喪失）なら再ログインへ
   return parseClassTimeTable(body);
+}
+
+/**
+ * 登録された Cookie が SP 画面で有効かを 1 回の GET で確認する（Cookie 登録時の検証用）。
+ * 無効なら LcamExpiredError。
+ */
+export async function probeSpSession(cookies: LcamCookies): Promise<void> {
+  const body = await getClassTimeTableBody(cookies);
+  assertNotExpired(body);
+  assertSpSessionAlive(body);
 }
 
 /** ファイル取得。content-type が text/html ならログイン画面=失効とみなす。 */
@@ -309,46 +312,4 @@ export async function finalizeEnqueteAnswer(
     confirmForm.backPath,
   );
   return { ok: looksLikeSuccess(finalBody) };
-}
-
-/**
- * スケジュール（PC 経路・ステートレス）。リクエストごとに PC ログインし、
- * reload を weeks 回まわして週送りしながら集計する。
- * 透過再ログインのラップ対象外（毎回フレッシュにログインするため）。
- */
-export async function fetchSchedule(
-  cred: Credential,
-  weeks: number,
-): Promise<ScheduleDay[]> {
-  let cookies = await pcGetCookie();
-  const newJsession = await preAccess(cookies);
-  cookies = { jsessionid: newJsession, liveApps: cookies.liveApps };
-
-  const loginBody = await initLogin(cred.id, cred.password, cookies);
-  let token = extractStrutsToken(parseHtml(loginBody));
-  if (token == null) {
-    throw new UpstreamError('PC login failed (token not found)');
-  }
-
-  const days: ScheduleDay[] = [];
-  const seen = new Set<string>();
-  for (let i = 0; i < weeks; i++) {
-    const body = await reload(cookies, token);
-    token = extractStrutsToken(parseHtml(body)) ?? token;
-    let part: ScheduleDay[] = [];
-    try {
-      part = parseSchedule(body);
-    } catch {
-      break; // カレンダーが取れなくなったら終了
-    }
-    for (const d of part) {
-      if (!seen.has(d.date)) {
-        seen.add(d.date);
-        days.push(d);
-      }
-    }
-    await getScheduleNext(cookies); // 次週へ送る
-  }
-  days.sort((a, b) => a.date.localeCompare(b.date));
-  return days;
 }

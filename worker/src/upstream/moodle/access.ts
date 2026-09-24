@@ -137,7 +137,7 @@ export async function getMoodleToken(
     'token',
   );
   if (data.error) {
-    throw new UpstreamError(`Moodle token error: ${data.error}`);
+    throw new UpstreamError(`Moodle token error: ${data.error}`, data.errorcode);
   }
   if (!data.token) {
     throw new UpstreamError('Moodle token error: token missing');

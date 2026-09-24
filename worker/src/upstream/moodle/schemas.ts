@@ -23,6 +23,7 @@ export function parseMoodleResponse<T>(schema: z.ZodType<T>, data: unknown, wsfu
 export const TokenResponseSchema = z.object({
   token: z.string().optional(),
   error: z.string().optional(),
+  errorcode: z.string().optional(),
 });
 
 // --- サイト情報 / コース一覧 ---------------------------------------------

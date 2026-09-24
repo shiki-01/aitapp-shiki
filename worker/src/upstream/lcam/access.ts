@@ -2,7 +2,8 @@
 // Cookie / Origin / Referer / Sec-Fetch-* はすべてここ（Worker fetch）で付与する。
 // URL・body フィールドは Dart 実装由来（推測補完なし）。
 
-import { UpstreamError } from '../errors';
+import { LcamExpiredError, UpstreamError } from '../errors';
+import { isSsoRedirect } from './detect';
 import { fetchUpstream, UPSTREAM_FILE_TIMEOUT_MS } from '../fetch';
 import type { Env, LcamCookies } from '../../types';
 
@@ -68,126 +69,82 @@ const contentTypeHeader: Record<string, string> = {
   'Content-Type': 'application/x-www-form-urlencoded',
 };
 
-/** Cookie ヘッダ値（Dart Cookies.toString() 相当: `JSESSIONID; LiveApps-Cookie`）。 */
+/** Cookie ヘッダ値（Dart Cookies.toString() 相当: `JSESSIONID; LiveApps-Cookie`＋任意の追加 Cookie）。 */
 export function cookieHeader(c: LcamCookies): string {
-  return `${c.jsessionid}; ${c.liveApps}`;
+  return [c.jsessionid, c.liveApps, ...(c.extra ?? [])].filter(Boolean).join('; ');
 }
 
 function formBody(data: Record<string, string>): string {
   return new URLSearchParams(data).toString();
 }
 
-/** Dart httpAccess 相当。200 以外は例外。 */
+/** 同一オリジン内リダイレクトの追従上限。 */
+const MAX_REDIRECTS = 3;
+
+/**
+ * 3xx の Location を解決する。SSO（mellon / Entra）への誘導ならセッション失効として
+ * LcamExpiredError、LCAM 以外のホストへは追従せず UpstreamError（Cookie を他ホストへ送らない）。
+ * 戻り値は追従先の絶対 URL。
+ */
+export function resolveRedirect(location: string, from: string): string {
+  if (isSsoRedirect(location)) {
+    throw new LcamExpiredError('LCAM redirected to SSO login');
+  }
+  let next: URL;
+  try {
+    next = new URL(location, from);
+  } catch {
+    throw new UpstreamError('LCAM redirect: invalid Location');
+  }
+  if (next.protocol !== 'https:' || next.hostname !== LCAM_ORIGIN) {
+    throw new UpstreamError(`LCAM redirect to unexpected host: ${next.hostname}`);
+  }
+  return next.toString();
+}
+
+/**
+ * Dart httpAccess 相当。200 以外は例外。
+ * リダイレクトは自前で追従する（redirect: 'manual'）。自動追従だと、SSO 誘導が
+ * Entra（別オリジン）まで辿られ、Cookie ヘッダが他ホストへ送られ得るため。
+ * SSO への 303 は要件 §8 の「リダイレクト先での失効判定」として LcamExpiredError にする。
+ */
 async function httpAccess(
   url: string,
   headers: Record<string, string>,
   body?: Record<string, string>,
 ): Promise<Response> {
-  // Dart の http パッケージはリダイレクトを自動追従し、失効時はログイン HTML(200)
-  // を受け取って DOM 判定する。これに合わせ追従させる（要件 §8: status 非依存）。
-  const res = await lcamFetch(url, {
-    method: body ? 'POST' : 'GET',
-    headers: { ...headers },
-    body: body ? formBody(body) : undefined,
-  });
-  if (res.status !== 200) {
-    throw new UpstreamError(`LCAM http error: statusCode=${res.status}`);
+  let target = url;
+  let method = body ? 'POST' : 'GET';
+  let payload = body ? formBody(body) : undefined;
+  let hdrs = { ...headers };
+  for (let hop = 0; ; hop++) {
+    const res = await lcamFetch(target, {
+      method,
+      headers: hdrs,
+      body: payload,
+      redirect: 'manual',
+    });
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get('location') ?? '';
+      await res.body?.cancel();
+      target = resolveRedirect(location, target);
+      if (hop >= MAX_REDIRECTS) {
+        throw new UpstreamError('LCAM http error: too many redirects');
+      }
+      if (res.status !== 307 && res.status !== 308) {
+        // 301/302/303 は GET に切り替える（fetch の自動追従と同じ扱い）。
+        method = 'GET';
+        payload = undefined;
+        const { 'Content-Type': _ct, ...rest } = hdrs;
+        hdrs = rest;
+      }
+      continue;
+    }
+    if (res.status !== 200) {
+      throw new UpstreamError(`LCAM http error: statusCode=${res.status}`);
+    }
+    return res;
   }
-  return res;
-}
-
-/**
- * set-cookie 群から JSESSIONID と LiveApps-Cookie を名前一致で取り出す。
- * Dart は位置依存 split をしていたが、Workers の getSetCookie() で配列取得し
- * 名前一致で拾う（堅牢化、挙動同等）。MIGRATION_NOTES §3.1。
- */
-export function extractCookies(res: Response): LcamCookies {
-  const list =
-    (res.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie?.() ??
-    [];
-  let jsessionid = '';
-  let liveApps = '';
-  for (const sc of list) {
-    const first = sc.split(';')[0]; // name=value
-    const lower = first.toLowerCase();
-    if (lower.startsWith('jsessionid=')) jsessionid = first;
-    else if (lower.startsWith('liveapps-cookie=')) liveApps = first;
-  }
-  return { jsessionid, liveApps };
-}
-
-// ---- ログイン（SP 経路） ----
-
-/** GET /portalv2/sp → set-cookie から初期 Cookie 取得。 */
-export async function getCookie(): Promise<LcamCookies> {
-  const res = await httpAccess(`${BASE}/portalv2/sp`, {
-    ...constHeader,
-    ...secFetchHeader,
-  });
-  return extractCookies(res);
-}
-
-/**
- * POST /portalv2/login/login/smartPhoneLogin。
- * 返却 HTML と、ログイン後の Cookie（セッション ID が再生成された場合は新しい値で
- * 上書きしたもの）を返す。Java 系はログイン時に session を rotate することがある。
- */
-export async function loginLcam(
-  id: string,
-  password: string,
-  cookies: LcamCookies,
-): Promise<{ body: string; cookies: LcamCookies }> {
-  const headers = {
-    Origin: BASE,
-    Referer: `${BASE}/portalv2/sp`,
-    Cookie: cookieHeader(cookies),
-    ...constHeader,
-    ...secFetchHeader,
-    ...contentTypeHeader,
-  };
-  const data = {
-    userID: id,
-    password,
-    selectLocale: 'ja',
-    mode: 'sp',
-    userDivision: '2',
-    spFlg: '1',
-    locale: 'ja',
-    spAppFlag: '1',
-    clientLocationUrl: `${BASE}/`,
-  };
-  const res = await httpAccess(
-    `${BASE}/portalv2/login/login/smartPhoneLogin`,
-    headers,
-    data,
-  );
-  const set = extractCookies(res);
-  const merged: LcamCookies = {
-    jsessionid: set.jsessionid || cookies.jsessionid,
-    liveApps: set.liveApps || cookies.liveApps,
-  };
-  return { body: await res.text(), cookies: merged };
-}
-
-/** POST /portalv2/login/login/spAppLogin/ → JSON status で認証情報を検証。 */
-export async function canLoginLcam(
-  id: string,
-  password: string,
-): Promise<boolean> {
-  const headers = {
-    ...constHeader,
-    ...secFetchHeader,
-    ...contentTypeHeader,
-  };
-  // Dart 原文どおりフィールド名は userId（smartPhoneLogin の userID とは別）。
-  const data = { userId: id, password };
-  const res = await httpAccess(
-    `${BASE}/portalv2/login/login/spAppLogin/`,
-    headers,
-    data,
-  );
-  const json = (await res.json()) as { status?: string };
-  return json.status === 'success';
 }
 
 // ---- 連絡（notices） ----
@@ -550,106 +507,17 @@ export async function getFile(
     ...constHeader,
   };
   // ファイルは stream proxy するため、body 読み切りまで時間がかかり得る。タイムアウトを延長。
-  return lcamFetch(`${BASE}${fileUrl}`, { headers }, UPSTREAM_FILE_TIMEOUT_MS);
-}
-
-// ---- スケジュール（PC 経路） ----
-
-/** GET /portalv2/ → set-cookie から初期 Cookie。 */
-export async function pcGetCookie(): Promise<LcamCookies> {
-  const res = await httpAccess(`${BASE}/portalv2/`, {
-    ...constHeader,
-    ...secFetchHeader,
-  });
-  return extractCookies(res);
-}
-
-/** POST preLogin → 新 JSESSIONID（set-cookie）。返り値は JSESSIONID 行。 */
-export async function preAccess(cookies: LcamCookies): Promise<string> {
-  const headers = {
-    Origin: BASE,
-    Referer: `${BASE}/`,
-    Cookie: cookieHeader(cookies),
-    ...constHeader,
-    ...secFetchHeader,
-    ...contentTypeHeader,
-  };
-  const data = { mistakeChecker: '0', clientLocationUrl: `${BASE}/` };
-  const res = await httpAccess(
-    `${BASE}/portalv2/login/preLogin/preLogin`,
-    headers,
-    data,
+  // リダイレクトは追従しない（SSO 誘導＝失効を検知するため。Cookie を他ホストへ送らない）。
+  const res = await lcamFetch(
+    `${BASE}${fileUrl}`,
+    { headers, redirect: 'manual' },
+    UPSTREAM_FILE_TIMEOUT_MS,
   );
-  const extracted = extractCookies(res);
-  return extracted.jsessionid;
-}
-
-/** POST initLogin（PC ログイン）→ 返却 HTML（token 抽出用）。 */
-export async function initLogin(
-  id: string,
-  password: string,
-  cookies: LcamCookies,
-): Promise<string> {
-  const headers = {
-    Origin: BASE,
-    Referer: `${BASE}/portalv2/`,
-    Cookie: cookieHeader(cookies),
-    ...constHeader,
-    ...secFetchHeader,
-    ...contentTypeHeader,
-  };
-  const data = {
-    userID: id,
-    password,
-    selectLocale: 'ja',
-    authenticMethod: '1',
-    mistakeChecker: '0',
-    EXCLUDE_SET: '',
-  };
-  const res = await httpAccess(
-    `${BASE}/portalv2/login/login/initLogin`,
-    headers,
-    data,
-  );
-  return res.text();
-}
-
-/** POST home/home/reload → スケジュール HTML。 */
-export async function reload(
-  cookies: LcamCookies,
-  token: string,
-): Promise<string> {
-  const headers = {
-    Origin: BASE,
-    Cookie: cookieHeader(cookies),
-    ...constHeader,
-    ...secFetchHeader,
-    ...contentTypeHeader,
-  };
-  const data = {
-    'org.apache.struts.taglib.html.TOKEN': token,
-    _screenIdentifier: 'home',
-    _screenInfoDisp: '',
-    _scrollTop: '148',
-  };
-  const res = await httpAccess(`${BASE}/portalv2/home/home/reload`, headers, data);
-  return res.text();
-}
-
-/** POST scheduleForHome/getSchedule → 次週送り。 */
-export async function getScheduleNext(cookies: LcamCookies): Promise<string> {
-  const headers = {
-    Origin: BASE,
-    Cookie: cookieHeader(cookies),
-    ...constHeader,
-    ...secFetchHeader,
-    ...contentTypeHeader,
-  };
-  const data = { _mode: '5', EXCLUDE_SET: '' };
-  const res = await httpAccess(
-    `${BASE}/portalv2/schedule/scheduleForHome/getSchedule`,
-    headers,
-    data,
-  );
-  return res.text();
+  if (res.status >= 300 && res.status < 400) {
+    const location = res.headers.get('location') ?? '';
+    await res.body?.cancel();
+    resolveRedirect(location, `${BASE}${fileUrl}`); // SSO なら LcamExpiredError を投げる
+    throw new UpstreamError(`LCAM file redirect: statusCode=${res.status}`);
+  }
+  return res;
 }

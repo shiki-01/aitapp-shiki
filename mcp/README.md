@@ -10,8 +10,9 @@
   `Authorization: Bearer <MCP_TOKEN>`（ヘッダを設定できないクライアント、
   例えばスマホの Claude アプリのカスタムコネクタ向けには `/mcp/<MCP_TOKEN>` の
   URL 埋め込み方式もある）。セットアップはリポジトリ直下の README を参照。
-  **注意: デプロイ版は LCAM が Cloudflare の egress IP を拒否するため `lcam_*` ツールは
-  使えない**（Moodle・シラバス系は動く。`MIGRATION_NOTES.md` §13.1）。
+  デプロイ版は LCAM が Cloudflare の egress IP を拒否するため、LCAM 宛は relay 経由
+  （`MIGRATION_NOTES.md` §13.1 / §13.4）。LCAM は多要素認証のため、最初に `lcam_set_session`
+  （または Web 画面）でブラウザのログイン Cookie を登録する（`MIGRATION_NOTES.md` §14）。
 
 以下はstdio（ローカル実行）の説明。
 
@@ -88,8 +89,8 @@ Moodleへの認証は、ログイン時に一度だけID/パスワードで `log
 | `lcam_list_notices` | `GET /api/notices` |
 | `lcam_get_notice_detail` | `GET /api/notices/detail` |
 | `lcam_download_notice_attachment` | `GET /api/file/:id`（連絡の添付ファイルのみ対応） |
+| `lcam_set_session` | `POST /api/lcam/session`（LCAM の Cookie を登録。MFA のため必要。値は会話でユーザーが渡したものだけ） |
 | `lcam_get_timetable` | `GET /api/timetable` |
-| `lcam_get_schedule` | `GET /api/schedule` |
 | `lcam_get_grades` | `GET /api/performance` |
 | `lcam_list_enquetes` | `GET /api/enquetes` |
 | `lcam_get_enquete_questions` | `GET /api/enquetes/questions` |

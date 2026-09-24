@@ -11,7 +11,8 @@
 //     session cookie を該当 uid で自己署名するだけで、内部ヘッダは付けない。
 //     state は本人が Web ログイン時に保存した KV の暗号化 credential をそのまま使う
 //     （オーナーの env 資格情報には一切触れない）。
-//   いずれも上流ログインは withLcamRelogin / withMoodleToken が必要になった時点で行う。
+//   上流の認証は withMoodleToken（Moodle token の再取得）が必要になった時点で行う。
+//   LCAM は MFA のため自動ログインせず、登録済み Cookie を withLcamSession で使う。
 
 import type { Env } from '../types';
 import type { ToolClient, DownloadedFile } from '../../../mcp/src/tool-client';

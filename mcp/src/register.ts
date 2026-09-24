@@ -2,6 +2,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolClient } from './tool-client';
+import { registerLcamSessionTools } from './tools/lcam-session';
 import { registerNoticeTools } from './tools/notices';
 import { registerTimetableTools } from './tools/timetable';
 import { registerAssignmentTools } from './tools/assignments';
@@ -14,6 +15,7 @@ import { registerMoodleCourseTools } from './tools/courses';
 
 export function createAitappServer(client: ToolClient): McpServer {
   const server = new McpServer({ name: 'aitapp-mcp', version: '1.0.0' });
+  registerLcamSessionTools(server, client);
   registerNoticeTools(server, client);
   registerTimetableTools(server, client);
   registerAssignmentTools(server, client);

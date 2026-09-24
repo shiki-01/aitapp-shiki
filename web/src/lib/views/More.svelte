@@ -3,9 +3,46 @@
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import Syllabus from './Syllabus.svelte';
-  import { api } from '$lib/api';
+  import { api, ApiError, type LcamSessionStatus } from '$lib/api';
 
   let { userId = '', onLogout }: { userId?: string; onLogout?: () => void } = $props();
+
+  // ---- LCAM 連携（Cookie 登録）----
+  // LCAM は多要素認証のため、ブラウザでログインして取得した Cookie を登録して使う。
+  // Cookie の値はサーバーから返らない（登録状況の時刻のみ）。
+  let lcam = $state<LcamSessionStatus | undefined>(undefined);
+  let lcamCookies = $state('');
+  let lcamBusy = $state(false);
+  let lcamError = $state('');
+  let lcamDone = $state(false);
+
+  function loadLcam() {
+    api
+      .lcamSession()
+      .then((r) => (lcam = r))
+      .catch(() => {});
+  }
+  $effect(loadLcam);
+
+  function fmtTime(ms: number | null): string {
+    return ms ? new Date(ms).toLocaleString('ja-JP') : '—';
+  }
+
+  async function registerLcam() {
+    lcamBusy = true;
+    lcamError = '';
+    lcamDone = false;
+    try {
+      await api.lcamSessionSet(lcamCookies.trim());
+      lcamCookies = '';
+      lcamDone = true;
+      loadLcam();
+    } catch (e) {
+      lcamError = e instanceof ApiError || e instanceof Error ? e.message : String(e);
+    } finally {
+      lcamBusy = false;
+    }
+  }
 
   // ---- Claude 連携（ユーザー別 MCP URL）----
   // 発行済みかどうかは /api/auth/me の mcp フラグ（desktop 版では取得できず undefined）。
@@ -177,6 +214,47 @@
       </li>
     {/each}
   </ul>
+</section>
+
+<!-- LCAM 連携（Cookie 登録） -->
+<section class="block">
+  <div class="block-h">
+    <span><Icon name="grid" size={18} color="var(--primary)" /> LCAM 連携</span>
+  </div>
+  <div class="mcp card">
+    <p class="mcp-desc">
+      LCAM（連絡・時間割・成績・アンケート）は多要素認証のため、ブラウザでのログイン結果を登録して使います。
+      ① PC のブラウザで <code>lcam.aitech.ac.jp/portalv2/</code>（<code>/sp</code> ではない）にログイン → ② 開発者ツールの Cookie から
+      <code>JSESSIONID</code> と <code>LiveApps-Cookie</code> の値をコピー（<b>ログアウトはしない</b>）→ ③ 下に貼り付けて登録。
+      形式は <code>JSESSIONID=…; LiveApps-Cookie=…</code>。Microsoft 側の Cookie は貼らないでください。
+    </p>
+    {#if lcam}
+      <p class="mcp-note">
+        {#if lcam.registered}
+          登録済み（登録 {fmtTime(lcam.registeredAt)} ／ 最終成功 {fmtTime(lcam.lastOkAt)}）
+        {:else if lcam.expiredAt}
+          失効を検知しました（{fmtTime(lcam.expiredAt)}。登録 {fmtTime(lcam.registeredAt)}）。再ログインして登録し直してください。
+        {:else}
+          未登録です。
+        {/if}
+      </p>
+    {/if}
+    <textarea
+      class="lcam-input"
+      rows="3"
+      placeholder="JSESSIONID=...; LiveApps-Cookie=..."
+      bind:value={lcamCookies}
+      autocomplete="off"
+      spellcheck="false"
+    ></textarea>
+    {#if lcamError}<p class="mcp-error">{lcamError}</p>{/if}
+    {#if lcamDone}<p class="mcp-note">登録しました。</p>{/if}
+    <div class="mcp-actions">
+      <button class="mcp-issue" onclick={registerLcam} disabled={lcamBusy || !lcamCookies.trim()}>
+        {lcamBusy ? '確認中…' : lcam?.registered ? 'Cookie を更新' : 'Cookie を登録'}
+      </button>
+    </div>
+  </div>
 </section>
 
 <!-- Claude 連携（ユーザー別 MCP URL） -->
@@ -479,6 +557,16 @@
   .mcp-issue:disabled,
   .mcp-revoke:disabled {
     opacity: 0.5;
+  }
+  .lcam-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-family: ui-monospace, monospace;
+    resize: vertical;
   }
   .mcp-writes {
     display: flex;

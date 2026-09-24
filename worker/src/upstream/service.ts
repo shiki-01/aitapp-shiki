@@ -3,6 +3,7 @@ export type UpstreamService = 'lcam' | 'moodle' | 'syllabus' | 'unknown';
 const LCAM_PATHS = [
   '/api/notices',
   '/api/timetable',
+  '/api/lcam/',
   '/api/schedule',
   '/api/performance',
   '/api/enquetes',

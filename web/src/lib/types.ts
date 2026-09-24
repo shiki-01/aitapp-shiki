@@ -67,11 +67,22 @@ export interface SyllabusDetailContext {
   folder?: string;
 }
 
+export interface LcamSessionStatus {
+  registered: boolean;
+  registeredAt: number | null;
+  lastOkAt: number | null;
+  expiredAt: number | null;
+}
+
 // browser版はブラウザの<a>にURLを渡して開き、desktop版は一時ファイルへ
 // 保存してOS既定アプリで開く。呼び出し側(Notices.svelte)は isDesktop で
 // どちらの方式か分かった上でどちらかだけを呼ぶため、未使用側は投げてよい。
 export interface ApiClient {
-  login(id: string, password: string): Promise<{ ok: boolean; userId: string; moodle: boolean }>;
+  // lcam: LCAM の Cookie が登録済みか（ログインでは LCAM に入れないため別途登録が要る）。
+  login(
+    id: string,
+    password: string,
+  ): Promise<{ ok: boolean; userId: string; moodle: boolean; lcam?: boolean }>;
   logout(): Promise<{ ok: boolean }>;
   // mcp: ユーザー別 MCP トークンの発行済みフラグ。desktop 版（restore_session 経由）では
   // 取得できないため optional。
@@ -83,6 +94,13 @@ export interface ApiClient {
   mcpTokenRevoke(): Promise<{ ok: boolean }>;
   /** user モード MCP からの不可逆書き込み（提出等）の許可を切り替える。 */
   mcpWritesSet(allow: boolean): Promise<{ ok: boolean; allow: boolean }>;
+  /** LCAM セッションの登録状況（時刻は ms epoch。Cookie の値は返らない）。 */
+  lcamSession(): Promise<LcamSessionStatus>;
+  /**
+   * ブラウザで LCAM にログイン（MFA 込み）して取得した Cookie を登録する。
+   * 無効な Cookie は 422（code: lcam_session_rejected）で拒否される。
+   */
+  lcamSessionSet(cookies: string): Promise<{ ok: boolean; registeredAt: number }>;
   notices(type: 'common' | 'class', count?: number): Promise<{ notices: Notice[] }>;
   noticeDetail(type: 'common' | 'class', index: number): Promise<{ detail: NoticeDetail }>;
   timetable(): Promise<{ timetable: TimetableEntry[] }>;

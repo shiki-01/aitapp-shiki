@@ -38,6 +38,10 @@
   <form class="card" onsubmit={submit}>
     <h1>愛工大ポータル</h1>
     <p class="sub">ログイン</p>
+    <p class="hint">
+      Moodle と同じ ID・パスワードです。LCAM（連絡・時間割・成績）は多要素認証のため、
+      ログイン後に「その他 → LCAM 連携」から別途つなぎます。
+    </p>
     {#if error}
       <p class="error">{error}</p>
     {/if}
@@ -112,6 +116,12 @@
   }
   button:disabled {
     opacity: 0.6;
+  }
+  .hint {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.78rem;
+    line-height: 1.5;
   }
   .error {
     margin: 0;

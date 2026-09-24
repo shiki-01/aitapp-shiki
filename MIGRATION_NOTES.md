@@ -39,6 +39,9 @@ contentTypeHeader= { Content-Type: application/x-www-form-urlencoded }
 
 ### 3.1 スマホ（SP）ログインフロー — 採用する主経路
 
+> **【2026-09-07 以降は無効】** パスワード直接ログインは Entra SSO + MFA 移行で拒否される。
+> 本節の `getCookie` / `loginLcam` / `canLoginLcam` は削除済み。現行方式は §14。
+
 `GetLcamData.create()` 由来:
 
 1. `getCookie()` … `GET https://lcam.aitech.ac.jp/portalv2/sp`
@@ -115,6 +118,9 @@ CSRF（Struts）トークンはリクエスト処理内で HTML から抽出し�
 
 ### 3.7 スケジュール — PC ログインフロー（`GetPCLcamData`）
 
+> **【2026-09-07 以降は無効】** 1〜3（pcGetCookie/preAccess/initLogin）は削除済み。現在は登録済み
+> Cookie で PC ホーム（`GET /portalv2/common/generalPurpose/`）から token を得て reload する（実データ未検証。§14.4）。
+
 SP とは別系統。`get_lcam_data.dart` の `GetPCLcamData`:
 
 1. `pcGetCookie()` … `GET .../portalv2/`（set-cookie から JSESSIONID/LiveApps-Cookie）
@@ -183,7 +189,7 @@ SP とは別系統。`get_lcam_data.dart` の `GetPCLcamData`:
 | Pages ビルド | 500 / 月 |
 
 設計上の含意:
-- KV 書き込み 1,000/日 を浪費しないよう、書き込みは「ログイン時」「上流 cookie 更新（再ログイン時）」「moodle token 更新時」のみ。データ取得（notices/timetable/syllabus）では書き込まない。
+- KV 書き込み 1,000/日 を浪費しないよう、書き込みは「ログイン時」「LCAM Cookie 登録時・失効検知時」「moodle token 更新時」と、LCAM データ取得成功時の `lastOkAt` 更新（1 ユーザー 1 時間に最大 1 回。§14）のみ。
 - subrequest 50/リクエストの制約から `/api/schedule` のループを縮小（§3.7）。
 
 ## 8. Dart 由来でない/推測補完しなかった項目（要確認の総覧）
@@ -909,3 +915,127 @@ Cookie 透過・パースまで一連が機能。なお `LCAM_RELAY_URL` を `[v
 - **無料枠への影響**: ユーザー別 /mcp は 1 ツール呼び出しあたり KV read が
   +1（トークン検証）で計 2 回。write は発行/失効時のみ。無料枠
   （read 100k/日・write 1k/日）に対しユーザー数十人規模でも余裕（§7 参照）。
+
+## 14. LCAM の多要素認証（Entra ID SAML SSO）への対応（2026-09-24）
+
+LCAM は 2026-09-07 に Microsoft Entra ID の SAML SSO（パスワード + Outlook 番号入力の MFA）へ
+移行した。旧方式（ID/パスワードを LCAM に直接 POST: `smartPhoneLogin` / `spAppLogin`）は
+「アカウント/パスワードが間違っています」で拒否される。LCAM の Cookie は全て HttpOnly、
+SAML の返り先はブラウザから LCAM へ直接（`/mellon/postResponse`）なので、Worker はログイン結果を
+途中で受け取れず、MFA も Worker からは自動化できない。→ **ユーザーがブラウザでログインして
+取得した Cookie を Worker に登録して使う**方式に変更した。
+
+### 14.1 事実（ユーザー確認済み ／ 2026-09-24 に本セッションで実測）
+
+ユーザー確認済み（前セッション）:
+- 新フロー: `POST /portalv2/login/preLogin/preLogin` が `{"forwardParam":"Y"}` →
+  `POST /portalv2/login/login/initLogin/sso` が 303 で `/mellon/login?...&IdP=https://sts.windows.net/1dd4d0da-…/`
+  （LCAM 側は Apache mod_auth_mellon）→ Entra → `/mellon/postResponse` → `initLogin/sso` に戻り
+  `JSESSIONID` と `LiveApps-Cookie` が発行される。
+- Moodle `login/token.php` は現行のローカル資格情報でまだ動く（SAML ボタンも追加済み）。シラバスは認証不要（未確認）。
+
+本セッションの実測（認証情報を使わない未ログインの GET/POST のみ）:
+- `POST /portalv2/login/login/initLogin/sso` → 303、`Location` は**絶対 URL**
+  `https://lcam.aitech.ac.jp/mellon/login?ReturnTo=…initLogin%2Fsso&IdP=https%3A%2F%2Fsts.windows.net%2F1dd4d0da…%2F`。
+- SP ログイン画面（`/portalv2/sp`）にも SSO 経路がある（フォームの JS が
+  `POST /portalv2/login/login/smartPhoneLogin/sso` へ遷移）。**ただしブラウザで通すと、最後に
+  `lamyapp://lcam?key=…` へ引き渡されて L-Cam アプリが起動する**（ユーザー実測 2026-09-24。Entra の `kmsi` を経由）。
+  ブラウザには LCAM の Cookie が発行されないため、**Cookie 取得には使えない**（当初「SP セッションが得られる見込み」
+  と書いたのは誤りで訂正）。この引き渡し鍵の交換 API は推測せず、扱わない。
+  Cookie を得る経路は PC 画面（`https://lcam.aitech.ac.jp/portalv2/` → `initLogin/sso`）。その Cookie が
+  Worker の SP エンドポイント（時間割等）で通るかは未検証 → §14.4。
+- 発行される Cookie: `JSESSIONID`（`path=/portalv2; HttpOnly; SameSite=None; Secure`）、
+  `LiveApps-Cookie`（同属性、値は発行時刻 `yyyyMMddHHmmss` 形式）。mellon の Cookie は未ログインでは発行されない。
+- **無効なセッションで SP データページを開くと、SSO への 303 ではなく 200 のスタブ**
+  （約 850 byte、題「総合ポータルシステム」、本文「ログインされていないためシステムを利用できません」）。
+  従来の「Struts token が無い応答 = 失効」判定（§9.4）がそのまま有効で、上記文言も検知に追加した。
+  SSO への 303 は PC 画面・`initLogin/sso` 等で起き得るため、両方を検知する。
+- `/portalv2/sp` のレスポンスに `Content-Security-Policy` ヘッダも meta CSP も無い（`X-Frame-Options: SAMEORIGIN` のみ）。
+  ログイン後のデータページの CSP は未確認。
+
+### 14.2 実装した内容（`worker/`・`mcp/`・`web/`）
+
+- `POST /api/auth/login` は **Moodle 認証のみ**で通る（`invalidlogin` は 401、他は 502）。既存 state の
+  `lcamCookies` / `lcamSession` は引き継ぐ（再ログインで登録済みセッションを失わない）。
+- `GET/POST /api/lcam/session`: 登録状況の取得／Cookie の登録。登録前に SP 時間割へ 1 回アクセスして
+  有効性を確認し、無効（422 `lcam_session_rejected`）なら保存しない。
+  Cookie は `worker/src/upstream/lcam/cookies.ts` で検証（`JSESSIONID` / `LiveApps-Cookie` と
+  `mellon*` のみ許可。Microsoft 側 Cookie は名前で拒否、値は RFC 6265 cookie-octet のみ）。
+- MCP ツール `lcam_set_session`、Web 画面「その他 → LCAM 連携」（貼り付けフォーム＋登録/最終成功/失効の表示）。
+- 失効検知（`upstream/lcam/detect.ts` + `access.ts`）: 上流リダイレクトは自動追従せず（`redirect: 'manual'`）、
+  SSO（mellon / Entra / `*/sso`）への 3xx は `LcamExpiredError`、LCAM 以外のホストへは追従しない
+  （Cookie を Microsoft 側へ送らない）。200 のスタブ/ログインフォームも従来どおり検知。
+- `upstream/lcam/session.ts` の `withLcamSession`（旧 `relogin.ts` を置換）: 未登録・失効検知時は
+  `LcamReauthRequiredError`。**パスワードでの再ログインとリトライは廃止**。失効を検知したら Cookie を破棄し
+  `expiredAt` を記録する（以後 LCAM へは行かず即エラー）。ユーザーが同時に再登録していた場合に新しい Cookie を
+  潰さないよう、書き込み前に KV を再読込して「使った Cookie がまだ同じ」ときだけ更新する。
+- 再登録案内は **HTTP 424** `{ error: 'reauth_required', target: 'lcam', reason: 'not_registered'|'expired', message }`。
+  Web の「401 → /login 誘導」や stdio MCP の「401 → 再ログイン」を誤作動させないため 401 を避けた。
+  `message` に手順（ログイン → Cookie コピー（ログアウトしない）→ 登録）を含め、MCP と Web の両方に出る。
+- セッション寿命の記録: `UserState.lcamSession = { registeredAt, lastOkAt?, expiredAt? }`。
+  `lastOkAt` はデータ取得成功時に **1 ユーザー 1 時間に最大 1 回**だけ更新（KV 書き込み節約）。
+  寿命は `[lastOkAt − registeredAt, expiredAt − registeredAt]` の範囲に入る。意図的な反復アクセスはしない。
+- `/api/schedule`（予定）は**未対応**（HTTP 501 `not_supported`、LCAM へはアクセスしない）。PC 画面の取得コード
+  （`fetchSchedule` / `getPcHomeBody` / `reload` / `getScheduleNext`）は削除した（履歴から復元可。パーサ `parseSchedule` は残置）。
+  理由は §14.4（PC 画面への直接 GET でセッションが破棄される）。MCP の `lcam_get_schedule` も外した。
+- `worker/scripts/lcam-cookie-probe.ts`: Cookie の最小組み合わせを実測するローカル用スクリプト（読み取り専用、最大 4 GET）。
+- ローカル `wrangler dev` での実データ検証（2026-09-24、PC 画面ログインで得た Cookie を Web 画面から登録）:
+  偽の Cookie は 422 で拒否、正規 Cookie は登録成功。時間割・連絡・成績（17 件）・授業アンケート一覧が取得できた。
+  未検証: 本番（relay 経由）、アンケート回答系の書き込み、Cookie の寿命。
+
+### 14.3 やらないこと
+
+- 大学の Microsoft アカウントの Cookie/トークンの保存（アカウント全体のセッションになるため）。
+- MFA・番号入力の自動化/回避。L-Cam 公式アプリのローカル保存領域からの資格情報抽出。
+- ログイン済みセッションを反復アクセスして寿命を探る作業（寿命は §14.2 の記録から自然に測る）。
+- 自動再ログイン・keep-alive・自動復旧（従来どおり）。
+
+### 14.4 要確認（未確定事項）
+
+| 項目 | 状況 | 確認方法 |
+|------|------|----------|
+| 必要な Cookie の最小セット | **確認済み（2026-09-24、ユーザー実測）**: SP 時間割は `JSESSIONID` のみで通る。`LiveApps-Cookie`・`mellon*` は不要（mellon の Cookie はブラウザには存在した）。ただし書き込み系（アンケート提出等）での要否は未確認のため、登録 API は当面 `LiveApps-Cookie` も要求する | `lcam-cookie-probe.ts` |
+| LCAM セッションの寿命 | 未確認 | 登録後は普通に使い、`GET /api/lcam/session` の `registeredAt`/`lastOkAt`/`expiredAt` を見る |
+| Worker（relay 経由を含む）から Cookie を使ったときの動作。ブラウザとは IP・User-Agent が異なる（Worker は Android UA 固定）ため、セッションが IP/UA に紐付いていれば拒否される可能性 | 未確認（**全ての Cookie 方式の前提なので最初に確認**） | ①ローカル `wrangler dev`（同一 IP・別 UA）で登録 ②本番（relay 経由の Oracle IP）で登録。登録 API が実 LCAM で有効性を確認するため、成功/422 がそのまま結果になる |
+| PC 画面ログインの Cookie が SP 画面（時間割・連絡等）で通るか。SP 経路の SSO はアプリ連携のためブラウザで Cookie を得られず、PC 画面ログインが唯一の取得経路 | **確認済み（2026-09-24）**: PC 画面ログイン（`/portalv2/`）で得た Cookie で SP 時間割（題「個人時間割」）が取得できた（Mac から直接接続） | `lcam-cookie-probe.ts` |
+| PC スケジュール（`/api/schedule`） | **未対応で確定（2026-09-24 実測）**。PC ホーム `common/generalPurpose/` へ Worker から GET（デスクトップ UA・Referer・全 Cookie でも同じ）すると 200 で「不正な操作が行われました。システムエラーにより利用を継続することができなくなりました。ログインしなおして下さい」（題「総合ポータルシステム」、約 3 KB）が返り、**`Set-Cookie` で新しい `JSESSIONID` が発行されるが、旧・新どちらでも SP 時間割は無効＝登録済みセッションが破棄される**。ブラウザで動くのはアプリ内の画面遷移（POST・token・遷移元の状態）を経ているためと推測。SP 側に予定画面は Dart 定義に無い。→ Worker から PC 画面には**絶対に GET しない**。取得するなら、ブラウザ/Tauri の WebView がログイン済みセッションで正しく遷移して読み取る方式（§14.5 の B/A）が要る。旧メモ（参考）: 実測: `GET /portalv2/` は**認証済みでもログイン画面**（題「L-Cam」）を返すためホームではない。PC ホームはユーザー観測で `/portalv2/common/generalPurpose/`（ログイン直後は `initLogin/sso`）。その token で `POST home/home/reload`（Dart 由来）が通るかを試す | — |
+| ブラウザでの再ログイン/ログアウトが登録済みセッションを無効化するか（旧方式は単一セッションだった。§9.4） | 未確認。手順では「ログアウトしない」を案内 | 登録後にブラウザで別ログインし、`lcam_*` の応答を 1 回見る |
+| mellon の Cookie の有無・path | 未観測（未ログインでは発行されない） | 正規ログイン後の DevTools |
+| relay が 3xx と `Location` を素通しするか | `relay.mjs` は status と全応答ヘッダを返す実装（コード上は問題なし）。実 LCAM での動作は未確認 | 失効 Cookie で本番の `lcam_get_timetable` を 1 回叩く |
+| Moodle のローカル認証がいつまで使えるか | 不明（SAML ボタン追加済み。止まると `/api/auth/login` 自体が通らなくなる） | 定期的に `login/token.php` の成否を見る。止まったら Moodle の SSO 対応が別途必要 |
+| ログイン後データページの CSP | 未確認 | ブックマークレット案（§14.5）の前提 |
+
+### 14.5 スマホ向けの検証結果とおすすめ
+
+前提: スマホには DevTools が無く、手動の Cookie コピー（§14.2 の方式）は現実的でない。
+ユーザーの手間の少なさを最優先し、開発コストは度外視して比較した（調査は Tauri 2.11.5 / wry 0.55.1 の
+ソースと公式ドキュメント。**iOS/Android 実機では未検証**）。
+
+| 案 | 可否 | ユーザーの手間 | 主な根拠・制約 |
+|----|------|----------------|----------------|
+| **B. ネイティブ WebView アプリ（Tauri v2 モバイル）** | 要実機検証（ソース上は可）。SSO は `/portalv2/sp` ではなく PC 経路（`/portalv2/`）を WebView で通す必要がある（SP 経路は `lamyapp://` へ引き渡され Cookie が出ない） | 初回に MFA ログイン 1 回、以後は自動 | `Webview::cookies_for_url` は tauri 2.4.0 で追加、HttpOnly/Secure も返す。Android は `CookieManager.getCookie`（Chromium 実装は HttpOnly 含む）、iOS は `WKHTTPCookieStore`。Android では `cookies()` が空を返すため `cookies_for_url` を使う。iOS の `cookies_for_url` は domain 完全一致のため `cookies()` を全件取得して自前フィルタする |
+| **A. ブックマークレット（同一オリジンで取得 → Worker へ送信）** | 要実機検証 | ログインのたびに ブックマークを開く | HttpOnly は読めないため Cookie は取れず、HTML のスナップショット送信のみ（読み取り専用・鮮度はその時点）。CSP は `/portalv2/sp` には無い（データページは未確認）。iOS Safari でブックマークレットが動くかは資料が割れている（iOS 15 以降不可の報告と、2026-02 付の大学ガイドで可）。Worker への POST は CORS と、SameSite=Strict の session cookie が使えないための専用ワンタイムトークンが必要 |
+| C. Firefox Android + 拡張 | 可（自作拡張・AMO 署名が必要） | Firefox 導入 + 拡張導入 | `cookies` API は HttpOnly も返す。iOS には使えない |
+| iOS ショートカット単体 | 不可 | – | ページ内 JS のみで Cookie は取れない |
+| Kiwi Browser | 不可 | – | 開発終了 |
+
+Tauri モバイルの流用可否（リポジトリ確認）:
+- `web/`（SvelteKit）と `api.desktop.ts`（invoke 経由）はそのままモバイル WebView に載せられる。
+  `tauri.conf.json` の `frontendDist` 等も流用可。
+- 要改修: `tauri/src-tauri/gen/` に apple/android が無く `tauri ios init` / `android init` が必要。
+  モバイル用の `lib.rs` + `mobile_entry_point`、`keyring` は Android の対応 store が無く代替が必要。
+  `commands.rs` の「保存済みパスワードで無言再ログイン」は Moodle 用としては有効だが LCAM には効かない。
+- 既知の不具合: wry 0.55.1 の Android は Cookie が無い URL で `getCookie` が null になり NPE の可能性
+  （修正 PR は wry 0.57.1 向け）。wry を上げる必要がある。
+- 配布: iOS は Apple 無料アカウントだと 7 日で失効・3 アプリまで（自分の端末の PoC 専用）。他ユーザーへの配布は
+  Apple Developer Program（有料）が事実上必須で、「有料機能を使わない」方針と衝突する。Android は APK 配布で可。
+
+**おすすめ**:
+1. 先に PC で §14.4 の最初の 3 項目（最小 Cookie・IP/UA 紐付け・PC/SP の違い）を確定する。IP/UA 紐付けがあると
+   Cookie 方式（B・C）はスマホ端末の Cookie を Worker から使えず成立しない（その場合は A のスナップショット方式だけが残る）。
+2. 問題なければ **B（Tauri モバイル、Android 先行）** を自分の端末で PoC する。手間が最小（「接続」をタップして MFA を
+   通すだけ）で、Worker 側は既存の `POST /api/lcam/session` をそのまま使える（アプリが Cookie を読んで登録するだけ）。
+   iOS は PoC までは無料アカウントで可能、配布時のみ有料プランが論点になる。
+3. iOS の無料配布を優先するなら A を検討する。ただし読み取り専用のスナップショットで、
+   既存のパーサ（`parse.ts`）は HTML を入力に取る純関数なので Worker 側で流用できるが、
+   MCP からは「最後に取り込んだ時点のデータ」しか見えない。iOS Safari で動くかの実機確認が先。
