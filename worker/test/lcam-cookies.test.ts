@@ -47,9 +47,13 @@ describe('parseLcamCookies', () => {
     }
   });
 
-  it('必須 Cookie が欠けていれば拒否', () => {
-    expect(parseLcamCookies('JSESSIONID=a').ok).toBe(false);
+  it('JSESSIONID が無ければ拒否、LiveApps-Cookie は任意', () => {
+    expect(parseLcamCookies('LiveApps-Cookie=b').ok).toBe(false);
     expect(parseLcamCookies('').ok).toBe(false);
+    expect(parseLcamCookies('JSESSIONID=a')).toEqual({
+      ok: true,
+      cookies: { jsessionid: 'JSESSIONID=a', liveApps: '' },
+    });
   });
 
   it('ヘッダ注入になり得る値（改行・空白・引用符）は拒否', () => {

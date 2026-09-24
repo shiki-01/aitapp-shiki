@@ -103,20 +103,18 @@ export function parseLcamCookies(input: string): ParseCookiesResult {
       ok: false,
       error:
         `受け付けない Cookie が含まれています: ${unknown.join(', ')}。` +
-        'lcam.aitech.ac.jp の JSESSIONID と LiveApps-Cookie（必要なら mellon で始まるもの）だけを貼り付けてください。' +
+        'lcam.aitech.ac.jp の JSESSIONID（あれば LiveApps-Cookie。必要なら mellon で始まるもの）だけを貼り付けてください。' +
         'Microsoft 側の Cookie は保存しません。',
     };
   }
-  if (!jsessionid || !liveApps) {
-    return {
-      ok: false,
-      error: 'JSESSIONID と LiveApps-Cookie の両方が必要です。',
-    };
+  // 実測（MIGRATION_NOTES §14.4）: SP 画面は JSESSIONID だけで通るため、LiveApps-Cookie は任意。
+  if (!jsessionid) {
+    return { ok: false, error: 'JSESSIONID が必要です。' };
   }
   if (extra.size > MAX_EXTRA) {
     return { ok: false, error: `追加 Cookie は最大 ${MAX_EXTRA} 個までです。` };
   }
-  const cookies: LcamCookies = { jsessionid, liveApps };
+  const cookies: LcamCookies = { jsessionid, liveApps: liveApps ?? '' };
   if (extra.size > 0) cookies.extra = [...extra.values()];
   return { ok: true, cookies };
 }
