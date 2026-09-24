@@ -68,3 +68,10 @@ LCAM_RELAY_URL = "https://relay.shiki-01.com"
 # 個別に実ファイル（esm）へ向ける。worker が bundle するのは register.ts の
 # `server/mcp.js` のみ（tools 側は type-only import で消える）。
 "@modelcontextprotocol/sdk/server/mcp.js" = "./node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js"
+
+# LCAM セッションの keep-alive（src/keepalive.ts）。LCAM は無操作 1h30m で切れるため、
+# 登録済みユーザーを 30 分ごとに軽く GET して維持する。10 分ごとに起動し、ユーザーを
+# 3 グループに分けて 1 回に 1 グループだけ処理する（KEEPALIVE_SHARDS と揃えること）。
+# このセクションは必ずファイル末尾に置く（以降のキーが [triggers] 配下になるため）。
+[triggers]
+crons = ["*/10 * * * *"]

@@ -144,6 +144,9 @@ LCAM は 2026-09 から Entra ID の SSO + 多要素認証になり、ID/パス�
    Web 画面のほうを推奨）。
 
 - 登録時に LCAM へ 1 回アクセスして有効性を確認し、無効なら保存しない。
+- LCAM は無操作 1 時間 30 分で切れるため、Cron（10 分ごと・`worker/src/keepalive.ts`）が登録済みユーザーへ
+  30 分ごとに軽い GET を行って維持する。別端末/ブラウザ/アプリで LCAM にログインすると単一セッションのため
+  失効するので、再登録が必要（`MIGRATION_NOTES.md` §14.6）。
 - 失効を検知すると（`lcam_*` / `/api/*` が HTTP 424・`reauth_required`・`target: lcam`）、
   Cookie を破棄して再登録の手順を返す。Worker はパスワードや MFA の自動化・再ログインをしない。
 - `GET /api/lcam/session` で登録時刻・最終成功時刻・失効検知時刻を確認できる（Cookie の値は返さない）。
@@ -407,7 +410,8 @@ cd web && bun run build                                   # 本番ビルド
 ## 制約・スコープ外
 
 - Cloudflare 有料機能（Durable Objects 等）は不使用。状態は Workers KV。
-- 並行再ログインの直列化・即時失効・keep-alive・自動復旧は実装しない（要件 §11）。
+- 並行再ログインの直列化・即時失効・自動復旧は実装しない（要件 §11）。LCAM セッションの keep-alive のみ、
+  ユーザー指示で実装した（Cron、`MIGRATION_NOTES.md` §14.6）。
 - LCAM は MFA のため自動再ログインしない。失効を検知してエラー（424）を返すのみ（回復は
   ユーザーによる再ログイン＋Cookie 再登録）。MFA/番号入力の自動化・回避策は作らない。
 - 上流 HTML 構造は非公式かつ変動し得る。壊れたら手動修正する運用。

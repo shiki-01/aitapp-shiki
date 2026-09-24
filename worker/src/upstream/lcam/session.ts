@@ -9,8 +9,13 @@ import { readState, writeState } from '../../store/kv';
 import { sameLcamCookies } from './cookies';
 import { LcamExpiredError, LcamReauthRequiredError } from '../errors';
 
-/** lastOkAt の更新間隔。KV write（無料枠 1000/日）を消費しすぎないよう間引く。 */
-export const LAST_OK_INTERVAL_MS = 60 * 60 * 1000;
+/**
+ * lastOkAt の更新間隔。KV write（無料枠 1000/日）を消費しすぎないよう間引く。
+ * keep-alive（keepalive.ts）が 30 分ごとに成功するため、頻繁に書くとユーザー数 × 48 回/日の
+ * 書き込みになる。失効は keep-alive で 30 分以内に検知され expiredAt が正確に残るので、
+ * lastOkAt は粗くてよい（3 時間 = 8 回/日/ユーザー）。
+ */
+export const LAST_OK_INTERVAL_MS = 3 * 60 * 60 * 1000;
 
 /**
  * 「使った Cookie が KV 上でまだ同じ」ときだけ state を書き換える。

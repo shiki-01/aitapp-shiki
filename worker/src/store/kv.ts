@@ -36,6 +36,21 @@ export async function writeState(
   });
 }
 
+/**
+ * user state を持つ userId を列挙する（keep-alive の cron 用）。
+ * KV list は無料枠 1000/日。呼び出し側は 1 回の cron につき 1 回だけ使うこと。
+ */
+export async function listUserIds(env: Env): Promise<string[]> {
+  const ids: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page: KVNamespaceListResult<unknown> = await env.USER_KV.list({ prefix: 'user:', cursor });
+    for (const k of page.keys) ids.push(k.name.slice('user:'.length));
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return ids;
+}
+
 // user state を削除する。logout で session を実効失効させるために使う
 // （暗号化 credential・上流 cookie・moodle token を1 read で消す＝1 key 削除）。
 // 削除後はデータ系ミドルウェアと /api/auth/me がともに state 不在で 401 を返すため、
