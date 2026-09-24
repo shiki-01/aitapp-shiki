@@ -2,6 +2,7 @@
   import {
     api,
     type Assignment,
+    type LcamSessionStatus,
     type Notice,
     type TimetableEntry,
   } from '$lib/api';
@@ -19,6 +20,9 @@
   let assignments = $state<Assignment[]>([]);
   let notices = $state<Notice[]>([]);
   let timetable = $state<TimetableEntry[]>([]);
+  // LCAM は MFA のため Cookie 登録式。未登録/失効なら再登録を促す（登録状況の取得は KV 読み取りのみで
+  // LCAM へはアクセスしない）。取得に失敗したら何も出さない。
+  let lcam = $state<LcamSessionStatus | undefined>(undefined);
 
   const now = new Date();
   const greeting =
@@ -27,6 +31,10 @@
 
   // 各 API は失敗しても握りつぶし、表示できる範囲で出す。
   $effect(() => {
+    api
+      .lcamSession()
+      .then((r) => (lcam = r))
+      .catch(() => {});
     (async () => {
       try {
         assignments = (await api.assignments()).assignments;
@@ -97,6 +105,17 @@
     <p class="date">{dateLabel}{#if userId} · {userId}{/if}</p>
   </div>
 </header>
+
+{#if lcam && !lcam.registered}
+  <button class="lcam-banner" onclick={() => onNavigate?.('more')}>
+    <span class="lcam-banner-title">
+      {lcam.expiredAt ? 'LCAM のログインが切れています' : 'LCAM が未連携です'}
+    </span>
+    <span class="lcam-banner-sub">
+      時間割・連絡・成績を見るには、「その他 → LCAM 連携」でログイン情報を登録してください。
+    </span>
+  </button>
+{/if}
 
 <!-- 次の予定 -->
 <section class="card hero">
@@ -197,6 +216,26 @@
     margin: 2px 0 0;
     color: var(--muted);
     font-size: 0.85rem;
+  }
+  .lcam-banner {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    text-align: left;
+    background: #fff7e6;
+    border: 1px solid #ffd591;
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    color: #8a5300;
+  }
+  .lcam-banner-title {
+    font-weight: 700;
+    font-size: 0.9rem;
+  }
+  .lcam-banner-sub {
+    font-size: 0.78rem;
   }
   .card {
     background: var(--card);

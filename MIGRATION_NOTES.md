@@ -1083,3 +1083,55 @@ Worker は Microsoft のセッションを持たない（Cookie を保存しな�
 現状、スマホ単体では DevTools が無く再登録できない（Firefox for Android + Cookie-Editor 系拡張は調査上は
 可能だが未検証）。スマホで完結させるには §14.5 の B（Tauri モバイル: WebView でログインし Cookie を自動登録）が要る。
 
+### 14.8 セキュリティ自己レビュー（2026-09-24、今回の変更範囲）
+
+確認した点（問題なし）:
+- 実値の Cookie・引き渡し鍵・Microsoft Cookie はリポジトリに含まれない（テストはダミー値）。`.env` / `.dev.vars` は gitignore 済み。
+- ログに Cookie・userId を出さない（keep-alive は相関 ID・件数・例外名のみ。`onError` の `detail` は例外文言で、
+  LCAM 関連の例外文言は URL・ステータス・ホスト名のみ）。Cookie 検証エラーは Cookie 名のみを返し値は返さない。
+- Cookie 値はヘッダ注入を防ぐため RFC 6265 の cookie-octet に限定。Microsoft 側 Cookie は名前で拒否（保存しない）。
+- 上流リダイレクトは自動追従せず、LCAM 以外のホストへは追従しない（Cookie を Microsoft 側へ送らない）。
+- `POST /api/lcam/session` は Origin チェックと session cookie を要求する。
+
+既知の残存リスク（許容・要認識）:
+- `lcam_set_session`（MCP）は Cookie をモデルの引数として受けるため、上流データ内のプロンプトインジェクションで
+  攻撃者の Cookie を登録させられ得る（他人のデータが表示される。ツール説明で「会話でユーザーが渡した値のみ」と制約）。
+  Cookie がチャット履歴に残る点も含め、Web 画面からの登録を推奨。
+- `POST /api/lcam/session` は 1 回ごとに LCAM へ 1 GET する。認証済みユーザーが連打すると LCAM への負荷になり得る
+  （レート制限なし。ユーザー数十人規模の前提で許容）。
+- Cookie 自体は KV に平文で保存される（従来の上流 Cookie と同じ扱い。credential のみ AES-GCM 暗号化）。
+  Cookie は 1 時間 30 分の無操作 or 単一セッションで失効する短命の値であるため許容。
+- KV の結果整合性: 登録・失効の書き込み直後、別のエッジからの読み取りが最大 60 秒ほど古い state を返し得る
+  （登録直後に「未登録」エラーが一瞬出る、失効の二重検知など。害は小さい）。
+
+### 14.9 Tauri 自動再ログインの設計メモ（未実装。keep-alive の 1h30m 確認後に着手）
+
+目的: 失効/別端末ログインでセッションが切れたとき、デスクトップの Tauri が Cookie を自動で取り直して
+`POST /api/lcam/session` に登録し直す（手動の再登録をなくす）。Microsoft のセッションは Tauri の WebView
+（OS 管理のプロファイル）内にだけ残り、Worker には送らない。
+
+流れ:
+1. 契機: 起動時と一定間隔で `GET /api/lcam/session` を確認し、`registered: false`（または API が 424）なら実行。
+   同時に 1 回だけ実行する。
+2. 非表示の WebviewWindow（永続プロファイル）で `https://lcam.aitech.ac.jp/portalv2/` を開く。
+3. ログイン画面の「ログイン」ボタンは `excludeSubmit()` を呼ぶ（2026-09-24 に公開 HTML で確認）。これが
+   `preLogin/preLogin`（JSON）→ `forwardParam: Y` → `initLogin/sso`（POST、mellon → Entra）へ進む。
+   WebView で `eval("excludeSubmit()")` を実行して SSO を開始する。ID/パスワード入力は不要（SSO のため）。
+4. ナビゲーションを監視する。Entra が「サインインの状態を維持」のセッションで自動的に戻れば LCAM のホームに着地する
+   （ユーザー実測: 番号入力なしでリダイレクトのみ）。Entra 画面で一定時間止まる（番号入力や `kmsi` の対話が要る）
+   場合は、ウィンドウを表示してユーザーに操作してもらう（MFA の自動化・回避はしない）。
+5. 着地（`lcam.aitech.ac.jp/portalv2/` 配下でログイン済み）を検知したら、async コマンドで
+   `cookies_for_url("https://lcam.aitech.ac.jp/portalv2/")` から `JSESSIONID`（＋あれば `LiveApps-Cookie`）を読む
+   （Windows は同期コマンドだとデッドロック、macOS/iOS の `cookies_for_url` は domain 完全一致のため `cookies()` を
+   全件取得して自前フィルタ）。
+6. 既存の Rust `UpstreamClient` で Worker に `POST /api/lcam/session`（Worker が有効性を確認して保存）。
+7. ウィンドウを閉じる。
+
+注意・要検証（keep-alive の確認が終わってから。LCAM へのログインは登録済みセッションを無効化するため）:
+- WebView（macOS の WKWebView、Windows の WebView2）で、Entra の持続セッションのまま MFA なしに戻れるか。
+- `cookies_for_url` が HttpOnly の `JSESSIONID` を返すか（プラットフォーム別）。
+- 更新のたびに他端末（ブラウザ・公式アプリ）の LCAM セッションが切れる（単一セッション）。
+- Entra の持続セッションの期限（ユーザー報告では約 90 日）と、テナントの再認証ポリシー。
+- Tauri が起動していない間は更新されない（keep-alive で維持できる範囲に限る）。
+- 実装規模の見積もり: Rust コマンド 100 行前後、権限設定、Web に状態表示、実機の手動検証。単体テストで担保できない部分が大きい。
+
