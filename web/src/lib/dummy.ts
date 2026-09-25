@@ -16,6 +16,8 @@ import type {
   CommonFileDetail,
   ReportItem,
   ReportDetail,
+  FacilityItem,
+  FacilityWeek,
 } from '../../../shared/contract';
 
 // ---- 連絡（LCAM） ----
@@ -550,6 +552,85 @@ export const dummyReportDetail: ReportDetail = {
       heading: '1.comment by 学生 2026/09/14 22:25',
       lines: ['提出します。'],
       files: [{ studentCode: 'a1234567', submitNo: 1, fileNo: 1, name: '中間レポート.pdf' }],
+    },
+  ],
+};
+
+// ---- 施設（LCAM） ----
+
+export const dummyFacilities: FacilityItem[] = [
+  {
+    id: '1001',
+    building: '1号館',
+    buildingCode: '01',
+    name: '1号館 101教室',
+    capacity: 120,
+    examCapacity: 60,
+    equipment: ['プロジェクター', 'マイク'],
+  },
+  {
+    id: '1002',
+    building: '1号館',
+    buildingCode: '01',
+    name: '1号館 102教室',
+    capacity: 48,
+    examCapacity: 24,
+    equipment: ['プロジェクター'],
+  },
+  {
+    id: '2001',
+    building: '2号館',
+    buildingCode: '02',
+    name: '2号館 201演習室',
+    capacity: 0,
+    examCapacity: 0,
+    equipment: [],
+  },
+];
+
+// 2026-09-21（月）〜09-27（日）の週。
+export const dummyFacilitySchedule: FacilityWeek = {
+  dates: [
+    '2026-09-21',
+    '2026-09-22',
+    '2026-09-23',
+    '2026-09-24',
+    '2026-09-25',
+    '2026-09-26',
+    '2026-09-27',
+  ],
+  rooms: [
+    {
+      id: '1001',
+      name: '1号館 101教室',
+      days: [
+        { date: '2026-09-21', events: [] },
+        { date: '2026-09-22', events: [] },
+        { date: '2026-09-23', events: [] },
+        { date: '2026-09-24', events: [] },
+        {
+          date: '2026-09-25',
+          events: [
+            { start: '09:00', end: '10:30', title: 'プログラミング演習', teacher: '山田 太郎' },
+            { start: '13:00', end: '14:30', title: '線形代数', teacher: '鈴木 花子', note: '補講' },
+          ],
+        },
+        { date: '2026-09-26', events: [] },
+        { date: '2026-09-27', events: [] },
+      ],
+    },
+    {
+      id: '1002',
+      name: '1号館 102教室',
+      days: [
+        { date: '2026-09-21', events: [] },
+        { date: '2026-09-22', events: [] },
+        { date: '2026-09-23', events: [] },
+        { date: '2026-09-24', events: [] },
+        { date: '2026-09-25', events: [{ start: '', end: '', title: '学内行事（終日）' }] },
+        { date: '2026-09-26', events: [] },
+        { date: '2026-09-27', events: [] },
+      ],
     },
   ],
 };

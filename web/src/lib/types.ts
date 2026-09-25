@@ -38,6 +38,10 @@ import type {
   ReportDetail,
   ReportSubmission,
   ReportSubmissionFile,
+  FacilityItem,
+  FacilityWeek,
+  FacilityRoomWeek,
+  FacilityEvent,
 } from '../../../shared/contract';
 export type {
   UnivNotice,
@@ -61,6 +65,10 @@ export type {
   ReportDetail,
   ReportSubmission,
   ReportSubmissionFile,
+  FacilityItem,
+  FacilityWeek,
+  FacilityRoomWeek,
+  FacilityEvent,
 };
 
 // NoticeDetail / TimetableEntry / ScheduleEvent / ScheduleDay / Assignment /
@@ -190,6 +198,10 @@ export interface ApiClient {
     filename?: string,
     query?: ReportQuery,
   ): Promise<void>;
+  /** LCAM の施設一覧（参照のみ）。 */
+  facilities(): Promise<{ facilities: FacilityItem[] }>;
+  /** 施設（1〜60 件）の 1 週間ぶんの使用状況。week は今週からの週数（-4〜8。省略=今週）。 */
+  facilitySchedule(ids: string[], week?: number): Promise<{ schedule: FacilityWeek }>;
   fileUrl(relativePath: string): string;
   openFile(relativePath: string): Promise<void>;
 }

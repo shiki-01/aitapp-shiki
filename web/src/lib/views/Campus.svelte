@@ -3,6 +3,7 @@
   import Icon from '$lib/components/Icon.svelte';
   import CommonFiles from './campus/CommonFiles.svelte';
   import Reports from './campus/Reports.svelte';
+  import Facilities from './campus/Facilities.svelte';
 
   let { onBack }: { onBack?: () => void } = $props();
 
@@ -12,7 +13,7 @@
     id: string;
     label: string;
     description: string;
-    icon: 'note' | 'book' | 'calendar' | 'grid' | 'task';
+    icon: 'note' | 'book' | 'calendar' | 'grid' | 'task' | 'clock';
     component: Component;
   }
   const ITEMS: CampusItem[] = [
@@ -29,6 +30,13 @@
       description: '提出期間・提出履歴の確認（提出は LCAM の PC 版で）',
       icon: 'task',
       component: Reports,
+    },
+    {
+      id: 'facilities',
+      label: '空き教室',
+      description: '建物・日時から空いている教室を探す（参照のみ）',
+      icon: 'clock',
+      component: Facilities,
     },
   ];
 

@@ -179,6 +179,12 @@ export const desktopApi: ApiClient = {
     }
     await openPath(localPath);
   },
+  async facilities() {
+    return call('/api/facilities');
+  },
+  async facilitySchedule(ids, week) {
+    return call(`/api/facilities/schedule${qs({ ids: ids.join(','), week })}`);
+  },
   fileUrl() {
     // desktop版はopenFile()でOS既定アプリを開くため呼ばれない。
     throw new ApiError(500, 'fileUrl is not supported on desktop');

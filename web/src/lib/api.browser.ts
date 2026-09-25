@@ -155,6 +155,12 @@ export const browserApi: ApiClient = {
     // browser版はreportDownloadUrl()を<a href target=_blank>で開くため呼ばれない。
     throw new ApiError(500, 'openReportFile is not supported on browser');
   },
+  async facilities() {
+    return request('/api/facilities');
+  },
+  async facilitySchedule(ids, week) {
+    return request(`/api/facilities/schedule${qs({ ids: ids.join(','), week })}`);
+  },
   fileUrl(relativePath) {
     // inline=1: ブラウザ標準ビューアで表示(pdf/画像/txt)。他形式は従来どおりダウンロード。
     return `${BASE}${fileApiPath(relativePath)}?inline=1`;
