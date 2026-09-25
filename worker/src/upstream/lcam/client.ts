@@ -5,7 +5,7 @@ import type { LcamCookies } from '../../types';
 import { parseHtml } from '../../html/parser';
 import { extractStrutsToken, extractStrutsTokenByForm } from './csrf';
 import { looksLikeLoginPage } from './detect';
-import { LcamExpiredError, ValidationError } from '../errors';
+import { LcamExpiredError, UpstreamError, ValidationError } from '../errors';
 import {
   getStrutsTokenBody,
   getNoticeBody,
@@ -14,6 +14,9 @@ import {
   getClassTimeTableBody,
   getFile,
   getPerformanceBody,
+  postPcHomeInitialize,
+  postHomeReload,
+  postScheduleMove,
   getEnqueteBody,
   getEnqueteDetailBody,
   getEnqueteAnswerFormBody,
@@ -29,6 +32,7 @@ import {
   parseClassNoticeDetail,
   parseClassTimeTable,
   parsePerformance,
+  parseSchedule,
   parseEnqueteList,
   parseEnqueteAnswerForm,
   parseEnqueteConfirm,
@@ -37,6 +41,7 @@ import {
   type NoticeDetail,
   type TimetableEntry,
   type PerformanceEntry,
+  type ScheduleDay,
   type EnqueteList,
   type EnqueteAnswerForm,
 } from './parse';
@@ -312,4 +317,80 @@ export async function finalizeEnqueteAnswer(
     confirmForm.backPath,
   );
   return { ok: looksLikeSuccess(finalBody) };
+}
+
+/** 直近何週ぶんのスケジュールを取るか。subrequest（無料プランは 1 リクエスト 50）を守る上限。 */
+export const MAX_SCHEDULE_WEEKS = 14;
+/** 月送りの上限（1 回の呼び出しで動かす回数を抑える）。 */
+export const MAX_SCHEDULE_MONTH_OFFSET = 8;
+
+/**
+ * 個人スケジュール（PC ホームのカレンダー）を weeks 週ぶん取得する。month 省略時は今日から、
+ * 指定時は「今月から month か月ずらした月」の 1 日を含む週（月曜始まり）から。
+ * PC 画面に入るための最初の Struts token は、認証済み SP ページ（時間割）の token を使う
+ * （直接 GET で PC 画面へ入ると「不正な操作」でセッションが破棄されるため。§14.4）。
+ * 入口は PC のメニュー「ホーム」と同じ generalPurpose への POST（実測済み。reload を直接呼ぶと「システムエラー」）。
+ * 拒否された場合は LcamExpiredError にせず UpstreamError にする（資格情報の破棄・無駄な再ログインを避ける）。
+ */
+export async function fetchSchedule(
+  cookies: LcamCookies,
+  weeks: number,
+  month?: number,
+): Promise<ScheduleDay[]> {
+  const n = Math.min(Math.max(Math.trunc(weeks), 1), MAX_SCHEDULE_WEEKS);
+
+  const spBody = await getClassTimeTableBody(cookies);
+  assertSpSessionAlive(spBody);
+  let token = anyStrutsToken(spBody);
+  if (token == null) throw new LcamExpiredError();
+
+  // PC ホームを開く（メニュー遷移）。表示位置はセッションに残る（前回の続きになり得る）ため、「今日」に揃える。
+  let body = await postPcHomeInitialize(cookies, token);
+  token = nextTokenOrThrow(body);
+  await postScheduleMove(cookies, 4);
+
+  // 月送り（実測）: 「今月」から ±1 か月ずつ、その月の 1 日を含む週（月曜始まり）へ飛ぶ。
+  // month=0 は今月の 1 日を含む週（前月→翌月の 2 回で戻る）。
+  if (month !== undefined) {
+    const m = Math.min(Math.max(Math.trunc(month), -MAX_SCHEDULE_MONTH_OFFSET), MAX_SCHEDULE_MONTH_OFFSET);
+    if (m === 0) {
+      await postScheduleMove(cookies, 2);
+      await postScheduleMove(cookies, 6);
+    } else {
+      for (let i = 0; i < Math.abs(m); i++) await postScheduleMove(cookies, m < 0 ? 2 : 6);
+    }
+  }
+
+  // 見出しの年を決める基準日: 取得範囲のおおよその中心。
+  const center = new Date(
+    Date.now() + ((month ?? 0) * 30 + (month === undefined ? 0 : n * 3.5)) * 24 * 60 * 60 * 1000,
+  );
+  const byDate = new Map<string, ScheduleDay>();
+  for (let i = 0; i < n; i++) {
+    body = await postHomeReload(cookies, token);
+    for (const day of parseSchedule(body, center)) byDate.set(day.date, day);
+    if (i < n - 1) {
+      token = nextTokenOrThrow(body);
+      await postScheduleMove(cookies, 5);
+    }
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** 生 HTML から最初の Struts token の value を取る（SP・PC どちらのページにも使える）。 */
+function anyStrutsToken(html: string): string | null {
+  const m = /<input[^>]*org\.apache\.struts\.taglib\.html\.TOKEN[^>]*>/.exec(html);
+  if (!m) return null;
+  const v = /value="([^"]+)"/.exec(m[0]);
+  return v ? v[1] : null;
+}
+
+/** PC ホームの再描画結果から次の token を取る。取れなければ PC 画面が拒否したとみなす。 */
+function nextTokenOrThrow(html: string): string {
+  const t = anyStrutsToken(html);
+  if (t != null && html.includes('calendar-body')) return t;
+  if (html.includes('不正な操作')) {
+    throw new UpstreamError('LCAM がスケジュール画面へのアクセスを拒否しました（不正な操作）');
+  }
+  throw new UpstreamError('LCAM のスケジュール画面を取得できませんでした（想定外の応答）');
 }

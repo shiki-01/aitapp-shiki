@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, ApiError, type Assignment } from '$lib/api';
   import Icon from '$lib/components/Icon.svelte';
+  import { submissions } from '$lib/stores/submission.svelte';
 
   type Filter = 'upcoming' | 'overdue' | 'done' | 'all';
   const DONE_KEY = 'aitapp.assignments.done.v1';
@@ -24,7 +25,42 @@
     if (typeof localStorage === 'undefined') return;
     localStorage.setItem(DONE_KEY, JSON.stringify([...done]));
   }
+  // Moodle で提出済みなら、手動チェックがなくても完了扱い。
+  function isDoneItem(id: number): boolean {
+    return done.has(id) || submissions.submitted(id) === true;
+  }
+
+  // 提出状況のバッジ（Moodle の mod_assign_get_submission_status の値）。
+  function badge(a: Assignment): { text: string; kind: 'ok' | 'warn' | 'bad' | 'plain' } | null {
+    const s = submissions.get(a.id);
+    if (!s) return submissions.failed ? null : { text: '確認中…', kind: 'plain' };
+    const overdue = a.dueEpochMs !== 0 && a.dueEpochMs < Date.now();
+    if (s.submitted) {
+      return s.gradingStatus === 'graded'
+        ? { text: '提出済み・採点済み', kind: 'ok' }
+        : { text: '提出済み', kind: 'ok' };
+    }
+    switch (s.submissionStatus) {
+      case 'draft':
+        return { text: '下書きのみ（未提出）', kind: 'warn' };
+      case 'reopened':
+        return { text: '再提出待ち', kind: 'warn' };
+      case 'new':
+        return { text: overdue ? '未提出（期限切れ）' : '未提出', kind: overdue ? 'bad' : 'plain' };
+      default:
+        return s.submissionStatus ? { text: s.submissionStatus, kind: 'plain' } : null;
+    }
+  }
+
+  function fmtSubmitted(iso: string | null): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} に提出`;
+  }
+
   function toggleDone(id: number) {
+    if (submissions.submitted(id) === true) return; // 提出済みは変更できない。
     const next = new Set(done);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -71,7 +107,7 @@
   const list = $derived.by(() => {
     const now = Date.now();
     return items.filter((a) => {
-      const isDone = done.has(a.id);
+      const isDone = isDoneItem(a.id);
       switch (filter) {
         case 'upcoming':
           // 締切なし（dueEpochMs=0）は期限切れではないため「これから」に含める。
@@ -88,6 +124,16 @@
 
   $effect(() => {
     load();
+  });
+
+  // 表示中の課題（先頭から 45 件まで）の提出状況を取得する。取得できた分だけ順に反映される。
+  $effect(() => {
+    // 締切が近い順に、これからの課題 → 期限切れは新しいものから（古い課題より、直近の提出状況が知りたいため）。
+    const now = Date.now();
+    const ahead = list.filter((a) => a.dueEpochMs === 0 || a.dueEpochMs >= now);
+    const past = list.filter((a) => a.dueEpochMs !== 0 && a.dueEpochMs < now).reverse();
+    const ids = [...ahead, ...past].slice(0, 45).map((a) => a.id);
+    if (ids.length > 0) void submissions.ensure(ids);
   });
 </script>
 
@@ -111,7 +157,8 @@
 {:else}
   <ul class="list">
     {#each list as a (a.id)}
-      {@const isDone = done.has(a.id)}
+      {@const isDone = isDoneItem(a.id)}
+      {@const b = badge(a)}
       {@const overdue = a.dueEpochMs !== 0 && a.dueEpochMs < Date.now()}
       <li class:done={isDone}>
         <button
@@ -130,6 +177,14 @@
             <span>{fmt(a.dueDate)}</span>
             {#if !isDone && a.dueEpochMs !== 0}<span class="rem">{remaining(a.dueEpochMs)}</span>{/if}
           </div>
+          {#if b}
+            <div class="sub-row">
+              <span class="status {b.kind}">{b.text}</span>
+              {#if submissions.get(a.id)?.submittedAt}
+                <span class="submitted-at">{fmtSubmitted(submissions.get(a.id)?.submittedAt ?? null)}</span>
+              {/if}
+            </div>
+          {/if}
         </div>
       </li>
     {/each}
@@ -239,6 +294,37 @@
   .rem {
     margin-left: auto;
     font-weight: 600;
+  }
+  .sub-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .status {
+    border-radius: 10px;
+    padding: 1px 9px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    background: var(--primary-bg);
+    color: var(--muted);
+  }
+  .status.ok {
+    background: #e6f6ec;
+    color: #15803d;
+  }
+  .status.warn {
+    background: #fff7e6;
+    color: #8a5300;
+  }
+  .status.bad {
+    background: #fdecec;
+    color: var(--danger);
+  }
+  .submitted-at {
+    color: var(--muted);
+    font-size: 0.72rem;
   }
   .muted {
     color: var(--muted);

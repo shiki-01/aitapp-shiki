@@ -12,6 +12,8 @@
     WEEKDAY_LABELS,
   } from '$lib/date';
   import { memos } from '$lib/stores/local.svelte';
+  import { toEnqueteView, isPending, type EnqueteView } from '$lib/enquete';
+  import { submissions } from '$lib/stores/submission.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import type { Tab } from '$lib/components/BottomNav.svelte';
 
@@ -20,6 +22,7 @@
   let assignments = $state<Assignment[]>([]);
   let notices = $state<Notice[]>([]);
   let timetable = $state<TimetableEntry[]>([]);
+  let enquetes = $state<EnqueteView[]>([]);
   // LCAM は MFA のため、初回に lamyapp:// の key（または Cookie）を登録する。登録済みなら Worker が自動で
   // 再ログインするので、未登録（資格情報が拒否されて破棄された場合を含む）のときだけ登録を促す
   // （登録状況の取得は KV 読み取りのみで LCAM へはアクセスしない）。取得に失敗したら何も出さない。
@@ -52,6 +55,13 @@
     })();
     (async () => {
       try {
+        enquetes = (await api.enquetes()).items.map(toEnqueteView);
+      } catch {
+        enquetes = [];
+      }
+    })();
+    (async () => {
+      try {
         timetable = (await api.timetable()).timetable;
       } catch {
         timetable = [];
@@ -80,8 +90,17 @@
   const upcoming = $derived(
     [...assignments]
       .filter((a) => a.dueEpochMs === 0 || a.dueEpochMs >= Date.now())
+      // Moodle で提出済みの課題は「これから」に含めない（未取得のうちは残す）。
+      .filter((a) => submissions.submitted(a.id) !== true)
       .sort((a, b) => (a.dueEpochMs || Number.MAX_SAFE_INTEGER) - (b.dueEpochMs || Number.MAX_SAFE_INTEGER)),
   );
+
+  const pendingEnquetes = $derived(enquetes.filter(isPending));
+  // これからの課題のうち、先頭 15 件の提出状況を取る（提出済みを一覧から外すため）。
+  $effect(() => {
+    const ids = upcoming.slice(0, 15).map((a) => a.id);
+    if (ids.length > 0) void submissions.ensure(ids);
+  });
 
   const latestNotices = $derived(notices.slice(0, 3));
   const recentMemos = $derived(memos.sorted.slice(0, 2));
@@ -169,10 +188,18 @@
     <Icon name="notification" size={18} color="var(--primary)" /><span>最近のお知らせ</span>
     <Icon name="chevron-right" size={16} color="var(--muted)" />
   </button>
-  {#if latestNotices.length === 0}
+  {#if latestNotices.length === 0 && pendingEnquetes.length === 0}
     <p class="empty">お知らせはありません。</p>
   {:else}
     <ul class="mini">
+      {#each pendingEnquetes as e (e.index)}
+        <li>
+          <span class="mini-title"><span class="badge">アンケート</span>{e.title}</span>
+          <span class="mini-sub">
+            未回答 · {e.subject}{#if e.period} · {e.period}{/if}
+          </span>
+        </li>
+      {/each}
       {#each latestNotices as n (n.index)}
         <li>
           <span class="mini-title">{#if n.isImportant}<span class="badge">重要</span>{/if}{n.title}</span>

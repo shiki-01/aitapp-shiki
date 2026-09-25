@@ -106,11 +106,17 @@ export const browserApi: ApiClient = {
   async timetable() {
     return request('/api/timetable');
   },
-  async schedule() {
-    return request('/api/schedule');
+  async schedule(weeks, month) {
+    return request(`/api/schedule${qs({ weeks, month })}`);
   },
   async assignments() {
     return request('/api/assignments');
+  },
+  async assignmentStatuses(ids) {
+    return request(`/api/moodle/assignment/status${qs({ assignmentIds: ids.join(',') })}`);
+  },
+  async enquetes() {
+    return request(`/api/enquetes${qs({ type: 'class' })}`);
   },
   async syllabusFilters(year) {
     return request(`/api/syllabus/filters${qs({ year })}`);

@@ -410,7 +410,7 @@ Claude Codeの `.mcp.json` に登録して使う。認証情報・上流ロジ�
 | GET | `/api/notices?type=common\|class&count=10` | LCAM 連絡（登録済みの資格情報。失効しても自動で再ログイン。回復できないときは 424） |
 | GET | `/api/notices/detail?type=&index=` | 連絡詳細 |
 | GET | `/api/timetable` | LCAM 時間割（SP） |
-| GET | `/api/schedule` | 未対応（501）。予定は LCAM の PC 画面が必要で、SP 経路のセッションでは取得できない（PC 画面への直接アクセスはセッションを破棄する） |
+| GET | `/api/schedule?weeks=&month=` | 個人スケジュール（休講・補講・学校行事）。SP の token で PC ホームをメニュー遷移（POST）で開いて`weeks` 週（既定 6・最大 14）を取得。`month=N`（-8〜8）で今月から N か月ずらした月の 1 日を含む週から（広い範囲は分けて呼ぶ）。実 LCAM で動作確認済み（MIGRATION_NOTES §16）。PC 画面への直接 GET はセッションを破棄するため使わない |
 | GET | `/api/assignments` | Moodle 課題（token 経由） |
 | GET | `/api/syllabus/filters?year=` | シラバス検索フィルタ |
 | GET | `/api/syllabus/search?year=&word=&campus=&semester=&week=&hour=&folder=` | シラバス検索 |

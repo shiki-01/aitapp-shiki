@@ -263,6 +263,78 @@ export async function getNoticeDetailBody(
   return res.text();
 }
 
+// ---- スケジュール（PC ホームの個人スケジュール） ----
+
+/**
+ * POST common/generalPurpose/（メニュー遷移）で PC ホームを開く。PC 画面のメニュー「ホーム」と同じ
+ * （menuCode=Z07, nextPath=/home/home/initialize）。token は認証済みの直前ページ（SP 時間割でよい）のもの。
+ * 実測（2026-09-25）: SP セッション＋SP ページの token で通り、PC ホーム（週表示カレンダー付き、約 60 KB）が返る。
+ * 同じ SP セッションはその後も SP 画面で有効。一方、ここを経ずに `home/home/reload` を直接 POST すると
+ * 「システムエラー」のページになる（PC ホームの初期化が要る）。
+ */
+export async function postPcHomeInitialize(cookies: LcamCookies, token: string): Promise<string> {
+  const headers = {
+    Origin: BASE,
+    Referer: `${BASE}/portalv2/smartphone/smartPhoneHome/nextPage/timeTable`,
+    Cookie: cookieHeader(cookies),
+    ...constHeader,
+    ...secFetchHeader,
+    ...contentTypeHeader,
+  };
+  const data = {
+    'org.apache.struts.taglib.html.TOKEN': token,
+    headTitle: '',
+    menuCode: 'Z07',
+    nextPath: '/home/home/initialize',
+  };
+  const res = await httpAccess(`${BASE}/portalv2/common/generalPurpose/`, headers, data);
+  return res.text();
+}
+
+/**
+ * POST home/home/reload。PC ホームを再描画し、週表示のカレンダー（table.calendar-body）を含む HTML を返す。
+ * 移植元: access_lcan.dart reload。token は直前に描画されたページの Struts token。
+ * 注意: 先に postPcHomeInitialize で PC ホームを開いておくこと。直接 GET（token なし）で PC 画面へ入ると「不正な操作」でセッションが破棄される（MIGRATION_NOTES §14.4）。
+ * 必ず token 付きの POST で呼ぶこと。
+ */
+export async function postHomeReload(cookies: LcamCookies, token: string): Promise<string> {
+  const headers = {
+    Origin: BASE,
+    Cookie: cookieHeader(cookies),
+    ...constHeader,
+    ...secFetchHeader,
+    ...contentTypeHeader,
+  };
+  const data = {
+    'org.apache.struts.taglib.html.TOKEN': token,
+    _screenIdentifier: 'home',
+    _screenInfoDisp: '',
+    _scrollTop: '148',
+  };
+  const res = await httpAccess(`${BASE}/portalv2/home/home/reload`, headers, data);
+  return res.text();
+}
+
+/**
+ * POST schedule/scheduleForHome/getSchedule。サーバー側のセッションに持たれるカレンダーの表示位置を動かす
+ * （token 不要。実機の chengeSchedule と同じ）。mode: 2=前月 3=前週 4=今日 5=翌週 6=翌月。
+ * 表示は次の postHomeReload で反映される。
+ */
+export async function postScheduleMove(cookies: LcamCookies, mode: 2 | 3 | 4 | 5 | 6): Promise<void> {
+  const headers = {
+    Origin: BASE,
+    Cookie: cookieHeader(cookies),
+    ...constHeader,
+    ...secFetchHeader,
+    ...contentTypeHeader,
+  };
+  const res = await httpAccess(`${BASE}/portalv2/schedule/scheduleForHome/getSchedule`, headers, {
+    _mode: String(mode),
+    EXCLUDE_SET: '',
+  });
+  await res.body?.cancel();
+}
+
 // ---- 成績情報 ----
 
 /**

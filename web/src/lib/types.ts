@@ -25,6 +25,9 @@ import type {
   ScheduleEvent,
   ScheduleDay,
   Assignment,
+  AssignmentSubmission,
+  EnqueteList,
+  EnqueteListItem,
   SyllabusFilters,
   SyllabusListItem,
   SyllabusDetail,
@@ -38,6 +41,9 @@ export type {
   ScheduleEvent,
   ScheduleDay,
   Assignment,
+  AssignmentSubmission,
+  EnqueteList,
+  EnqueteListItem,
   SyllabusFilters,
   SyllabusListItem,
   SyllabusDetail,
@@ -122,8 +128,16 @@ export interface ApiClient {
   notices(type: 'common' | 'class', count?: number): Promise<{ notices: Notice[] }>;
   noticeDetail(type: 'common' | 'class', index: number): Promise<{ detail: NoticeDetail }>;
   timetable(): Promise<{ timetable: TimetableEntry[] }>;
-  schedule(): Promise<{ schedule: ScheduleDay[] }>;
+  /**
+   * LCAM の個人スケジュール。month 省略: 今日から weeks 週。month=N: 今月から N か月ずらした月の 1 日を含む週から weeks 週
+   * （Worker の 1 リクエストの上限のため、広い範囲は month をずらして分けて呼ぶ）。
+   */
+  schedule(weeks?: number, month?: number): Promise<{ schedule: ScheduleDay[] }>;
   assignments(): Promise<{ assignments: Assignment[] }>;
+  /** 指定した課題の提出状況（1 回 20 件まで。Worker の subrequest 上限のため）。参照のみ。 */
+  assignmentStatuses(ids: number[]): Promise<{ assignments: AssignmentSubmission[] }>;
+  /** LCAM の授業アンケート一覧（参照のみ）。 */
+  enquetes(): Promise<EnqueteList>;
   syllabusFilters(year?: string): Promise<{ filters: SyllabusFilters }>;
   syllabusSearch(params: SyllabusSearchParams): Promise<{ results: SyllabusListItem[] }>;
   syllabusDetail(

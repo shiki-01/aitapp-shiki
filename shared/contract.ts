@@ -60,11 +60,24 @@ export interface ScheduleEvent {
   location?: string;
   teacher?: string;
   period?: number;
+  /** 時限・教員・教室に当てはまらない追加行（休講・補講の表記など。形は未確定）。 */
+  note?: string;
 }
 
 export interface ScheduleDay {
   date: string; // YYYY-MM-DD
   events: ScheduleEvent[];
+}
+
+// ---- LCAM 授業アンケート（一覧） ----
+// fields は上流の一覧のラベル→値（授業科目 / タイトル / 状態 / 提出期間 / 提出状況）。
+export interface EnqueteListItem {
+  fields: Record<string, string>;
+}
+
+export interface EnqueteList {
+  count: number;
+  items: EnqueteListItem[];
 }
 
 // ---- シラバス ----
@@ -121,4 +134,16 @@ export interface Assignment {
   cutoffEpochMs: number; // 0 = 未設定
   courseId: number;
   courseName: string;
+}
+
+/** 課題1件の提出状況（Moodle mod_assign_get_submission_status）。参照のみ。 */
+export interface AssignmentSubmission {
+  id: number;
+  /** 'submitted' | 'new'(未提出) | 'draft'(下書きのみ) | 'reopened'(再提出要求)。未取得は null。 */
+  submissionStatus: string | null;
+  submitted: boolean | null;
+  /** 'graded' | 'notgraded' 等 */
+  gradingStatus: string | null;
+  /** 提出済みの場合の最終更新日時（ISO） */
+  submittedAt: string | null;
 }

@@ -9,6 +9,7 @@
     type Period,
   } from '$lib/date';
   import { events, memos, classMemos } from '$lib/stores/local.svelte';
+  import { schedule } from '$lib/stores/schedule.svelte';
   import MonthCalendar from '$lib/components/MonthCalendar.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
@@ -43,13 +44,35 @@
     })();
   });
 
-  // カレンダーのドット = カスタム予定のある日。
-  const marked = $derived(events.markedDates);
+  // LCAM の個人スケジュール（休講・学校行事など）。キャッシュが古いときだけ取り直す。
+  $effect(() => {
+    void schedule.ensureFresh();
+  });
+
+  // カレンダーのドット = カスタム予定のある日 + LCAM の学校行事などのある日。
+  const marked = $derived(new Set([...events.markedDates, ...schedule.markedDates]));
 
   const selKey = $derived(dateKey(selected));
   const dayKey = $derived(TIMETABLE_DAY_KEYS[selected.getDay()]);
 
-  function classAt(period: number): TimetableEntry | undefined {
+  // 選択日がスケジュールの取得範囲内なら、実際の授業（補講・休講の反映済み）を使う。
+  // 範囲外の日は曜日ごとの時間割で代用する。
+  const scheduled = $derived(schedule.covers(selKey) ? schedule.forDate(selKey) : null);
+
+  function classAt(period: number): (TimetableEntry & { note?: string }) | undefined {
+    if (scheduled) {
+      const ev = scheduled.find((e) => e.period === period);
+      return ev
+        ? {
+            day: dayKey ?? '',
+            period,
+            title: ev.title,
+            classRoom: ev.location ?? '',
+            teacher: ev.teacher ?? '',
+            note: ev.note,
+          }
+        : undefined;
+    }
     if (!dayKey) return undefined;
     return timetable.find((e) => e.day === dayKey && e.period === period);
   }
@@ -63,6 +86,22 @@
       memo: classMemos.get(selKey, p.period),
     })),
   );
+
+  // 学校の予定（授業以外。行事・休講日など）と、1〜6限に収まらない時限の授業。
+  const schoolEvents = $derived(
+    (scheduled ?? []).filter((e) => e.period === undefined || e.period > PERIODS.length),
+  );
+
+  function timeOf(iso: string): string {
+    return iso.slice(11, 16);
+  }
+
+  const fetchedLabel = $derived.by(() => {
+    const t = schedule.fetchedAt;
+    if (!t) return '';
+    const d = new Date(t);
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 更新`;
+  });
 
   const dayEvents = $derived(events.forDate(selKey));
 
@@ -136,12 +175,13 @@
             {#if row.entry}
               <div class="topline">
                 {#if row.entry.classRoom}<span class="tag">{row.entry.classRoom}</span>{/if}
-                <span class="title">{row.entry.title}</span>
+                <span class="title" class:cancelled={row.entry.note?.includes('休講')}>{row.entry.title}</span>
               </div>
               {#if row.entry.teacher}<span class="teacher">{row.entry.teacher}</span>{/if}
             {:else}
               <span class="title vacant-label">{row.period.period}限（授業なし）</span>
             {/if}
+            {#if row.entry?.note}<span class="cancel-note">{row.entry.note}</span>{/if}
             {#if row.memo}<span class="memo-note">{row.memo.body}</span>{/if}
           </div>
           <button
@@ -154,6 +194,52 @@
         </div>
       {/each}
     </div>
+
+    <!-- 学校の予定（LCAM のスケジュール）: 授業以外の行事・休講日など。 -->
+    <div class="section-head">
+      <span class="section-title">学校の予定</span>
+      <button
+        class="refresh"
+        onclick={() => schedule.refresh()}
+        disabled={schedule.loading}
+        aria-label="学校の予定を更新"
+      >
+        {schedule.loading ? `更新中 ${schedule.progress}/${schedule.total}` : '更新'}
+      </button>
+    </div>
+    {#if schoolEvents.length > 0}
+      <div class="rows">
+        {#each schoolEvents as ev, i (selKey + i)}
+          <div class="row school">
+            <div class="time school-time">
+              {#if ev.period !== undefined}
+                <span>{timeOf(ev.startTime)}</span><span>~</span><span>{timeOf(ev.endTime)}</span>
+              {:else}
+                <span>終日</span>
+              {/if}
+            </div>
+            <div class="content">
+              <span class="title wrap">{ev.title}</span>
+              {#if ev.location || ev.teacher}
+                <span class="teacher">{[ev.location, ev.teacher].filter(Boolean).join(' · ')}</span>
+              {/if}
+              {#if ev.note}<span class="cancel-note">{ev.note}</span>{/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <p class="empty">
+        <span class="sub">
+          {#if schedule.covers(selKey)}この日の学校の予定はありません。{:else if schedule.loading}取得中…{:else}この日の学校の予定は未取得です。{/if}
+        </span>
+      </p>
+    {/if}
+    {#if schedule.error}
+      <p class="empty"><span class="sub err">{schedule.error}</span></p>
+    {:else if fetchedLabel}
+      <p class="fetched">{fetchedLabel}</p>
+    {/if}
 
     <!-- 他の予定: 1〜6限とは別に表示する。 -->
     <div class="section-head">
@@ -308,6 +394,7 @@
   }
   .row {
     display: flex;
+    height: 60px;
     align-items: stretch;
     background: var(--primary-bg);
     border-radius: var(--radius-sm);
@@ -328,6 +415,45 @@
   .vacant-label {
     color: var(--muted);
     font-weight: 400;
+  }
+  .title.cancelled {
+    text-decoration: line-through;
+    color: var(--muted);
+  }
+  .cancel-note {
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--danger);
+  }
+  .row.school {
+    background: #fff;
+    border: 1px solid var(--border);
+  }
+  .time.school-time {
+    background: var(--navy);
+  }
+  .title.wrap {
+    white-space: normal;
+  }
+  .refresh {
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--muted);
+    border-radius: 16px;
+    padding: 4px 12px;
+    font-size: 0.78rem;
+  }
+  .refresh:disabled {
+    opacity: 0.6;
+  }
+  .fetched {
+    margin: 6px 0 0;
+    text-align: right;
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
+  .empty .sub.err {
+    color: var(--danger);
   }
   .memo-note {
     font-size: 0.72rem;

@@ -27,6 +27,8 @@ import {
   fetchFile,
   fetchPerformance,
   fetchEnqueteList,
+  fetchSchedule,
+  MAX_SCHEDULE_MONTH_OFFSET,
   fetchEnqueteQuestions,
   submitEnqueteAnswer,
   finalizeEnqueteAnswer,
@@ -590,23 +592,32 @@ app.get('/api/timetable', async (c) => {
   return c.json({ timetable });
 });
 
-// ---- GET /api/schedule（未対応） ----
-// 予定（休講・補講等）は LCAM の PC 画面が必要。Cookie 登録方式では取得できないため
-// LCAM へはアクセスせず 501 を返す。実測: PC 画面（common/generalPurpose/）へ直接 GET すると
-// 「不正な操作が行われました」となり、登録済みセッション自体が破棄される
-// （MIGRATION_NOTES §14.4）。誤って呼んで SP 系まで使えなくならないよう、PC 画面には触れない。
-app.get('/api/schedule', (c) =>
-  c.json(
-    {
-      error: 'not_supported',
-      message:
-        '予定（休講・補講等）は現在取得できません。LCAM の PC 画面が必要で、ログイン済み Cookie を' +
-        '登録する方式では取得できないためです。時間割・連絡・成績・アンケートは利用できます。',
-      correlationId: c.get('correlationId'),
-    },
-    501,
-  ),
-);
+// ---- GET /api/schedule?weeks=&month=（個人スケジュール。休講・補講・学校行事など） ----
+// PC ホームのカレンダーを、SP ページの token 付き POST（メニュー遷移）でたどって取得する
+// （PC 画面への直接 GET は「不正な操作」でセッションが破棄されるため使わない。MIGRATION_NOTES §14.4 / §16）。
+//   month 省略: 今日から weeks 週。
+//   month=N（-8〜8）: 今月から N か月ずらした月の 1 日を含む週（月曜始まり）から weeks 週。
+// 1 リクエストで動かせる回数（subrequest 50）に限りがあるため、広い範囲は呼び出し側が month をずらして分割して呼ぶ。
+// LCAM は単一セッションで、PC 画面へ入ると SP 側の Cookie が失効することがある。その場合は次の SP リクエストが
+// 透過再ログインで復帰する。
+app.get('/api/schedule', async (c) => {
+  const weeks = parseInt(c.req.query('weeks') ?? '6', 10);
+  if (Number.isNaN(weeks) || weeks < 1) return c.json({ error: 'invalid weeks' }, 400);
+  let month: number | undefined;
+  const monthRaw = c.req.query('month');
+  if (monthRaw !== undefined) {
+    month = parseInt(monthRaw, 10);
+    if (Number.isNaN(month) || Math.abs(month) > MAX_SCHEDULE_MONTH_OFFSET) {
+      return c.json({ error: 'invalid month' }, 400);
+    }
+  }
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const schedule = await withLcamSession(c.env, userId, state, (cookies) =>
+    fetchSchedule(cookies, weeks, month),
+  );
+  return c.json({ schedule });
+});
 
 // ---- GET /api/performance（成績情報） ----
 app.get('/api/performance', async (c) => {
@@ -743,12 +754,22 @@ app.get('/api/moodle/assignment/status', async (c) => {
   if (dueWithinDays === 'invalid') return c.json({ error: 'invalid dueWithinDays' }, 400);
   const nameFilter = c.req.query('nameFilter') || undefined;
   const includePastDue = ['1', 'true'].includes(c.req.query('includePastDue') ?? '');
+  // assignmentIds=1,2,3（Web 画面が表示中の課題の提出状況をまとめて取る）。
+  let assignmentIds: number[] | undefined;
+  const idsRaw = c.req.query('assignmentIds');
+  if (idsRaw !== undefined) {
+    assignmentIds = idsRaw.split(',').map((v) => parseInt(v, 10));
+    if (assignmentIds.length === 0 || assignmentIds.some((n) => Number.isNaN(n))) {
+      return c.json({ error: 'invalid assignmentIds' }, 400);
+    }
+  }
 
   const userId = c.get('userId');
   const state = c.get('state');
   const result = await withMoodleToken(c.env, userId, state, (token, moodleOrigin) =>
     getAssignmentsWithStatus(moodleOrigin, token, {
       assignmentId,
+      assignmentIds,
       courseId,
       nameFilter,
       dueWithinDays,

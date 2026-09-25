@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, ApiError, type Notice, type NoticeDetail } from '$lib/api';
+  import { toEnqueteView, isPending, type EnqueteView } from '$lib/enquete';
   import { isTauri } from '$lib/platform';
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
@@ -23,7 +24,10 @@
 
   const STEP = 10;
 
-  let type = $state<'common' | 'class'>('common');
+  // アンケートは別 API のため、連絡系の API に渡す種別は common / class のどちらかに絞る。
+  const noticeType = (): 'common' | 'class' => (type === 'class' ? 'class' : 'common');
+
+  let type = $state<'common' | 'class' | 'enquete'>('common');
   let loaded = $state<Notice[]>([]);
   // 累積表示件数（上流 listPageNo）。上流は先頭から count 件を返すため、
   // append ではなく毎回全件を取り直して置き換える。
@@ -37,6 +41,39 @@
   let detail = $state<NoticeDetail | null>(null);
   let detailOpen = $state(false);
   let detailLoading = $state(false);
+
+  // 授業アンケート（LCAM の一覧は先頭のまとまりだけで、件数は少ない。ページングなし）。
+  let enquetes = $state<EnqueteView[]>([]);
+  let enqueteLoaded = $state(false);
+  let enqueteOpen = $state(false);
+  let enqueteSel = $state<EnqueteView | null>(null);
+  const pendingCount = $derived(enquetes.filter(isPending).length);
+  const shownEnquetes = $derived(
+    enquetes.filter((e) => {
+      const q = query.trim().toLowerCase();
+      return !q || [e.title, e.subject].join(' ').toLowerCase().includes(q);
+    }),
+  );
+
+  async function loadEnquetes() {
+    loading = true;
+    error = '';
+    try {
+      const res = await api.enquetes();
+      enquetes = res.items.map(toEnqueteView);
+      enqueteLoaded = true;
+    } catch (err) {
+      enquetes = [];
+      error = err instanceof ApiError ? err.message : 'アンケートの取得に失敗しました';
+    } finally {
+      loading = false;
+    }
+  }
+
+  function openEnquete(e: EnqueteView) {
+    enqueteSel = e;
+    enqueteOpen = true;
+  }
 
   function matchQuery(n: Notice): boolean {
     const q = query.trim().toLowerCase();
@@ -53,12 +90,13 @@
   const shown = $derived(withForced.filter(matchQuery));
 
   async function load() {
+    if (type === 'enquete') return loadEnquetes();
     loading = true;
     error = '';
     count = STEP;
     noMore = false;
     try {
-      const res = await api.notices(type, count);
+      const res = await api.notices(noticeType(), count);
       loaded = res.notices;
       // 要求件数に満たなければ末尾に到達している。
       noMore = res.notices.length < count;
@@ -76,7 +114,7 @@
     loadingMore = true;
     const next = count + STEP;
     try {
-      const res = await api.notices(type, next);
+      const res = await api.notices(noticeType(), next);
       if (res.notices.length <= loaded.length || res.notices.length < next) {
         noMore = true;
       }
@@ -89,7 +127,7 @@
     }
   }
 
-  function switchType(t: 'common' | 'class') {
+  function switchType(t: 'common' | 'class' | 'enquete') {
     if (type === t) return;
     type = t;
     load();
@@ -108,7 +146,7 @@
       return;
     }
     try {
-      const res = await api.noticeDetail(type, index);
+      const res = await api.noticeDetail(noticeType(), index);
       detail = res.detail;
     } catch (err) {
       error = err instanceof ApiError ? err.message : '詳細の取得に失敗しました';
@@ -120,6 +158,16 @@
 
   $effect(() => {
     load();
+    // アンケートの未回答数をタブのバッジに出すため、最初に一度だけ取っておく。
+    if (type !== 'enquete' && !enqueteLoaded) {
+      api
+        .enquetes()
+        .then((res) => {
+          enquetes = res.items.map(toEnqueteView);
+          enqueteLoaded = true;
+        })
+        .catch(() => {});
+    }
   });
 </script>
 
@@ -130,6 +178,9 @@
 <div class="tabs">
   <button class:active={type === 'common'} onclick={() => switchType('common')}>学内連絡</button>
   <button class:active={type === 'class'} onclick={() => switchType('class')}>授業連絡</button>
+  <button class:active={type === 'enquete'} onclick={() => switchType('enquete')}>
+    アンケート{#if pendingCount > 0}<span class="tab-badge">{pendingCount}</span>{/if}
+  </button>
 </div>
 
 <div class="search">
@@ -141,6 +192,33 @@
   <p class="muted">読み込み中…</p>
 {:else if error}
   <p class="error">{error}</p>
+{:else if type === 'enquete'}
+  {#if shownEnquetes.length === 0}
+    <p class="muted">{query ? '一致するアンケートはありません。' : '授業アンケートはありません。'}</p>
+  {:else}
+    <ul class="list">
+      {#each shownEnquetes as e (e.index)}
+        <li>
+          <button class="item" onclick={() => openEnquete(e)}>
+            <div class="title-row">
+              {#if isPending(e)}
+                <span class="badge">未回答</span>
+              {:else if e.done}
+                <span class="badge done">回答済み</span>
+              {:else if e.closed}
+                <span class="badge muted-badge">受付終了</span>
+              {/if}
+              <span class="title">{e.title}</span>
+            </div>
+            <div class="meta">
+              {e.subject}{#if e.period} · 提出期間 {e.period}{/if}
+            </div>
+          </button>
+        </li>
+      {/each}
+    </ul>
+    <p class="end">回答は L-Cam（授業アンケート）から行えます。</p>
+  {/if}
 {:else if shown.length === 0}
   <p class="muted">{query ? '一致するお知らせはありません。' : 'お知らせはありません。'}</p>
 {:else}
@@ -168,6 +246,19 @@
     <p class="end">これ以上はありません</p>
   {/if}
 {/if}
+
+<Sheet bind:open={enqueteOpen} title="授業アンケート">
+  {#if enqueteSel}
+    <h3 class="d-title">{enqueteSel.title}</h3>
+    <dl class="fields">
+      {#if enqueteSel.subject}<dt>授業科目</dt><dd>{enqueteSel.subject}</dd>{/if}
+      {#if enqueteSel.status}<dt>状態</dt><dd>{enqueteSel.status}</dd>{/if}
+      {#if enqueteSel.period}<dt>提出期間</dt><dd>{enqueteSel.period}</dd>{/if}
+      {#if enqueteSel.submission}<dt>提出状況</dt><dd>{enqueteSel.submission}</dd>{/if}
+      {#each enqueteSel.extra as [k, v]}<dt>{k}</dt><dd>{v}</dd>{/each}
+    </dl>
+  {/if}
+</Sheet>
 
 <Sheet bind:open={detailOpen} title="お知らせ" tall>
   {#if detailLoading}
@@ -272,6 +363,38 @@
   }
   .title {
     font-weight: 600;
+  }
+  .tab-badge {
+    margin-left: 6px;
+    background: var(--important);
+    color: #fff;
+    border-radius: 10px;
+    padding: 0 6px;
+    font-size: 0.72rem;
+  }
+  .tabs button.active .tab-badge {
+    background: #fff;
+    color: var(--important);
+  }
+  .badge.done {
+    background: var(--primary-light);
+  }
+  .badge.muted-badge {
+    background: var(--muted);
+  }
+  .fields {
+    margin: 12px 0 0;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 6px 14px;
+  }
+  .fields dt {
+    color: var(--muted);
+    font-size: 0.82rem;
+  }
+  .fields dd {
+    margin: 0;
+    overflow-wrap: anywhere;
   }
   .badge {
     flex: 0 0 auto;

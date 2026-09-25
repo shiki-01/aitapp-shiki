@@ -317,6 +317,8 @@ const MAX_SUBMISSION_STATUS_LOOKUPS = 20;
 
 export interface AssignmentStatusFilter {
   assignmentId?: number;
+  /** 複数の課題 ID を指定して提出状況を取る（Web 画面のまとめ取得用。締切超過済みも含める）。 */
+  assignmentIds?: number[];
   courseId?: number;
   /** 課題名の部分一致（大文字小文字を区別しない）。 */
   nameFilter?: string;
@@ -356,6 +358,10 @@ export async function getAssignmentsWithStatus(
   if (filter?.assignmentId !== undefined) {
     list = list.filter((a) => a.id === filter.assignmentId);
   }
+  if (filter?.assignmentIds !== undefined) {
+    const ids = new Set(filter.assignmentIds);
+    list = list.filter((a) => ids.has(a.id));
+  }
   if (filter?.courseId !== undefined) {
     list = list.filter((a) => a.courseId === filter.courseId);
   }
@@ -364,7 +370,11 @@ export async function getAssignmentsWithStatus(
     list = list.filter((a) => a.name.toLowerCase().includes(needle));
   }
   const now = Date.now();
-  if (!filter?.includePastDue && filter?.assignmentId === undefined) {
+  if (
+    !filter?.includePastDue &&
+    filter?.assignmentId === undefined &&
+    filter?.assignmentIds === undefined
+  ) {
     list = list.filter((a) => {
       const deadline = effectiveDeadlineMs(a);
       return deadline === 0 || deadline >= now;

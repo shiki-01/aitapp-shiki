@@ -33,15 +33,6 @@ export type {
   ScheduleDay,
 };
 
-// 授業時限の開始/終了（const.dart classPeriods）。[startH, startM, endH, endM]
-const CLASS_PERIODS: Record<number, [number, number, number, number]> = {
-  1: [9, 0, 10, 30],
-  2: [10, 40, 12, 10],
-  3: [13, 0, 14, 30],
-  4: [14, 40, 16, 10],
-  5: [16, 20, 17, 50],
-};
-
 function pad(n: number): string {
   return n < 10 ? `0${n}` : String(n);
 }
@@ -742,21 +733,49 @@ export function parseClassTimeTable(html: string): TimetableEntry[] {
 
 // ---- スケジュール（PC） ----
 
-/** 移植元: schedule。`table.calendar-body` を解析。 */
-export function parseSchedule(html: string, now: Date = new Date()): ScheduleDay[] {
+const ROMAN_PERIODS = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ', 'Ⅶ', 'Ⅷ'];
+
+/** JST の日付（Workers は UTC で動くため、日付をまたぐ直前後で年の判定がずれないよう JST に揃える）。 */
+function jstDate(now: Date): { year: number; month: number; day: number } {
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return { year: jst.getUTCFullYear(), month: jst.getUTCMonth() + 1, day: jst.getUTCDate() };
+}
+
+/**
+ * 移植元: schedule。`table.calendar-body` を解析。
+ * 1 日ぶんのセルは `<hr class="schedule_line">` で予定ごとに区切られ、予定の中は `<br>` で行に分かれる。
+ * 実機（2026-09-25）の形:
+ *   授業: `Ⅰ限(09:00-10:30)` / `[八]科目(クラス)` / `教員` / `八草 教室`（4 行）
+ *   行事: `履修登録(終了)`（1 行。終日扱い）
+ * 年は基準日 `anchor` に最も近い年（表示範囲は基準日の前後 6 か月以内）。
+ * 上記以外の形（休講・補講などの表記は未観測）は捨てずに、行を連結したタイトルの終日予定として残す
+ * （時限行があれば、その時限の時刻を付け、残りの行は note に入れる）。
+ */
+export function parseSchedule(html: string, anchor: Date = new Date()): ScheduleDay[] {
   const root = parseHtml(html);
   const element = root.querySelector('table.calendar-body');
   if (!element) {
     throw new NotFoundError('[parseSchedule]データの取得に失敗しました');
   }
 
+  // 見出しは「月/日」だけなので、年は基準日（表示範囲のおおよその中心）に最も近くなるものを選ぶ。
+  const a = jstDate(anchor);
+  const anchorMs = Date.UTC(a.year, a.month - 1, a.day);
   const ths = selAll(element, 'thead > tr > th');
   const dates = ths.map((th) => {
     const m = /(\d{1,2})\/(\d{1,2})/.exec(th.text.trim());
     if (!m) throw new NotFoundError('[parseSchedule]日付の取得に失敗しました');
     const month = parseInt(m[1], 10);
     const day = parseInt(m[2], 10);
-    const year = now.getMonth() + 1 > month ? now.getFullYear() + 1 : now.getFullYear();
+    let year = a.year;
+    let best = Infinity;
+    for (const y of [a.year - 1, a.year, a.year + 1]) {
+      const dist = Math.abs(Date.UTC(y, month - 1, day) - anchorMs);
+      if (dist < best) {
+        best = dist;
+        year = y;
+      }
+    }
     return { year, month, day };
   });
 
@@ -776,36 +795,70 @@ export function parseSchedule(html: string, now: Date = new Date()): ScheduleDay
         .filter((e) => e !== '');
       if (parts.length === 0) continue;
 
-      let eventText: string | null = null;
-      let location: string | undefined;
-      let teacher: string | undefined;
-      let period: number | null = null;
-
-      if (parts.length === 4) {
-        teacher = parts[2].replace(/他/g, '').trim();
-        location = parts[3];
-        eventText = parts[1].replace(/\[八\]/g, '');
-        const pm = /(Ⅰ|Ⅱ|Ⅲ|Ⅳ|Ⅴ)限/.exec(parts[0]);
-        period = pm
-          ? { Ⅰ: 1, Ⅱ: 2, Ⅲ: 3, Ⅳ: 4, Ⅴ: 5 }[pm[1] as 'Ⅰ' | 'Ⅱ' | 'Ⅲ' | 'Ⅳ' | 'Ⅴ'] ?? null
-          : null;
-      } else if (parts.length === 1) {
-        eventText = parts[0];
+      // 休講・補講は先頭に `【休講】` のような印が付く。実測（2026-09-25）は印だけの 1 行 + 授業の 3 行:
+      //   `【休講】` / `Ⅴ限(16:20-17:50)` / `教育原論(X1)` / `川口　洋誉　他`（教室の行は無い）。
+      // 印が時限の行の先頭に付く形（`【補講】 Ⅵ限(…)`）も受ける。
+      let lines = parts;
+      let tag: string | undefined;
+      const tagOnly = /^【([^】]+)】$/.exec(parts[0]);
+      if (tagOnly && parts.length > 1) {
+        tag = tagOnly[1];
+        lines = parts.slice(1);
+      } else {
+        const tagPrefix = /^【([^】]+)】\s*/.exec(parts[0]);
+        if (tagPrefix) {
+          tag = tagPrefix[1];
+          lines = [parts[0].slice(tagPrefix[0].length), ...parts.slice(1)];
+        }
       }
+      const first = lines[0];
 
-      if (period != null && eventText != null && CLASS_PERIODS[period]) {
-        const [sh, sm, eh, em] = CLASS_PERIODS[period];
-        events.push({
-          title: eventText,
-          startTime: `${dateStr}T${pad(sh)}:${pad(sm)}`,
-          endTime: `${dateStr}T${pad(eh)}:${pad(em)}`,
-          location,
-          teacher,
+      const head = new RegExp(
+        `^(${ROMAN_PERIODS.join('|')})限\\s*[(（](\\d{1,2}):(\\d{2})\\s*[-〜~－]\\s*(\\d{1,2}):(\\d{2})[)）]\\s*`,
+      ).exec(first);
+
+      if (head) {
+        const period = ROMAN_PERIODS.indexOf(head[1]) + 1;
+        // 同じ行に続く「科目 教員」（休講の 1 行表記）と、次の行以降を合わせて扱う。
+        const inline = first.slice(head[0].length).trim();
+        let rest = lines.slice(1);
+        let teacher: string | undefined;
+        let location: string | undefined;
+        let title: string;
+        if (inline) {
+          const [subject, ...others] = inline.split(/[\s\u3000]+/);
+          title = subject;
+          const t = others.join(' ').replace(/[\s\u3000]*他$/, '').trim();
+          if (t) teacher = t;
+        } else {
+          title = (rest[0] ?? '').replace(/\[八\]/g, '').trim();
+          if (rest.length === 3) {
+            teacher = rest[1].replace(/[\s\u3000]*他$/, '').trim();
+            location = rest[2];
+            rest = [];
+          } else if (rest.length === 2) {
+            // 科目 + 教員（休講など教室の行が無い形）。
+            teacher = rest[1].replace(/[\s\u3000]*他$/, '').trim();
+            rest = [];
+          } else {
+            rest = rest.slice(1);
+          }
+        }
+        const ev: ScheduleEvent = {
+          title: title.replace(/\[八\]/g, '').trim() || first,
+          startTime: `${dateStr}T${pad(parseInt(head[2], 10))}:${head[3]}`,
+          endTime: `${dateStr}T${pad(parseInt(head[4], 10))}:${head[5]}`,
           period,
-        });
-      } else if (eventText != null) {
+        };
+        if (teacher) ev.teacher = teacher;
+        if (location) ev.location = location;
+        // 印（休講・補講など）と、形が確定していない追加行は note に残す。
+        const note = [tag, ...rest].filter(Boolean).join(' ');
+        if (note) ev.note = note;
+        events.push(ev);
+      } else {
         events.push({
-          title: eventText,
+          title: [tag ? `【${tag}】` : '', ...lines].filter(Boolean).join(' ').replace(/\[八\]/g, '').trim(),
           startTime: `${dateStr}T00:00`,
           endTime: `${dateStr}T23:59`,
         });
