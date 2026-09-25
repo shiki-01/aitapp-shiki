@@ -1361,3 +1361,56 @@ IPA の入手と導入:
 - 実データ確認（2026-09-25）: 本物の Moodle（cms.aitech.ac.jp）で課題 72 件、`assignmentIds` 15 件ずつの提出状況を全件取得できた
   （提出済み 71・未提出 1）。**ローカルの Worker が `.dev.vars` の `MOODLE_ORIGIN_OVERRIDE` でサンドボックス（コース `test` のみ）に
   固定されていると課題が 0 件に見える**（本物を見るときはこの行を外す／`cms.aitech.ac.jp` にして再起動）。画面はダミー API でも確認。
+
+## 17. LCAM PC 版の参照機能（2026-09-25。docs/LCAM_FEATURES.md の実装）
+
+PC 版の画面（Struts）を Worker から読む機能を追加した。**いずれも「ユーザーが内蔵ブラウザで入った実 LCAM」で、Worker と同じ手順の
+POST を再現して確認した**（Worker からの実行は未検証。§17.5）。
+
+### 17.1 PC 画面の入り方（`worker/src/upstream/lcam/pc.ts`）
+
+- 入口: SP 時間割の GET から Struts token を得る → `POST /portalv2/common/generalPurpose/`（TOKEN・`headTitle`（空でよい）・`menuCode`・
+  `nextPath`）でメニューを開く。以降はそのページのフォームを POST し、**応答の token を次に使う**。
+- **token は使い捨て**。使用済みの token を再送すると「不正な操作」（題「総合ポータルシステム」）になり、**LCAM セッションが破棄される**
+  （調査中に自分で踏んだ）。Worker は 1 リクエストの中で直列にたどる。`assertPcPage` は「不正な操作」を `UpstreamError`
+  （再ログインを繰り返さない）、ログイン画面を `LcamExpiredError` にする。
+- 検索フォームは「画面の初期値 + 指定した項目だけ上書き」で送る（`formDefaults`）。詳細への遷移などは TOKEN + 最小の項目で通った。
+- ダウンロード（`fileDownLoad2/…`）は token 検査の対象外（画面が `EXCLUDE_SET` を付ける）。フォームの項目を POST するとファイルが返る。
+
+### 17.2 機能ごとの遷移（メニューコード → 確認した POST）
+
+| 機能 | menuCode / nextPath | 確認した遷移 |
+|------|---------------------|--------------|
+| 学内共有ファイル | B08 `/commonfile/commonFile/initialize` | 詳細 `commonFileDetail/initialize`（TOKEN, `hiddenCommonFileId`, `prevPageId`）→ 添付 `commonFileDetail/fileDownLoad2/…` |
+| レポート | A02 `/report/student/searchList/initialize` | 検索 `searchList/search`（`schoolYear`, `semesterCode`, `operationFormat`×2 [, `submitStatus=0`]）→ 参照 `searchList/forwardSubmitRef`（TOKEN, `reportId`）→ 提出履歴のファイル `submitReportReference/fileDownload?EXCLUDE_SET=`（参照画面のフォームの項目 + `studentCode`/`submitNo`/`fileNo`） |
+| 施設 | B03 `/facilityresv/facilityInfoSelect/initialize` | 表示 `facilityInfoSelect/checkInput`（`checkArray` に施設コード。複数可。選んだ順に行が並ぶ）→ 週送り `facilityResvRefWeek/reload`（`dayMoveDivision` 3=前週 4=今日 5=翌週） |
+| 学内連絡 | B01 `/commoncontact/commonContact/initialize` | 検索 `commonContactRcvList/searchCommoncontactRcvList` → 詳細 `commonContact/dtlEdit`（`mode=initializeRcv`, `selectIndex`, `commonContactId`, `commonContactKindDivision`）→ 添付 `common/fileUploadDownload/fileDownLoad2/…`（詳細の `common_fileUpload` フォームの項目） |
+| 授業連絡 | A01 `/classcontact/classContactList/initialize` | 検索 `classContactList/selectClassContactList` → 詳細 `classContactList/goDetail/{行番号}`（TOKEN のみ。一覧はセッションが持つ）→ 添付は学内連絡と同じ |
+| 学事システム | 下記 | 下記 |
+
+- 添付の詳細画面の onclick は名前が `\uXXXX` エスケープ（`decodeJsEscapes`）。
+
+### 17.3 学事システム（`kyoumu.ts`）
+
+- ホーム（Z07）の `home_systemCooperationLink` フォームの token で `POST /portalv2/home/systemCooperationLink/initialize?renkeiType=kyoumu`
+  → 自動送信フォーム（`/kyoumu/portalRedirect.do;JSESSIONID=…`, hidden `loginID`）→ その action へ `loginID` を POST → メニュー（`dbLinkClick('/kyoumu/…')`
+  のリンク 16 個）。以降は GET。
+- **URL の jsessionid だけでは 500**（実測。Cookie なしで 500、Cookie ありで 200）。引き渡し応答の Set-Cookie（学事システムの JSESSIONID）を保持して送る。
+  LCAM 本体の JSESSIONID は送らない（同名で衝突）。応答は基本 UTF-8、エラー画面は Shift_JIS。
+- 表は入れ子のレイアウト表。実データを持つのは入れ子のない `table.txt12`（カリキュラム 182×6、単位修得 24×13、抽選結果は曜日時限ごとに複数）。
+  単位修得は rowspan/colspan の階層表で、展開すると 13 列の規則的な表になる（実 HTML で確認）。
+- 学内スケジュールの月切替は GET（`?actionStatus=change&changeTarget=month&targetMonth=N`）。年度切替（`targetNendo=prev|next`）は未対応。
+
+### 17.4 API（`worker/src/routes-pc.ts`）
+
+`/api/commonfiles`(+`/detail`,`/download`) / `/api/reports`(+`/detail`,`/download`) / `/api/facilities`(+`/schedule`) /
+`/api/pcnotices`(+`/detail`,`/file`。kind=campus|class) / `/api/credits` / `/api/curriculum` / `/api/schoolevents` / `/api/lottery`。
+いずれも参照のみ。MCP のツールと web の「その他 → 学内サービス」に対応する。
+
+### 17.5 未検証・要観測
+
+- **Worker（relay 経由）からの実行は未検証**。特に学事システムの Cookie の受け渡し（relay が複数の Set-Cookie を返すか）と、
+  PC 画面へ SP セッションから入ることの副作用（`/api/schedule` と同じ既知の性質: SP 側 Cookie が失効することがある）。
+- 実データが 0 件で構造を見られていないもの: 提出期間中のレポートの提出画面、評価結果の節（`h3 評価結果` 以降の形）、返信可の連絡、
+  授業評価アンケート・トピック・FAQ・オフィスアワーの中身。レポートの「参考資料」のファイル取得は未対応（表記のみ）。
+- 一覧が長い場合: 学内連絡は既定で 105 行が 1 ページに出る（ページングの操作は不要だった）。授業連絡・施設も同様。
