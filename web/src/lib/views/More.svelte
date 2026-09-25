@@ -2,9 +2,8 @@
   import { memos, type Memo } from '$lib/stores/local.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
-  import Syllabus from './Syllabus.svelte';
   import { api, ApiError, type LcamSessionStatus } from '$lib/api';
-  import { isDesktop } from '$lib/platform';
+  import { isDesktop, isTauri } from '$lib/platform';
 
   let { userId = '', onLogout }: { userId?: string; onLogout?: () => void } = $props();
 
@@ -259,9 +258,6 @@
     memoOpen = false;
   }
 
-  // シラバス検索シート
-  let syllabusOpen = $state(false);
-
   // 外部システム導線。実 URL が不明なものは導線のみ（要件: 推測補完しない）。
   const LINKS: { label: string; href: string }[] = [
     { label: '大学ポータル (AIT Portal)', href: 'https://portal.aitech.ac.jp/' },
@@ -309,10 +305,11 @@
   <div class="block-h"><span><Icon name="grid" size={18} color="var(--primary)" /> システム</span></div>
   <ul class="links">
     <li>
-      <button class="link" onclick={() => (syllabusOpen = true)}>
+      <!-- ブラウザ/PWA は新規タブ。Tauri にはタブが無いので同一ウィンドウで遷移する。 -->
+      <a class="link" href="/syllabus" target={isTauri ? undefined : '_blank'} rel="noopener">
         <Icon name="book" size={18} color="var(--primary)" /><span>シラバス検索</span>
         <Icon name="chevron-right" size={16} color="var(--muted)" />
-      </button>
+      </a>
     </li>
     {#each LINKS as l}
       <li>
@@ -503,11 +500,6 @@
       <button class="save" onclick={() => answer(true)}>{confirmOkLabel}</button>
     </div>
   </div>
-</Sheet>
-
-<!-- シラバス -->
-<Sheet bind:open={syllabusOpen} title="シラバス検索">
-  <Syllabus />
 </Sheet>
 
 <style>

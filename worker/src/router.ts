@@ -81,6 +81,7 @@ import { classifyUpstreamService } from './upstream/service';
 import { handleMcpRequest } from './mcp/handler';
 import { mintUserMcpToken } from './mcp/token';
 import { log, redactPath } from './log';
+import { applyInlineView } from './inline-view';
 
 type Variables = { userId: string; state: UserState; correlationId: string };
 
@@ -1186,6 +1187,8 @@ app.get('/api/file/:id', async (c) => {
   if (ct) headers.set('content-type', ct);
   if (cd) headers.set('content-disposition', cd);
   if (cl) headers.set('content-length', cl);
+  // ?inline=1: ブラウザ標準ビューアで表示(pdf/画像/txt のみ。他はダウンロードのまま)。
+  if (c.req.query('inline') === '1') applyInlineView(headers);
   // 認証済みファイルをブラウザのディスクキャッシュに残さない。
   headers.set('cache-control', 'no-store');
   return new Response(upstream.body, { status: upstream.status, headers });

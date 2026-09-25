@@ -122,7 +122,8 @@ export const browserApi: ApiClient = {
     return request(`/api/syllabus/detail${qs({ url, ...context })}`);
   },
   fileUrl(relativePath) {
-    return `${BASE}${fileApiPath(relativePath)}`;
+    // inline=1: ブラウザ標準ビューアで表示(pdf/画像/txt)。他形式は従来どおりダウンロード。
+    return `${BASE}${fileApiPath(relativePath)}?inline=1`;
   },
   async openFile() {
     // browser版はfileUrl()を<a href target=_blank>で開くため呼ばれない。

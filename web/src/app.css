@@ -32,6 +32,59 @@
     --shadow: 0 6px 24px rgba(16, 64, 140, 0.08);
 }
 
+/* ==========================================================================
+   レスポンシブ: スマホ / デスクトップの判別（境界 768px は vite.config.ts が唯一の定義）
+
+   1) 構造ごと変わる場合 … @media (--desktop) { … } / @media (--mobile) { … }
+      （ビルド時に実際のメディアクエリへ置換される。Svelte の <style> 内でも可）
+   2) 値だけが変わる場合 … スイッチ変数 --d（mobile=0 / desktop=1）で calc する。
+        padding: calc(16px + 16px * var(--d));   // スマホ 16px / PC 32px
+      既製トークン: --page-pad
+   3) 表示/非表示を切り替える場合 … クラス .mobile-only / .desktop-only
+
+   Tauri 版はウィンドウ幅ではなくビルド種別で固定する。
+   (--desktop)/(--mobile) はビルド時に固定され、+layout.svelte が付ける
+   <html data-layout="desktop|mobile"> により 2) と 3) も同様に固定される。
+   ========================================================================== */
+:root {
+    --d: 0;
+}
+
+@media (min-width: 768px) {
+    :root {
+        --d: 1;
+    }
+}
+
+:root[data-layout='desktop'] {
+    --d: 1;
+}
+
+:root[data-layout='mobile'] {
+    --d: 0;
+}
+
+:root {
+    --page-pad: calc(16px + 16px * var(--d));
+}
+
+@media (max-width: 767.98px) {
+    :root:not([data-layout='desktop']) .desktop-only {
+        display: none !important;
+    }
+}
+
+@media (min-width: 768px) {
+    :root:not([data-layout='mobile']) .mobile-only {
+        display: none !important;
+    }
+}
+
+:root[data-layout='desktop'] .mobile-only,
+:root[data-layout='mobile'] .desktop-only {
+    display: none !important;
+}
+
 * {
     box-sizing: border-box;
 }

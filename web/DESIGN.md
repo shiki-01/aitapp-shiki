@@ -78,6 +78,24 @@ web/（SvelteKit + Svelte 5）の UI を体系化するための確定仕様。
 | mobile | `< 768px` | BottomNav・1カラム・`--app-max` 中央寄せ |
 | desktop | `≥ 768px`（`isDesktop` 判定含む） | SideNav（幅 220px 固定）・main は `margin-left: 220px` |
 
+CSS での書き分け（定義は `vite.config.ts` と `src/app.css` 冒頭）:
+
+```css
+/* 構造が変わる: (--desktop) / (--mobile)。Svelte の <style> 内でも使える */
+@media (--desktop) { .shell { display: flex; } }
+
+/* 値だけ違う: --d は mobile=0 / desktop=1 */
+padding: calc(16px + 16px * var(--d));   /* または var(--page-pad) */
+```
+
+```svelte
+<!-- 表示の出し分け -->
+<nav class="mobile-only">…</nav>
+<aside class="desktop-only">…</aside>
+```
+
+Tauri 版は `(--desktop)` / `(--mobile)` がビルド種別で固定される（ウィンドウ幅に依存しない）。
+
 ---
 
 ## 2. コンポーネント一覧

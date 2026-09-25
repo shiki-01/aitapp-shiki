@@ -1,11 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { isDesktop } from '$lib/platform';
+  import { isDesktop, isTauri } from '$lib/platform';
   import { setupPwa } from '$lib/pwa';
   import "@master/normal.css";
   import "../app.css";
 
   let { children } = $props();
+
+  // Tauri 版はウィンドウ幅ではなくビルド種別でレイアウトを固定する(app.css 参照)。
+  // ブラウザ版は未設定のまま、幅(768px)で CSS が自動判別する。
+  if (isTauri) {
+    document.documentElement.dataset.layout = isDesktop ? 'desktop' : 'mobile';
+  }
 
   onMount(() => {
     setupPwa();
@@ -27,7 +33,7 @@
     background: var(--card);
     position: relative;
   }
-  @media (min-width: 600px) {
+  @media (--desktop) {
     .app-shell {
       box-shadow: var(--shadow);
     }

@@ -490,4 +490,15 @@
   .save:disabled {
     opacity: 0.5;
   }
+
+  @media (--mobile) {
+    .page {
+      grid-template-columns: 1fr;
+      grid-template-rows: 300px 1fr;
+    }
+
+    .lower {
+      padding-bottom: calc(var(--nav-h) + 24px);
+    }
+  }
 </style>

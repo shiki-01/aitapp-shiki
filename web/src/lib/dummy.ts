@@ -91,6 +91,97 @@ export const dummyNoticeDetail: NoticeDetail = {
   files: { '前期末試験時間割.pdf': 'file/12345', '受験上の注意.pdf': 'file/12346' },
 };
 
+// ---- 連絡: レイアウト確認用の「全項目入り」通知 ----
+// Notices.svelte が一覧先頭に強制挿入する（DEBUG_FORCE_FULL_NOTICE で切替）。
+// 上流が返し得る全フィールド・長文・改行・リスト・表・リンク・複数添付を詰めてある。
+export const FULL_NOTICE_INDEX = -1;
+
+export const fullUnivNotice: Notice = {
+  type: 'common',
+  sender: '教務課（前期末試験・成績・履修登録に関する窓口担当）',
+  title:
+    '【重要】【再周知】2026年度 前期末試験の時間割・受験上の注意・追試験の申請方法および成績発表日程について（全学年対象・必ずお読みください）',
+  sendAt: '2026-07-21 10:00',
+  isImportant: true,
+  index: FULL_NOTICE_INDEX,
+};
+
+export const fullClassNotice: Notice = {
+  type: 'class',
+  sender: '山田 太郎（情報工学科 教授・データ構造とアルゴリズム担当）',
+  title:
+    '【重要】第14回 講義資料の訂正と補講の実施、および期末レポートの提出方法変更について（受講者全員必読）',
+  subject: 'データ構造とアルゴリズム（月3・月4／情報工学科 2年 前期）',
+  makeupClassAt: '2026-07-29 3限（4-301教室）',
+  isImportant: true,
+  index: FULL_NOTICE_INDEX,
+};
+
+const fullContent = `
+<h3>1. 概要</h3>
+<p>前期末試験の時間割を公開しました。<b>必ず本文の全項目を確認</b>してください。<br>
+試験期間は <strong>8月3日（月）〜 8月7日（金）</strong>です。<font color="#d32f2f">日程の変更は原則ありません。</font></p>
+<hr>
+<h3>2. 試験時間割（抜粋）</h3>
+<table>
+  <caption>前期末試験 時間割</caption>
+  <thead><tr><th>日付</th><th>1限</th><th>2限</th><th>3限</th></tr></thead>
+  <tbody>
+    <tr><td>8/3（月）</td><td>線形代数II</td><td>確率統計</td><td>データ構造とアルゴリズム</td></tr>
+    <tr><td>8/4（火）</td><td>技術英語I</td><td>コンピュータネットワーク</td><td>ソフトウェア工学</td></tr>
+    <tr><td colspan="2" align="center">8/5（水）</td><td colspan="2" align="center">オペレーティングシステム</td></tr>
+  </tbody>
+</table>
+<h3>3. 受験上の注意</h3>
+<ul>
+  <li>学生証を<u>必ず</u>持参してください（忘れた場合は仮受験票を発行します）。</li>
+  <li>試験開始<em>20分以降</em>の入室は認められません。</li>
+  <li>持ち込み可の物: <code>電卓（関数電卓不可）</code>、筆記用具、時計（通信機能なし）。
+    <ul><li>スマートフォンは電源を切り、鞄にしまうこと。</li><li>不正行為は<s>厳重注意</s>単位認定の取り消し対象です。</li></ul>
+  </li>
+</ul>
+<h3>4. 追試験の申請手順</h3>
+<ol>
+  <li>教務課窓口で申請書を受け取る</li>
+  <li>理由を証明する書類を添付する</li>
+  <li>試験日の<b>3日前</b>までに提出する</li>
+</ol>
+<blockquote>やむを得ない事情（病気・忌引き・公共交通機関の遅延等）がある場合は、事前に教務課へ相談してください。</blockquote>
+<dl>
+  <dt>問い合わせ先</dt><dd>教務課 試験係（内線 1234／平日 9:00–17:00）</dd>
+  <dt>メール</dt><dd>exam@example.ac.jp</dd>
+</dl>
+<pre>
+成績発表: 2026-08-28 12:00
+異議申立: 2026-08-28 〜 2026-09-01
+</pre>
+<p>H<sub>2</sub>O や x<sup>2</sup> のような添字、<small>小さな注記（この行は補足です）</small>も表示されます。</p>
+<center>― 以上 ―</center>
+<p>詳細は https://www.example.ac.jp/exam/2026-spring/guide?lang=ja&amp;year=2026 を参照してください。</p>
+<p>長い連続文字列の折り返し確認: ${'ＡＢＣＤＥＦＧＨＩＪ'.repeat(8)}</p>
+`.trim();
+
+export const fullNoticeDetail: NoticeDetail = {
+  sender: '教務課（前期末試験・成績・履修登録に関する窓口担当）',
+  title: fullUnivNotice.title,
+  content: fullContent,
+  sendAt: '2026-07-21 10:00',
+  subject: 'データ構造とアルゴリズム（月3・月4／情報工学科 2年 前期）',
+  url: [
+    'https://www.example.ac.jp/exam/2026-spring',
+    'https://www.example.ac.jp/exam/2026-spring/guide?lang=ja&year=2026&faculty=engineering&dept=information&grade=2&semester=first&notice=important',
+    'https://forms.example.ac.jp/makeup-exam-application',
+  ],
+  files: {
+    '前期末試験時間割.pdf': 'file/12345',
+    '受験上の注意.pdf': 'file/12346',
+    '【2026年度】前期末試験_追試験申請書（記入例つき）_情報工学科・電子工学科・機械工学科共通版_最終確定版.docx': 'file/12347',
+    '成績評価基準.xlsx': 'file/12348',
+    'slides_14_corrected.pptx': 'file/12349',
+    'ファイル名に拡張子なし': 'file/12350',
+  },
+};
+
 // ---- 時間割（LCAM） ----
 
 export const dummyTimetable: TimetableEntry[] = [

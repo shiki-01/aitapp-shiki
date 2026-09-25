@@ -3,6 +3,15 @@
   import { isTauri } from '$lib/platform';
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
+  import {
+    FULL_NOTICE_INDEX,
+    fullUnivNotice,
+    fullClassNotice,
+    fullNoticeDetail,
+  } from '$lib/dummy';
+
+  // レイアウト確認用: 一覧先頭に全項目入りの通知を強制挿入する。確認が済んだら false にする。
+  const DEBUG_FORCE_FULL_NOTICE = false;
 
   // desktop版はブラウザの<a target=_blank>が使えない(Workerと別サイト扱いの
   // ためcookieが送れない)ので、一時ファイルへ保存しOS既定アプリで開く。
@@ -36,7 +45,12 @@
     return hay.includes(q);
   }
 
-  const shown = $derived(loaded.filter(matchQuery));
+  const withForced = $derived<Notice[]>(
+    DEBUG_FORCE_FULL_NOTICE
+      ? [type === 'common' ? fullUnivNotice : fullClassNotice, ...loaded]
+      : loaded,
+  );
+  const shown = $derived(withForced.filter(matchQuery));
 
   async function load() {
     loading = true;
@@ -85,6 +99,14 @@
     detailOpen = true;
     detail = null;
     detailLoading = true;
+    if (DEBUG_FORCE_FULL_NOTICE && index === FULL_NOTICE_INDEX) {
+      detail =
+        type === 'class'
+          ? { ...fullNoticeDetail, sender: fullClassNotice.sender, title: fullClassNotice.title }
+          : { ...fullNoticeDetail, subject: undefined };
+      detailLoading = false;
+      return;
+    }
     try {
       const res = await api.noticeDetail(type, index);
       detail = res.detail;
@@ -147,7 +169,7 @@
   {/if}
 {/if}
 
-<Sheet bind:open={detailOpen} title="お知らせ">
+<Sheet bind:open={detailOpen} title="お知らせ" tall>
   {#if detailLoading}
     <p class="muted">詳細を取得中…</p>
   {:else if detail}
@@ -158,6 +180,7 @@
          on*/javascript: 等を除去)。CSP(_headers)を多層防御の backstop とする。 -->
     <div class="content">{@html detail.content}</div>
     {#if detail.url.length > 0}
+      <hr>
       <h4>参考URL</h4>
       <ul class="links">
         {#each detail.url as u}
@@ -166,6 +189,7 @@
       </ul>
     {/if}
     {#if Object.keys(detail.files).length > 0}
+      <hr>
       <h4>添付ファイル</h4>
       <ul class="links">
         {#each Object.entries(detail.files) as [name, path]}
@@ -292,8 +316,86 @@
   .content {
     margin-top: 12px;
     word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  /* 本文は上流由来の {@html} なのでスコープ外から当てる。最低限の体裁のみ。 */
+  .content :global(table) {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 0.86rem;
+  }
+  .content :global(caption) {
+    caption-side: top;
+    text-align: left;
+    font-weight: 600;
+    padding-bottom: 4px;
+  }
+  .content :global(th),
+  .content :global(td) {
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    vertical-align: top;
+    text-align: left;
+  }
+  .content :global(th) {
+    background: var(--primary-bg);
+    white-space: nowrap;
+  }
+  .content :global(hr) {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 14px 0;
+  }
+  .content :global(blockquote) {
+    margin: 10px 0;
+    padding: 4px 12px;
+    border-left: 3px solid var(--primary-light);
+    color: var(--muted);
+  }
+  .content :global(pre) {
+    white-space: pre-wrap;
+    background: var(--primary-bg);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.84rem;
+  }
+  .content :global(ul),
+  .content :global(ol) {
+    padding-left: 20px;
+  }
+  .content :global(dt) {
+    font-weight: 600;
+    margin-top: 6px;
+  }
+  .content :global(dd) {
+    margin-left: 12px;
+  }
+  .content :global(h1),
+  .content :global(h2),
+  .content :global(h3),
+  .content :global(h4) {
+    font-size: 1rem;
+    margin: 14px 0 6px;
+  }
+  .content :global(a) {
+    color: var(--primary);
+    text-decoration: underline;
+  }
+  hr {
+    width: 100%;
+    height: 1px;
+    background-color: var(--border);
+    margin: 18px 0;
   }
   .links {
     padding-left: 18px;
+  }
+  /* 長い URL・ファイル名は単語区切りが無いので、どこでも折り返す。 */
+  .links li {
+    overflow-wrap: anywhere;
+    word-break: break-all;
   }
 </style>

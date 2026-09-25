@@ -173,4 +173,10 @@
   .dot.on-fill {
     background: #fff;
   }
+
+  @media (--mobile) {
+    .cell {
+      aspect-ratio: 3 / 2;
+    }
+  }
 </style>
