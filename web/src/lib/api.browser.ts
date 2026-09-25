@@ -3,7 +3,7 @@
 
 import { goto } from '$app/navigation';
 import { ApiError, type ApiClient } from './types';
-import { qs, fileApiPath } from './apiPath';
+import { qs, fileApiPath, reportParams } from './apiPath';
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8787';
 
@@ -140,6 +140,20 @@ export const browserApi: ApiClient = {
   async openCommonFile() {
     // browser版はcommonFileDownloadUrl()を<a href target=_blank>で開くため呼ばれない。
     throw new ApiError(500, 'openCommonFile is not supported on browser');
+  },
+  async reports(query) {
+    return request(`/api/reports${qs(reportParams(query))}`);
+  },
+  async reportDetail(id, query) {
+    return request(`/api/reports/detail${qs({ id, ...reportParams(query) })}`);
+  },
+  reportDownloadUrl(id, submitNo, fileNo, query) {
+    // inline=1: ブラウザ標準ビューアで表示(pdf/画像/txt)。他形式は従来どおりダウンロード。
+    return `${BASE}/api/reports/download${qs({ id, submitNo, fileNo, ...reportParams(query), inline: 1 })}`;
+  },
+  async openReportFile() {
+    // browser版はreportDownloadUrl()を<a href target=_blank>で開くため呼ばれない。
+    throw new ApiError(500, 'openReportFile is not supported on browser');
   },
   fileUrl(relativePath) {
     // inline=1: ブラウザ標準ビューアで表示(pdf/画像/txt)。他形式は従来どおりダウンロード。

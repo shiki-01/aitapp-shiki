@@ -14,6 +14,8 @@ import type {
   SyllabusDetail,
   CommonFileItem,
   CommonFileDetail,
+  ReportItem,
+  ReportDetail,
 } from '../../../shared/contract';
 
 // ---- 連絡（LCAM） ----
@@ -500,5 +502,54 @@ export const dummyCommonFileDetail: CommonFileDetail = {
   files: [
     { prefix: 'a', no: 1, name: '履修登録の手引き.pdf', size: '3.43 MB' },
     { prefix: 'a', no: 2, name: '履修登録スケジュール.xlsx', size: '41 KB' },
+  ],
+};
+
+// ---- レポート（LCAM） ----
+
+export const dummyReports: ReportItem[] = [
+  {
+    id: '2001',
+    subject: 'プログラミング演習',
+    term: '後期/木1',
+    title: '第1回 課題レポート',
+    status: '受付中',
+    period: '2026/09/23 18:00 ～ 2026/10/07 23:00',
+    lastSubmittedAt: '',
+    format: 'Web',
+    canSubmit: true,
+    canCancel: false,
+  },
+  {
+    id: '2002',
+    subject: '線形代数',
+    term: '後期/火2',
+    title: '中間レポート',
+    status: '締切',
+    period: '2026/09/01 09:00 ～ 2026/09/15 23:00',
+    lastSubmittedAt: '2026/09/14 22:25',
+    format: 'Web',
+    canSubmit: false,
+    canCancel: false,
+  },
+];
+
+export const dummyReportDetail: ReportDetail = {
+  id: '2002',
+  status: '締切',
+  title: '中間レポート',
+  period: '2026/09/01 09:00 ～ 2026/09/15 23:00',
+  evaluation: '点数（上限 100点）',
+  description: '第1回から第4回までの内容について、A4 2枚以内でまとめてください。',
+  referenceMaterial: '講義資料を参照',
+  notice: '締切後の提出は受け付けません。',
+  reminder: '登録されていません。',
+  result: [],
+  submissions: [
+    {
+      heading: '1.comment by 学生 2026/09/14 22:25',
+      lines: ['提出します。'],
+      files: [{ studentCode: 'a1234567', submitNo: 1, fileNo: 1, name: '中間レポート.pdf' }],
+    },
   ],
 };

@@ -2,6 +2,7 @@
   import type { Component } from 'svelte';
   import Icon from '$lib/components/Icon.svelte';
   import CommonFiles from './campus/CommonFiles.svelte';
+  import Reports from './campus/Reports.svelte';
 
   let { onBack }: { onBack?: () => void } = $props();
 
@@ -11,7 +12,7 @@
     id: string;
     label: string;
     description: string;
-    icon: 'note' | 'book' | 'calendar' | 'grid';
+    icon: 'note' | 'book' | 'calendar' | 'grid' | 'task';
     component: Component;
   }
   const ITEMS: CampusItem[] = [
@@ -21,6 +22,13 @@
       description: '大学が共有している配布資料・様式など',
       icon: 'note',
       component: CommonFiles,
+    },
+    {
+      id: 'reports',
+      label: 'レポート',
+      description: '提出期間・提出履歴の確認（提出は LCAM の PC 版で）',
+      icon: 'task',
+      component: Reports,
     },
   ];
 

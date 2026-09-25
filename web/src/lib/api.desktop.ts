@@ -6,7 +6,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { ApiError, type ApiClient } from './types';
-import { qs, fileApiPath } from './apiPath';
+import { qs, fileApiPath, reportParams } from './apiPath';
 
 interface UpstreamErrorShape {
   status?: number;
@@ -150,6 +150,28 @@ export const desktopApi: ApiClient = {
     try {
       localPath = await invoke<string>('download_file', {
         path: `/api/commonfiles/download${qs({ id, no })}`,
+        filename: filename ?? null,
+      });
+    } catch (err) {
+      throw toApiError(err);
+    }
+    await openPath(localPath);
+  },
+  async reports(query) {
+    return call(`/api/reports${qs(reportParams(query))}`);
+  },
+  async reportDetail(id, query) {
+    return call(`/api/reports/detail${qs({ id, ...reportParams(query) })}`);
+  },
+  reportDownloadUrl() {
+    // desktop版はopenReportFile()でOS既定アプリを開くため呼ばれない。
+    throw new ApiError(500, 'reportDownloadUrl is not supported on desktop');
+  },
+  async openReportFile(id, submitNo, fileNo, filename, query) {
+    let localPath: string;
+    try {
+      localPath = await invoke<string>('download_file', {
+        path: `/api/reports/download${qs({ id, submitNo, fileNo, ...reportParams(query) })}`,
         filename: filename ?? null,
       });
     } catch (err) {

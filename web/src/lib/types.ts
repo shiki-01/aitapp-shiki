@@ -34,6 +34,10 @@ import type {
   CommonFileItem,
   CommonFileDetail,
   PcFileLink,
+  ReportItem,
+  ReportDetail,
+  ReportSubmission,
+  ReportSubmissionFile,
 } from '../../../shared/contract';
 export type {
   UnivNotice,
@@ -53,11 +57,22 @@ export type {
   CommonFileItem,
   CommonFileDetail,
   PcFileLink,
+  ReportItem,
+  ReportDetail,
+  ReportSubmission,
+  ReportSubmissionFile,
 };
 
 // NoticeDetail / TimetableEntry / ScheduleEvent / ScheduleDay / Assignment /
 // SyllabusFilters / SyllabusListItem / SyllabusDetail は shared/contract.ts に
 // 集約し、冒頭で再エクスポート済み。
+
+/** レポートの絞り込み。未指定の項目は送らない（= 上流の初期表示＝今の年度・学期）。 */
+export interface ReportQuery {
+  year?: number;
+  semester?: 1 | 2;
+  unsubmittedOnly?: boolean;
+}
 
 export interface SyllabusSearchParams {
   year: string;
@@ -161,6 +176,20 @@ export interface ApiClient {
    * /api/commonfiles/download?id&no（クエリ指定）には使えないため別メソッドにしている。
    */
   openCommonFile(id: string, no: number, filename?: string): Promise<void>;
+  /** LCAM のレポート一覧（参照のみ）。 */
+  reports(query?: ReportQuery): Promise<{ reports: ReportItem[] }>;
+  /** 詳細は、一覧を出したときと同じ query を付けて呼ぶ（既定外の年度・学期のレポートを開くため）。 */
+  reportDetail(id: string, query?: ReportQuery): Promise<{ detail: ReportDetail }>;
+  /** 提出履歴のファイルの URL（inline=1 付き）。browser 版のみ。desktop 版は openReportFile を使う。 */
+  reportDownloadUrl(id: string, submitNo: number, fileNo: number, query?: ReportQuery): string;
+  /** （desktop 版のみ）提出履歴のファイルを一時ファイルへ保存し OS 既定アプリで開く。 */
+  openReportFile(
+    id: string,
+    submitNo: number,
+    fileNo: number,
+    filename?: string,
+    query?: ReportQuery,
+  ): Promise<void>;
   fileUrl(relativePath: string): string;
   openFile(relativePath: string): Promise<void>;
 }
