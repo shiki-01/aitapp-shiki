@@ -173,6 +173,23 @@ export class WorkerClient implements ToolClient {
     return { fileName: safeName, path: savedPath, contentType: res.headers.get('content-type') };
   }
 
+  /**
+   * worker の任意の GET API のバイナリ応答をローカル一時ディレクトリへ保存し、パスを返す
+   * （学内共有ファイル等）。`apiPath` は "/api/..." から始まるパス（クエリ含む）。
+   */
+  async downloadApi(apiPath: string, suggestedName: string): Promise<DownloadedFile> {
+    const res = await this.requestWithRelogin(apiPath);
+    if (!res.ok) {
+      throw new ApiError(res.status, `download failed: HTTP ${res.status}`);
+    }
+    const dir = await mkdtemp(join(tmpdir(), 'aitapp-mcp-'));
+    const safeName = suggestedName.replace(/[\\/:*?"<>|]/g, '_') || 'download';
+    const savedPath = join(dir, safeName);
+    const buf = Buffer.from(await res.arrayBuffer());
+    await writeFile(savedPath, buf);
+    return { fileName: safeName, path: savedPath, contentType: res.headers.get('content-type') };
+  }
+
   /** ローカル実行専用: MCPサーバーと同じマシン上のファイルを読む（課題アップロード用）。 */
   async readLocalFile(filePath: string): Promise<{ bytes: Uint8Array; name: string }> {
     const buf = await readFile(filePath);

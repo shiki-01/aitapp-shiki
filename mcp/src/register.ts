@@ -8,6 +8,7 @@ import { registerTimetableTools } from './tools/timetable';
 import { registerAssignmentTools } from './tools/assignments';
 import { registerSyllabusTools } from './tools/syllabus';
 import { registerPerformanceTools } from './tools/performance';
+import { registerCommonFileTools } from './tools/commonfiles';
 import { registerEnqueteTools } from './tools/enquetes';
 import { registerQuizTools } from './tools/quiz';
 import { registerMoodleFileTools } from './tools/moodle-files';
@@ -22,6 +23,7 @@ export function createAitappServer(client: ToolClient): McpServer {
   registerSyllabusTools(server, client);
   registerPerformanceTools(server, client);
   registerEnqueteTools(server, client);
+  registerCommonFileTools(server, client);
   registerMoodleCourseTools(server, client);
   registerQuizTools(server, client);
   registerMoodleFileTools(server, client);

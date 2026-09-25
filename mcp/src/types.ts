@@ -13,6 +13,9 @@ export type {
   SyllabusListItem,
   SyllabusDetail,
   Assignment,
+  PcFileLink,
+  CommonFileItem,
+  CommonFileDetail,
 } from '../../shared/contract';
 // AssignmentWithStatus が extends するためローカル束縛としても取り込む。
 import type { Assignment } from '../../shared/contract';

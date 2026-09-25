@@ -39,6 +39,11 @@ export interface ToolClient {
   /** Moodle 上のファイルを取得する。 */
   downloadMoodleFile(fileUrl: string, suggestedName: string): Promise<DownloadedFile>;
   /**
+   * worker の任意の GET API のバイナリ応答（例: /api/commonfiles/download?id=..&no=..）を取得する汎用版。
+   * apiPath は "/api/..." から始まるパス（クエリ含む）。
+   */
+  downloadApi(apiPath: string, suggestedName: string): Promise<DownloadedFile>;
+  /**
    * MCP サーバーが動作しているマシン上のローカルファイルを読む。
    * ローカル(stdio)実装のみ提供する。クラウド実装では undefined のままにし、
    * ツール側は base64 直接指定へ誘導するエラーを返す。
