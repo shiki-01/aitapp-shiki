@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolClient } from '../tool-client';
-import type { CreditStatus, CurriculumItem, SchoolEvents } from '../types';
+import type { CreditStatus, CurriculumItem, SchoolEvents, LotteryResult } from '../types';
 
 function json(data: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
@@ -102,6 +102,24 @@ export function registerAcademicTools(server: McpServer, client: ToolClient): vo
         // all のときに空の月が並ぶのを避ける。単月指定では該当なしを空配列で示す。
         .filter((m) => month !== 'all' || m.days.length > 0);
       return json({ nendo: res.events.nendo, months });
+    },
+  );
+  server.registerTool(
+    'lcam_get_lottery_results',
+    {
+      title: 'LCAM学事システムの抽選履修登録の結果の取得',
+      description:
+        'LCAMの学事システムの抽選履修登録の結果（申し込んだ科目ごとの当落）を取得する。' +
+        '各要素はslot（曜日時限）・subject（科目名）・classCode・biweekly（隔週授業の表記）・category（科目区分）・' +
+        'creditType（単位区分）・credits（単位数）・campus（校舎区分）・capacity（定員）・preference（希望順位）・' +
+        'result（当選/落選）・processedAt（抽選処理日）を持つ。' +
+        '抽選処理前の科目はresultとprocessedAtが空。当選・落選は上流の表記のまま返す。' +
+        '学事システムはLCAMと別のアプリで、呼ぶたびに数リクエスト要る。読み取り専用（申し込み・変更はできない）。',
+      inputSchema: {},
+    },
+    async () => {
+      const res = await client.request<{ lottery: LotteryResult[] }>('/api/lottery');
+      return json(res.lottery);
     },
   );
 }

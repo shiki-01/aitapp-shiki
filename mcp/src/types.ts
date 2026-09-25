@@ -23,6 +23,12 @@ export type {
   CreditStatus,
   CurriculumItem,
   SchoolEvents,
+  LotteryResult,
+  PcNoticeKind,
+  PcNoticeQuery,
+  PcNoticeItem,
+  PcNoticeList,
+  PcNoticeDetail,
 } from '../../shared/contract';
 // AssignmentWithStatus が extends するためローカル束縛としても取り込む。
 import type { Assignment } from '../../shared/contract';

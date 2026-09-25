@@ -10,6 +10,7 @@ import { registerSyllabusTools } from './tools/syllabus';
 import { registerPerformanceTools } from './tools/performance';
 import { registerCommonFileTools } from './tools/commonfiles';
 import { registerReportTools } from './tools/reports';
+import { registerPcNoticeTools } from './tools/pcnotices';
 import { registerFacilityTools } from './tools/facilities';
 import { registerAcademicTools } from './tools/academic';
 import { registerEnqueteTools } from './tools/enquetes';
@@ -28,6 +29,7 @@ export function createAitappServer(client: ToolClient): McpServer {
   registerEnqueteTools(server, client);
   registerCommonFileTools(server, client);
   registerReportTools(server, client);
+  registerPcNoticeTools(server, client);
   registerFacilityTools(server, client);
   registerAcademicTools(server, client);
   registerMoodleCourseTools(server, client);
