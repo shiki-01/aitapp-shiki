@@ -278,3 +278,49 @@ export interface FacilityWeek {
   dates: string[];
   rooms: FacilityRoomWeek[];
 }
+
+// ---- LCAM 学事システム（/kyoumu/。ホームの「学事システム」から入る別アプリ。参照のみ）----
+
+/** 単位修得情報。上流は要件の階層を rowspan/colspan で描く表なので、結合セルを展開した表として返す。 */
+export interface CreditStatus {
+  /** 表の上のタブ（例: 卒業進級用１年）。表示中のタブ以外の内容は未対応。 */
+  tabs: string[];
+  /** rows の先頭から数えた見出し行の数。 */
+  headerRows: number;
+  /** 結合セルを展開した表（各行の長さは同じ）。 */
+  rows: string[][];
+  /** 表の下の注記（例: 総修得単位数 35 単位以上）。 */
+  note: string;
+}
+
+/** カリキュラム（履修対象の科目と修得状況）の 1 科目。 */
+export interface CurriculumItem {
+  code: string;
+  name: string;
+  /** 科目区分（例: 専門（他学科等））。 */
+  category: string;
+  /** 単位区分（必修・選択など）。 */
+  creditType: string;
+  credits: number;
+  /** 評価。未修得・履修中は空のことがある。 */
+  grade: string;
+}
+
+export interface SchoolEventDay {
+  /** YYYY-MM-DD。 */
+  date: string;
+  weekday: string;
+  holiday: string;
+  event: string;
+}
+
+export interface SchoolEventMonth {
+  month: number;
+  days: SchoolEventDay[];
+}
+
+/** 学内スケジュール（年間行事）。 */
+export interface SchoolEvents {
+  nendo: number;
+  months: SchoolEventMonth[];
+}

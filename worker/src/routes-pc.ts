@@ -18,6 +18,7 @@ import {
   type ReportQuery,
 } from './upstream/lcam/report';
 import { fetchFacilityList, fetchFacilityWeek } from './upstream/lcam/facility';
+import { fetchCreditStatus, fetchCurriculum, fetchSchoolEvents } from './upstream/lcam/kyoumu';
 import { ValidationError } from './upstream/errors';
 import { applyInlineView } from './inline-view';
 
@@ -142,5 +143,34 @@ export function registerPcRoutes(app: App): void {
       fetchFacilityWeek(cookies, ids, week),
     );
     return c.json({ schedule });
+  });
+
+  // ---- 学事システム（/kyoumu/。参照のみ）。入るたびに LCAM から引き渡しを行う（3〜4 リクエスト） ----
+  app.get('/api/credits', async (c) => {
+    const credits = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      fetchCreditStatus(cookies),
+    );
+    return c.json({ credits });
+  });
+
+  app.get('/api/curriculum', async (c) => {
+    const curriculum = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      fetchCurriculum(cookies),
+    );
+    return c.json({ curriculum });
+  });
+
+  // month=1〜12 の月、または all（12 か月。上流へ 12 回）。省略は今の月（JST）。
+  app.get('/api/schoolevents', async (c) => {
+    const raw = c.req.query('month');
+    let month: number | 'all';
+    if (raw === 'all') month = 'all';
+    else if (raw === undefined) month = new Date(Date.now() + 9 * 3600 * 1000).getUTCMonth() + 1;
+    else if (/^(1[0-2]|[1-9])$/.test(raw)) month = parseInt(raw, 10);
+    else throw new ValidationError('month is invalid');
+    const events = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      fetchSchoolEvents(cookies, month),
+    );
+    return c.json({ events });
   });
 }
