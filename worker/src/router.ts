@@ -84,6 +84,7 @@ import { handleMcpRequest } from './mcp/handler';
 import { mintUserMcpToken } from './mcp/token';
 import { log, redactPath } from './log';
 import { applyInlineView } from './inline-view';
+import { registerPcRoutes } from './routes-pc';
 
 type Variables = { userId: string; state: UserState; correlationId: string };
 
@@ -1214,6 +1215,9 @@ app.get('/api/file/:id', async (c) => {
   headers.set('cache-control', 'no-store');
   return new Response(upstream.body, { status: upstream.status, headers });
 });
+
+// ---- LCAM PC 版の機能（学内共有ファイル等。routes-pc.ts） ----
+registerPcRoutes(app);
 
 // ---- /mcp（MCP Streamable HTTP。ツールは自身の /api/* へ in-process dispatch する） ----
 app.all('/mcp', (c) =>

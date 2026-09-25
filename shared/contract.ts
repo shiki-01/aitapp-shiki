@@ -147,3 +147,34 @@ export interface AssignmentSubmission {
   /** 提出済みの場合の最終更新日時（ISO） */
   submittedAt: string | null;
 }
+
+// ---- LCAM PC 版（docs/LCAM_FEATURES.md）----
+
+/** 詳細画面のダウンロードリンク。ダウンロードは prefix・no（上流の fileDownLoad の引数）で指定する。 */
+export interface PcFileLink {
+  prefix: string;
+  no: number;
+  name: string;
+  /** 表示上のサイズ（例: "3.43 MB"）。 */
+  size?: string;
+}
+
+/** 学内共有ファイルの一覧の 1 件。 */
+export interface CommonFileItem {
+  /** 上流のファイル ID。詳細・ダウンロードの指定に使う。 */
+  id: string;
+  category: string;
+  title: string;
+  downloadCount: number;
+  size: string;
+  updatedAt: string;
+}
+
+export interface CommonFileDetail {
+  id: string;
+  title: string;
+  category: string;
+  description: string;
+  publicPeriod: string;
+  files: PcFileLink[];
+}

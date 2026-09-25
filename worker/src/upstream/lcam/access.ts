@@ -8,7 +8,7 @@ import { fetchUpstream, UPSTREAM_FILE_TIMEOUT_MS } from '../fetch';
 import type { Env, LcamCookies } from '../../types';
 
 export const LCAM_ORIGIN = 'lcam.aitech.ac.jp';
-const BASE = `https://${LCAM_ORIGIN}`;
+export const BASE = `https://${LCAM_ORIGIN}`;
 
 /**
  * LCAM 中継 relay の設定。deployment 定数（全リクエスト共通）のためモジュール変数に
@@ -108,7 +108,7 @@ export function resolveRedirect(location: string, from: string): string {
  * Entra（別オリジン）まで辿られ、Cookie ヘッダが他ホストへ送られ得るため。
  * SSO への 303 は要件 §8 の「リダイレクト先での失効判定」として LcamExpiredError にする。
  */
-async function httpAccess(
+export async function httpAccess(
   url: string,
   headers: Record<string, string>,
   body?: Record<string, string>,
@@ -590,6 +590,66 @@ export async function getFile(
     await res.body?.cancel();
     resolveRedirect(location, `${BASE}${fileUrl}`); // SSO なら LcamExpiredError を投げる
     throw new UpstreamError(`LCAM file redirect: statusCode=${res.status}`);
+  }
+  return res;
+}
+
+// ---- PC 画面（Struts）共通 ----
+
+/** PC 画面へのリクエストヘッダ。ブラウザが付ける Origin / Referer / Sec-Fetch-* を Worker 側で付与する。 */
+export function pcHeaders(
+  cookies: LcamCookies,
+  opts: { post?: boolean; referer?: string } = {},
+): Record<string, string> {
+  return {
+    Origin: BASE,
+    ...(opts.referer ? { Referer: opts.referer } : {}),
+    Cookie: cookieHeader(cookies),
+    ...constHeader,
+    ...secFetchHeader,
+    ...(opts.post ? contentTypeHeader : {}),
+  };
+}
+
+/** PC 画面へのフォーム POST（path は /portalv2 以降。先頭の / を含む）。HTML を返す。 */
+export async function postPcForm(
+  cookies: LcamCookies,
+  path: string,
+  fields: Record<string, string>,
+): Promise<string> {
+  const res = await httpAccess(`${BASE}/portalv2${path}`, pcHeaders(cookies, { post: true }), fields);
+  return res.text();
+}
+
+/**
+ * PC 画面へのフォーム POST で、応答をそのまま返す（ダウンロード用）。body は読まない。
+ * リダイレクトは追従しない（SSO 誘導＝失効を検知するため。Cookie を他ホストへ送らない）。
+ */
+export async function postPcStream(
+  cookies: LcamCookies,
+  path: string,
+  fields: Record<string, string>,
+): Promise<Response> {
+  const url = `${BASE}/portalv2${path}`;
+  const res = await lcamFetch(
+    url,
+    {
+      method: 'POST',
+      headers: pcHeaders(cookies, { post: true }),
+      body: formBody(fields),
+      redirect: 'manual',
+    },
+    UPSTREAM_FILE_TIMEOUT_MS,
+  );
+  if (res.status >= 300 && res.status < 400) {
+    const location = res.headers.get('location') ?? '';
+    await res.body?.cancel();
+    resolveRedirect(location, url); // SSO なら LcamExpiredError を投げる
+    throw new UpstreamError(`LCAM download redirect: statusCode=${res.status}`);
+  }
+  if (res.status !== 200) {
+    await res.body?.cancel();
+    throw new UpstreamError(`LCAM http error: statusCode=${res.status}`);
   }
   return res;
 }
