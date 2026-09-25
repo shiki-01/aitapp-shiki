@@ -12,6 +12,8 @@ import type {
   SyllabusFilters,
   SyllabusListItem,
   SyllabusDetail,
+  CommonFileItem,
+  CommonFileDetail,
 } from '../../../shared/contract';
 
 // ---- 連絡（LCAM） ----
@@ -459,3 +461,44 @@ export const dummyEnqueteQuestions: DummyEnqueteQuestion[] = [
 // ---- 集約（ビュー実装時の取り回し用） ----
 
 export const dummyNotices: Notice[] = [...dummyUnivNotices, ...dummyClassNotices];
+
+// ---- 学内共有ファイル（LCAM） ----
+
+export const dummyCommonFiles: CommonFileItem[] = [
+  {
+    id: '1001',
+    category: '教務',
+    title: '2026年度 履修登録の手引き',
+    downloadCount: 1284,
+    size: '3.43 MB',
+    updatedAt: '2026/04/01',
+  },
+  {
+    id: '1002',
+    category: '学生生活',
+    title: '奨学金申請書（様式）',
+    downloadCount: 356,
+    size: '212 KB',
+    updatedAt: '2026/05/12',
+  },
+  {
+    id: '1003',
+    category: '就職',
+    title: '就職ガイダンス配布資料',
+    downloadCount: 98,
+    size: '8.10 MB',
+    updatedAt: '2026/06/03',
+  },
+];
+
+export const dummyCommonFileDetail: CommonFileDetail = {
+  id: '1001',
+  title: '2026年度 履修登録の手引き',
+  category: '教務',
+  description: '履修登録の流れ、注意事項、締切をまとめた冊子です。',
+  publicPeriod: '2026/04/01 ～ 2027/03/31',
+  files: [
+    { prefix: 'a', no: 1, name: '履修登録の手引き.pdf', size: '3.43 MB' },
+    { prefix: 'a', no: 2, name: '履修登録スケジュール.xlsx', size: '41 KB' },
+  ],
+};

@@ -2,10 +2,14 @@
   import { memos, type Memo } from '$lib/stores/local.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
+  import Campus from '$lib/views/Campus.svelte';
   import { api, ApiError, type LcamSessionStatus } from '$lib/api';
   import { isDesktop, isTauri } from '$lib/platform';
 
   let { userId = '', onLogout }: { userId?: string; onLogout?: () => void } = $props();
+
+  // 「学内サービス」を開いている間は More の本体の代わりに Campus を出す（下タブは増やさない）。
+  let campusOpen = $state(false);
 
   // ---- 確認ダイアログ ----
   // window.confirm() は Tauri の WebView（macOS の WKWebView）では常に false を返す
@@ -265,6 +269,9 @@
   ];
 </script>
 
+{#if campusOpen}
+  <Campus onBack={() => (campusOpen = false)} />
+{:else}
 <header class="head"><h1>その他</h1></header>
 
 <section class="account">
@@ -304,6 +311,12 @@
 <section class="block">
   <div class="block-h"><span><Icon name="grid" size={18} color="var(--primary)" /> システム</span></div>
   <ul class="links">
+    <li>
+      <button class="link" onclick={() => (campusOpen = true)}>
+        <Icon name="note" size={18} color="var(--primary)" /><span>学内サービス</span>
+        <Icon name="chevron-right" size={16} color="var(--muted)" />
+      </button>
+    </li>
     <li>
       <!-- ブラウザ/PWA は新規タブ。Tauri にはタブが無いので同一ウィンドウで遷移する。 -->
       <a class="link" href="/syllabus" target={isTauri ? undefined : '_blank'} rel="noopener">
@@ -473,6 +486,7 @@
 </section>
 
 <p class="version">aitapp-web · prototype</p>
+{/if}
 
 <!-- メモ編集 -->
 <Sheet bind:open={memoOpen} title={editing ? 'メモを編集' : 'メモを追加'}>

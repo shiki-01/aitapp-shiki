@@ -31,6 +31,9 @@ import type {
   SyllabusFilters,
   SyllabusListItem,
   SyllabusDetail,
+  CommonFileItem,
+  CommonFileDetail,
+  PcFileLink,
 } from '../../../shared/contract';
 export type {
   UnivNotice,
@@ -47,6 +50,9 @@ export type {
   SyllabusFilters,
   SyllabusListItem,
   SyllabusDetail,
+  CommonFileItem,
+  CommonFileDetail,
+  PcFileLink,
 };
 
 // NoticeDetail / TimetableEntry / ScheduleEvent / ScheduleDay / Assignment /
@@ -144,6 +150,17 @@ export interface ApiClient {
     url: string,
     context?: SyllabusDetailContext,
   ): Promise<{ detail: SyllabusDetail }>;
+  /** LCAM の学内共有ファイル一覧。 */
+  commonFiles(): Promise<{ files: CommonFileItem[] }>;
+  commonFileDetail(id: string): Promise<{ detail: CommonFileDetail }>;
+  /** ファイル本体の URL（inline=1 付き）。browser 版のみ。desktop 版は openCommonFile を使う。 */
+  commonFileDownloadUrl(id: string, no: number): string;
+  /**
+   * （desktop 版のみ）学内共有ファイルを一時ファイルへ保存し OS 既定アプリで開く。
+   * openFile は添付の「相対パス」を base64 化して /api/file/:b64 を叩く前提で、
+   * /api/commonfiles/download?id&no（クエリ指定）には使えないため別メソッドにしている。
+   */
+  openCommonFile(id: string, no: number, filename?: string): Promise<void>;
   fileUrl(relativePath: string): string;
   openFile(relativePath: string): Promise<void>;
 }

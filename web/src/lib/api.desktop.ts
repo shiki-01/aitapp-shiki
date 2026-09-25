@@ -134,6 +134,29 @@ export const desktopApi: ApiClient = {
   async syllabusDetail(url, context = {}) {
     return call(`/api/syllabus/detail${qs({ url, ...context })}`);
   },
+  async commonFiles() {
+    return call('/api/commonfiles');
+  },
+  async commonFileDetail(id) {
+    return call(`/api/commonfiles/detail${qs({ id })}`);
+  },
+  commonFileDownloadUrl() {
+    // desktop版はopenCommonFile()でOS既定アプリを開くため呼ばれない。
+    throw new ApiError(500, 'commonFileDownloadUrl is not supported on desktop');
+  },
+  async openCommonFile(id, no, filename) {
+    // download_file の path は worker へ GET する生のパス（相対パスの base64 化は fileApiPath 側の都合）。
+    let localPath: string;
+    try {
+      localPath = await invoke<string>('download_file', {
+        path: `/api/commonfiles/download${qs({ id, no })}`,
+        filename: filename ?? null,
+      });
+    } catch (err) {
+      throw toApiError(err);
+    }
+    await openPath(localPath);
+  },
   fileUrl() {
     // desktop版はopenFile()でOS既定アプリを開くため呼ばれない。
     throw new ApiError(500, 'fileUrl is not supported on desktop');

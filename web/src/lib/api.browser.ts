@@ -127,6 +127,20 @@ export const browserApi: ApiClient = {
   async syllabusDetail(url, context = {}) {
     return request(`/api/syllabus/detail${qs({ url, ...context })}`);
   },
+  async commonFiles() {
+    return request('/api/commonfiles');
+  },
+  async commonFileDetail(id) {
+    return request(`/api/commonfiles/detail${qs({ id })}`);
+  },
+  commonFileDownloadUrl(id, no) {
+    // inline=1: ブラウザ標準ビューアで表示(pdf/画像/txt)。他形式は従来どおりダウンロード。
+    return `${BASE}/api/commonfiles/download${qs({ id, no, inline: 1 })}`;
+  },
+  async openCommonFile() {
+    // browser版はcommonFileDownloadUrl()を<a href target=_blank>で開くため呼ばれない。
+    throw new ApiError(500, 'openCommonFile is not supported on browser');
+  },
   fileUrl(relativePath) {
     // inline=1: ブラウザ標準ビューアで表示(pdf/画像/txt)。他形式は従来どおりダウンロード。
     return `${BASE}${fileApiPath(relativePath)}?inline=1`;
