@@ -21,6 +21,9 @@ import type {
   CreditStatus,
   CurriculumItem,
   SchoolEvents,
+  LotteryResult,
+  PcNoticeList,
+  PcNoticeDetail,
 } from '../../../shared/contract';
 
 // ---- 連絡（LCAM） ----
@@ -697,3 +700,97 @@ export const dummySchoolEvents: SchoolEvents = {
     },
   ],
 };
+
+// ---- 連絡の検索（PC 版） ----
+
+export const dummyPcNoticeList: PcNoticeList = {
+  items: [
+    {
+      kind: 'class',
+      id: '1001',
+      title: '第 3 回の課題について',
+      category: '課題',
+      sender: '山田 太郎',
+      subject: '線形代数',
+      term: '後期/火2',
+      important: true,
+      startAt: '2026/09/24 11:00',
+      endAt: '2026/10/02 00:00',
+    },
+    {
+      kind: 'class',
+      id: '1002',
+      title: '教室変更のお知らせ',
+      category: '教室変更',
+      sender: '佐藤 花子',
+      subject: 'プログラミング演習',
+      term: '後期/木3',
+      important: false,
+      startAt: '2026/09/22 09:00',
+      endAt: '2026/09/30 00:00',
+    },
+  ],
+  categories: ['課題', '教室変更', '休講・補講'],
+  subjects: ['線形代数', 'プログラミング演習'],
+};
+
+export const dummyPcNoticeDetail: PcNoticeDetail = {
+  kind: 'class',
+  id: '1001',
+  category: '課題',
+  title: '第 3 回の課題について',
+  body: '第 3 回の課題を LCAM のレポートから提出してください。\n詳細は https://example.com/report を参照。',
+  sender: '山田 太郎',
+  important: true,
+  period: '2026/09/24 11:00 ～ 2026/10/02 00:00',
+  referenceUrls: ['https://example.com/report'],
+  files: [{ prefix: 'n', no: 1, name: '課題3.pdf', size: '120 KB' }],
+  reply: '返信不可',
+};
+
+// ---- 抽選履修登録の結果（学事システム） ----
+
+export const dummyLottery: LotteryResult[] = [
+  {
+    slot: '火Ⅳ',
+    subject: '経済学入門',
+    classCode: 'E3001',
+    biweekly: '',
+    category: '基礎（共通）',
+    creditType: '選択',
+    credits: 2,
+    campus: '八草',
+    capacity: 60,
+    preference: 1,
+    result: '当選',
+    processedAt: '2026/09/20',
+  },
+  {
+    slot: '火Ⅳ',
+    subject: '心理学概論',
+    classCode: 'P3002',
+    biweekly: '',
+    category: '基礎（共通）',
+    creditType: '選択',
+    credits: 2,
+    campus: '八草',
+    capacity: 40,
+    preference: 2,
+    result: '落選',
+    processedAt: '2026/09/20',
+  },
+  {
+    slot: '木Ⅲ',
+    subject: '哲学',
+    classCode: 'H3003',
+    biweekly: '隔週',
+    category: '基礎（共通）',
+    creditType: '選択',
+    credits: 1,
+    campus: '八草',
+    capacity: 50,
+    preference: 1,
+    result: '',
+    processedAt: '',
+  },
+];

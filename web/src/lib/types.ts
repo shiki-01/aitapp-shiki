@@ -47,6 +47,12 @@ import type {
   SchoolEvents,
   SchoolEventMonth,
   SchoolEventDay,
+  LotteryResult,
+  PcNoticeKind,
+  PcNoticeQuery,
+  PcNoticeItem,
+  PcNoticeList,
+  PcNoticeDetail,
 } from '../../../shared/contract';
 export type {
   UnivNotice,
@@ -79,6 +85,12 @@ export type {
   SchoolEvents,
   SchoolEventMonth,
   SchoolEventDay,
+  LotteryResult,
+  PcNoticeKind,
+  PcNoticeQuery,
+  PcNoticeItem,
+  PcNoticeList,
+  PcNoticeDetail,
 };
 
 // NoticeDetail / TimetableEntry / ScheduleEvent / ScheduleDay / Assignment /
@@ -221,6 +233,26 @@ export interface ApiClient {
    * 省略は今の月（JST）。
    */
   schoolEvents(month?: number | 'all'): Promise<{ events: SchoolEvents }>;
+  /** 学事システムの抽選履修登録の結果（参照のみ）。 */
+  lottery(): Promise<{ lottery: LotteryResult[] }>;
+  /** 連絡の検索（PC 版。kind=campus 学内連絡 / class 授業連絡。参照のみ）。 */
+  pcNotices(kind: PcNoticeKind, query?: PcNoticeQuery): Promise<{ list: PcNoticeList }>;
+  /** 詳細は、一覧を出したときと同じ kind・query を付けて呼ぶ（上流の一覧の行番号を使うため）。 */
+  pcNoticeDetail(
+    kind: PcNoticeKind,
+    id: string,
+    query?: PcNoticeQuery,
+  ): Promise<{ detail: PcNoticeDetail }>;
+  /** 添付ファイルの URL（inline=1 付き）。browser 版のみ。desktop 版は openPcNoticeFile を使う。 */
+  pcNoticeFileUrl(kind: PcNoticeKind, id: string, no: number, query?: PcNoticeQuery): string;
+  /** （desktop 版のみ）連絡の添付を一時ファイルへ保存し OS 既定アプリで開く。 */
+  openPcNoticeFile(
+    kind: PcNoticeKind,
+    id: string,
+    no: number,
+    filename?: string,
+    query?: PcNoticeQuery,
+  ): Promise<void>;
   fileUrl(relativePath: string): string;
   openFile(relativePath: string): Promise<void>;
 }

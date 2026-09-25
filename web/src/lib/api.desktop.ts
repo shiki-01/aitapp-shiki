@@ -6,7 +6,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { ApiError, type ApiClient } from './types';
-import { qs, fileApiPath, reportParams } from './apiPath';
+import { qs, fileApiPath, reportParams, pcNoticeParams } from './apiPath';
 
 interface UpstreamErrorShape {
   status?: number;
@@ -193,6 +193,31 @@ export const desktopApi: ApiClient = {
   },
   async schoolEvents(month) {
     return call(`/api/schoolevents${qs({ month })}`);
+  },
+  async lottery() {
+    return call('/api/lottery');
+  },
+  async pcNotices(kind, query) {
+    return call(`/api/pcnotices${qs({ kind, ...pcNoticeParams(query) })}`);
+  },
+  async pcNoticeDetail(kind, id, query) {
+    return call(`/api/pcnotices/detail${qs({ kind, id, ...pcNoticeParams(query) })}`);
+  },
+  pcNoticeFileUrl() {
+    // desktop版はopenPcNoticeFile()でOS既定アプリを開くため呼ばれない。
+    throw new ApiError(500, 'pcNoticeFileUrl is not supported on desktop');
+  },
+  async openPcNoticeFile(kind, id, no, filename, query) {
+    let localPath: string;
+    try {
+      localPath = await invoke<string>('download_file', {
+        path: `/api/pcnotices/file${qs({ kind, id, no, ...pcNoticeParams(query) })}`,
+        filename: filename ?? null,
+      });
+    } catch (err) {
+      throw toApiError(err);
+    }
+    await openPath(localPath);
   },
   fileUrl() {
     // desktop版はopenFile()でOS既定アプリを開くため呼ばれない。

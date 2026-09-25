@@ -23,6 +23,9 @@
     --border: #e2e8f0;
     --danger: #dc2626;
     --important: #ff8000;
+    --success: #16a34a;
+    --success-bg: #f0fdf4;
+    --danger-bg: #fef2f2;
 
     /* ---- レイアウト ---- */
     --app-max: 480px;

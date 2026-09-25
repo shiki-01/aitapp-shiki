@@ -7,6 +7,8 @@
   import Credits from './campus/Credits.svelte';
   import Curriculum from './campus/Curriculum.svelte';
   import SchoolEvents from './campus/SchoolEvents.svelte';
+  import NoticeSearch from './campus/NoticeSearch.svelte';
+  import Lottery from './campus/Lottery.svelte';
 
   let { onBack }: { onBack?: () => void } = $props();
 
@@ -61,6 +63,20 @@
       description: '学内スケジュール。月ごとの行事・祝祭日（参照のみ）',
       icon: 'calendar',
       component: SchoolEvents,
+    },
+    {
+      id: 'noticesearch',
+      label: '連絡を検索',
+      description: '学内連絡・授業連絡をキーワードや期間で探す（参照のみ）',
+      icon: 'search',
+      component: NoticeSearch,
+    },
+    {
+      id: 'lottery',
+      label: '抽選結果',
+      description: '抽選履修登録の当落を曜日時限ごとに確認（参照のみ）',
+      icon: 'edit',
+      component: Lottery,
     },
   ];
 

@@ -3,7 +3,7 @@
 
 import { goto } from '$app/navigation';
 import { ApiError, type ApiClient } from './types';
-import { qs, fileApiPath, reportParams } from './apiPath';
+import { qs, fileApiPath, reportParams, pcNoticeParams } from './apiPath';
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8787';
 
@@ -169,6 +169,23 @@ export const browserApi: ApiClient = {
   },
   async schoolEvents(month) {
     return request(`/api/schoolevents${qs({ month })}`);
+  },
+  async lottery() {
+    return request('/api/lottery');
+  },
+  async pcNotices(kind, query) {
+    return request(`/api/pcnotices${qs({ kind, ...pcNoticeParams(query) })}`);
+  },
+  async pcNoticeDetail(kind, id, query) {
+    return request(`/api/pcnotices/detail${qs({ kind, id, ...pcNoticeParams(query) })}`);
+  },
+  pcNoticeFileUrl(kind, id, no, query) {
+    // inline=1: ブラウザ標準ビューアで表示(pdf/画像/txt)。他形式は従来どおりダウンロード。
+    return `${BASE}/api/pcnotices/file${qs({ kind, id, no, ...pcNoticeParams(query), inline: 1 })}`;
+  },
+  async openPcNoticeFile() {
+    // browser版はpcNoticeFileUrl()を<a href target=_blank>で開くため呼ばれない。
+    throw new ApiError(500, 'openPcNoticeFile is not supported on browser');
   },
   fileUrl(relativePath) {
     // inline=1: ブラウザ標準ビューアで表示(pdf/画像/txt)。他形式は従来どおりダウンロード。

@@ -1,4 +1,4 @@
-import type { ReportQuery } from './types';
+import type { ReportQuery, PcNoticeQuery } from './types';
 
 // browser版(fetch)/desktop版(invoke)の両方で使う、クエリ文字列と
 // 添付ファイルAPIパスの組み立て。エンコード規則を1箇所にまとめて重複させない。
@@ -29,5 +29,33 @@ export function reportParams(query: ReportQuery = {}): {
     year: query.year,
     semester: query.semester,
     unsubmitted: query.unsubmittedOnly ? 1 : undefined,
+  };
+}
+
+// 連絡検索 API の絞り込み条件をクエリ用の値へ。未指定の項目は送らない（空文字は qs が落とす）。
+// from/to は YYYY-MM-DD のまま送る（worker が YYYY/MM/DD へそろえる）。
+export function pcNoticeParams(query: PcNoticeQuery = {}): {
+  keyword?: string;
+  category?: string;
+  subject?: string;
+  from?: string;
+  to?: string;
+  unread?: 1;
+  todo?: 1;
+  attachment?: 1;
+  year?: number;
+  semester?: number;
+} {
+  return {
+    keyword: query.keyword,
+    category: query.category,
+    subject: query.subject,
+    from: query.from,
+    to: query.to,
+    unread: query.unreadOnly ? 1 : undefined,
+    todo: query.todoOnly ? 1 : undefined,
+    attachment: query.attachmentOnly ? 1 : undefined,
+    year: query.year,
+    semester: query.semester,
   };
 }
