@@ -16,6 +16,8 @@ export type {
   PcFileLink,
   CommonFileItem,
   CommonFileDetail,
+  ReportItem,
+  ReportDetail,
 } from '../../shared/contract';
 // AssignmentWithStatus が extends するためローカル束縛としても取り込む。
 import type { Assignment } from '../../shared/contract';
