@@ -238,3 +238,43 @@ export interface ReportDetail {
   result: string[];
   submissions: ReportSubmission[];
 }
+
+// ---- LCAM 施設（キャンパスライフ > 施設。参照のみ）----
+
+export interface FacilityItem {
+  /** 上流の施設コード。スケジュールの取得に使う。 */
+  id: string;
+  /** 建物（施設種別）の名称と上流のコード。 */
+  building: string;
+  buildingCode: string;
+  name: string;
+  /** 定員数。上流が 0 のときは未登録の意味であることが多い。 */
+  capacity: number;
+  /** 試験時収容人数。 */
+  examCapacity: number;
+  equipment: string[];
+}
+
+export interface FacilityEvent {
+  /** HH:MM。時刻の無い予定は空文字。 */
+  start: string;
+  end: string;
+  /** 授業名・行事名など。 */
+  title: string;
+  teacher?: string;
+  /** 上の 3 つに収まらなかった行。 */
+  note?: string;
+}
+
+export interface FacilityRoomWeek {
+  id: string;
+  name: string;
+  days: Array<{ date: string; events: FacilityEvent[] }>;
+}
+
+/** 1 週間ぶんの施設の使用状況（授業・予約）。 */
+export interface FacilityWeek {
+  /** 月曜〜日曜の日付（YYYY-MM-DD）。 */
+  dates: string[];
+  rooms: FacilityRoomWeek[];
+}

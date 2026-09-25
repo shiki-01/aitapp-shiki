@@ -17,6 +17,7 @@ import {
   downloadReportFile,
   type ReportQuery,
 } from './upstream/lcam/report';
+import { fetchFacilityList, fetchFacilityWeek } from './upstream/lcam/facility';
 import { ValidationError } from './upstream/errors';
 import { applyInlineView } from './inline-view';
 
@@ -121,5 +122,25 @@ export function registerPcRoutes(app: App): void {
       downloadReportFile(cookies, id, submitNo, fileNo, query),
     );
     return streamDownload(upstream, c.req.query('inline') === '1');
+  });
+
+  // ---- 施設（キャンパスライフ > 施設。参照のみ） ----
+  app.get('/api/facilities', async (c) => {
+    const facilities = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      fetchFacilityList(cookies),
+    );
+    return c.json({ facilities });
+  });
+
+  // ids=施設コードのカンマ区切り（この順に行が並ぶ）、week=今週からの週数（-4〜8。省略は今週）。
+  app.get('/api/facilities/schedule', async (c) => {
+    const ids = (c.req.query('ids') ?? '').split(',').filter(Boolean);
+    const weekRaw = c.req.query('week');
+    if (weekRaw !== undefined && !/^-?\d{1,2}$/.test(weekRaw)) throw new ValidationError('week is invalid');
+    const week = weekRaw === undefined ? 0 : parseInt(weekRaw, 10);
+    const schedule = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      fetchFacilityWeek(cookies, ids, week),
+    );
+    return c.json({ schedule });
   });
 }
