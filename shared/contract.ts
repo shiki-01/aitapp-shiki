@@ -411,3 +411,15 @@ export interface PcNoticeDetail {
   /** 授業連絡: 返信の可否の表記（例: 返信不可）。 */
   reply?: string;
 }
+
+// ---- LCAM 教職員スケジュール（キャンパスライフ > スケジュール > 教職員スケジュールを検索。参照のみ）----
+
+export interface StaffMember {
+  /** 上流の教職員コード。スケジュールの取得に使う。 */
+  code: string;
+  /** 氏名（上流の表記。姓名の間は全角スペース）。 */
+  name: string;
+  kana: string;
+  /** 所属。 */
+  department: string;
+}

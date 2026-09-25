@@ -26,6 +26,7 @@ import {
 } from './upstream/lcam/kyoumu';
 import { fetchPcNotices, fetchPcNoticeDetail, downloadPcNoticeFile } from './upstream/lcam/pcnotice';
 import type { PcNoticeKind, PcNoticeQuery } from '../../shared/contract';
+import { searchStaff, fetchStaffSchedule } from './upstream/lcam/staff';
 import { ValidationError } from './upstream/errors';
 import { applyInlineView } from './inline-view';
 
@@ -262,5 +263,27 @@ export function registerPcRoutes(app: App): void {
       downloadPcNoticeFile(cookies, kind, id, no, query),
     );
     return streamDownload(upstream, c.req.query('inline') === '1');
+  });
+
+  // ---- 教職員スケジュール（キャンパスライフ > スケジュール > 教職員スケジュールを検索。参照のみ） ----
+  app.get('/api/staff', async (c) => {
+    const name = c.req.query('name') ?? '';
+    const staff = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      searchStaff(cookies, name),
+    );
+    return c.json({ staff });
+  });
+
+  // name=検索語、code=検索結果の教職員コード、week=0（今日から 7 日）または今週からの週数（-4〜8。月曜始まりの週）。
+  app.get('/api/staff/schedule', async (c) => {
+    const code = numericId(c.req.query('code'), 'code');
+    const weekRaw = c.req.query('week');
+    if (weekRaw !== undefined && !/^-?\d{1,2}$/.test(weekRaw)) throw new ValidationError('week is invalid');
+    const week = weekRaw === undefined ? 0 : parseInt(weekRaw, 10);
+    const name = c.req.query('name') ?? '';
+    const schedule = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      fetchStaffSchedule(cookies, name, code, week),
+    );
+    return c.json({ schedule });
   });
 }
