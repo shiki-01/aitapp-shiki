@@ -42,6 +42,11 @@ import type {
   FacilityWeek,
   FacilityRoomWeek,
   FacilityEvent,
+  CreditStatus,
+  CurriculumItem,
+  SchoolEvents,
+  SchoolEventMonth,
+  SchoolEventDay,
 } from '../../../shared/contract';
 export type {
   UnivNotice,
@@ -69,6 +74,11 @@ export type {
   FacilityWeek,
   FacilityRoomWeek,
   FacilityEvent,
+  CreditStatus,
+  CurriculumItem,
+  SchoolEvents,
+  SchoolEventMonth,
+  SchoolEventDay,
 };
 
 // NoticeDetail / TimetableEntry / ScheduleEvent / ScheduleDay / Assignment /
@@ -202,6 +212,15 @@ export interface ApiClient {
   facilities(): Promise<{ facilities: FacilityItem[] }>;
   /** 施設（1〜60 件）の 1 週間ぶんの使用状況。week は今週からの週数（-4〜8。省略=今週）。 */
   facilitySchedule(ids: string[], week?: number): Promise<{ schedule: FacilityWeek }>;
+  /** 学事システムの単位修得状況（参照のみ。既定のタブのみ）。 */
+  credits(): Promise<{ credits: CreditStatus }>;
+  /** 学事システムのカリキュラム（履修対象の科目と評価。参照のみ）。 */
+  curriculum(): Promise<{ curriculum: CurriculumItem[] }>;
+  /**
+   * 学内スケジュール（年間行事）。month=1〜12 でその月、'all' で 12 か月分（上流へ 12 回。遅い）。
+   * 省略は今の月（JST）。
+   */
+  schoolEvents(month?: number | 'all'): Promise<{ events: SchoolEvents }>;
   fileUrl(relativePath: string): string;
   openFile(relativePath: string): Promise<void>;
 }

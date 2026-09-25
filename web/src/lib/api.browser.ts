@@ -161,6 +161,15 @@ export const browserApi: ApiClient = {
   async facilitySchedule(ids, week) {
     return request(`/api/facilities/schedule${qs({ ids: ids.join(','), week })}`);
   },
+  async credits() {
+    return request('/api/credits');
+  },
+  async curriculum() {
+    return request('/api/curriculum');
+  },
+  async schoolEvents(month) {
+    return request(`/api/schoolevents${qs({ month })}`);
+  },
   fileUrl(relativePath) {
     // inline=1: ブラウザ標準ビューアで表示(pdf/画像/txt)。他形式は従来どおりダウンロード。
     return `${BASE}${fileApiPath(relativePath)}?inline=1`;

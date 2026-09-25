@@ -185,6 +185,15 @@ export const desktopApi: ApiClient = {
   async facilitySchedule(ids, week) {
     return call(`/api/facilities/schedule${qs({ ids: ids.join(','), week })}`);
   },
+  async credits() {
+    return call('/api/credits');
+  },
+  async curriculum() {
+    return call('/api/curriculum');
+  },
+  async schoolEvents(month) {
+    return call(`/api/schoolevents${qs({ month })}`);
+  },
   fileUrl() {
     // desktop版はopenFile()でOS既定アプリを開くため呼ばれない。
     throw new ApiError(500, 'fileUrl is not supported on desktop');

@@ -1,9 +1,12 @@
 <script lang="ts">
   import type { Component } from 'svelte';
-  import Icon from '$lib/components/Icon.svelte';
+  import Icon, { type IconName } from '$lib/components/Icon.svelte';
   import CommonFiles from './campus/CommonFiles.svelte';
   import Reports from './campus/Reports.svelte';
   import Facilities from './campus/Facilities.svelte';
+  import Credits from './campus/Credits.svelte';
+  import Curriculum from './campus/Curriculum.svelte';
+  import SchoolEvents from './campus/SchoolEvents.svelte';
 
   let { onBack }: { onBack?: () => void } = $props();
 
@@ -13,7 +16,7 @@
     id: string;
     label: string;
     description: string;
-    icon: 'note' | 'book' | 'calendar' | 'grid' | 'task' | 'clock';
+    icon: IconName;
     component: Component;
   }
   const ITEMS: CampusItem[] = [
@@ -37,6 +40,27 @@
       description: '建物・日時から空いている教室を探す（参照のみ）',
       icon: 'clock',
       component: Facilities,
+    },
+    {
+      id: 'credits',
+      label: '単位修得',
+      description: '学事システムの単位修得状況（参照のみ）',
+      icon: 'check',
+      component: Credits,
+    },
+    {
+      id: 'curriculum',
+      label: 'カリキュラム',
+      description: '履修対象の科目と評価の一覧（参照のみ）',
+      icon: 'book',
+      component: Curriculum,
+    },
+    {
+      id: 'schoolevents',
+      label: '年間行事',
+      description: '学内スケジュール。月ごとの行事・祝祭日（参照のみ）',
+      icon: 'calendar',
+      component: SchoolEvents,
     },
   ];
 

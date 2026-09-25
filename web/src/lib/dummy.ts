@@ -18,6 +18,9 @@ import type {
   ReportDetail,
   FacilityItem,
   FacilityWeek,
+  CreditStatus,
+  CurriculumItem,
+  SchoolEvents,
 } from '../../../shared/contract';
 
 // ---- 連絡（LCAM） ----
@@ -630,6 +633,66 @@ export const dummyFacilitySchedule: FacilityWeek = {
         { date: '2026-09-25', events: [{ start: '', end: '', title: '学内行事（終日）' }] },
         { date: '2026-09-26', events: [] },
         { date: '2026-09-27', events: [] },
+      ],
+    },
+  ],
+};
+
+// ---- 学事システム（LCAM から引き渡し） ----
+
+// 結合セルは展開済み（同じ値の繰り返し）。先頭 2 行が見出し。
+export const dummyCredits: CreditStatus = {
+  tabs: ['卒業進級用１年', '卒業進級用２年'],
+  headerRows: 2,
+  rows: [
+    ['区分', '区分', '必要単位', '修得単位', '修得単位'],
+    ['区分', '区分', '必要単位', '認定', '修得'],
+    ['基礎', '共通', '10', '2', '8'],
+    ['基礎', '専門', '20', '0', '14'],
+    ['専門', '必修', '12', '0', '6'],
+    ['専門', '選択', '8', '0', '4'],
+  ],
+  note: '総修得単位数 35 単位以上',
+};
+
+export const dummyCurriculum: CurriculumItem[] = [
+  {
+    code: 'A1001',
+    name: '線形代数',
+    category: '基礎（共通）',
+    creditType: '必修',
+    credits: 2,
+    grade: '優',
+  },
+  {
+    code: 'A1002',
+    name: 'プログラミング演習',
+    category: '専門（他学科等）',
+    creditType: '選択',
+    credits: 1,
+    grade: '',
+  },
+  {
+    code: 'B2001',
+    name: '英語コミュニケーション',
+    category: '基礎（共通）',
+    creditType: '必修',
+    credits: 2,
+    grade: '不可',
+  },
+];
+
+export const dummySchoolEvents: SchoolEvents = {
+  nendo: 2026,
+  months: [
+    {
+      month: 9,
+      days: [
+        { date: '2026-09-21', weekday: '月', holiday: '敬老の日', event: '' },
+        { date: '2026-09-22', weekday: '火', holiday: '国民の休日', event: '' },
+        { date: '2026-09-23', weekday: '水', holiday: '秋分の日', event: '' },
+        { date: '2026-09-25', weekday: '金', holiday: '', event: '後期授業開始' },
+        { date: '2026-09-26', weekday: '土', holiday: '', event: '履修登録締切' },
       ],
     },
   ],
