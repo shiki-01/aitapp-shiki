@@ -39,3 +39,23 @@ export function busyEvents(room: FacilityRoomWeek, date: string, start: string, 
 export function freeRooms(rooms: FacilityRoomWeek[], date: string, start: string, end: string): FacilityRoomWeek[] {
   return rooms.filter((r) => r.days.some((d) => d.date === date) && busyEvents(r, date, start, end).length === 0);
 }
+
+/**
+ * date（YYYY-MM-DD）が、now の属する週（JST・月曜始まり）から何週先か（過去は負）。
+ * 上流の週指定（今週からの週数）に合わせるために使う。date が不正な日付なら例外。
+ */
+export function weekOffsetFromToday(date: string, now: Date): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) throw new Error('date は YYYY-MM-DD で指定してください');
+  const target = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  const check = new Date(target);
+  if (check.getUTCFullYear() !== +m[1] || check.getUTCMonth() !== +m[2] - 1 || check.getUTCDate() !== +m[3]) {
+    throw new Error('date は実在する日付で指定してください');
+  }
+  const DAY = 24 * 60 * 60 * 1000;
+  // JST の暦日に直し、UTC 0 時として扱う。月曜始まりの週頭（getUTCDay: 日=0 → 6 日戻る）へ揃えて差を週で数える。
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const today = Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate());
+  const monday = (t: number) => t - ((new Date(t).getUTCDay() + 6) % 7) * DAY;
+  return Math.round((monday(target) - monday(today)) / (7 * DAY));
+}

@@ -100,6 +100,9 @@ Moodleへの認証は、ログイン時に一度だけID/パスワードで `log
 | `lcam_list_reports` | `GET /api/reports`（読み取り専用。提出はできない） |
 | `lcam_get_report_detail` | `GET /api/reports/detail` |
 | `lcam_download_report_file` | `GET /api/reports/download`（自分が提出したファイルの取得） |
+| `lcam_list_facilities` | `GET /api/facilities`（施設一覧。building・minCapacity・name で絞り込み） |
+| `lcam_get_facility_schedule` | `GET /api/facilities/schedule`（施設の週間使用状況。最大 60 施設、今週の -4〜+8 週） |
+| `lcam_find_free_facilities` | `GET /api/facilities` + `GET /api/facilities/schedule`（指定日時の空き教室探し。読み取り専用） |
 | `lcam_get_enquete_questions` | `GET /api/enquetes/questions` |
 | `lcam_save_class_enquete_answer_draft` | `POST /api/enquetes/answer`（実書き込み） |
 | `lcam_submit_class_enquete_final` | `POST /api/enquetes/submit`（実書き込み・取り消し困難） |

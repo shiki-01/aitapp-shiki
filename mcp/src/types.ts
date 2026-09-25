@@ -18,6 +18,8 @@ export type {
   CommonFileDetail,
   ReportItem,
   ReportDetail,
+  FacilityItem,
+  FacilityWeek,
 } from '../../shared/contract';
 // AssignmentWithStatus が extends するためローカル束縛としても取り込む。
 import type { Assignment } from '../../shared/contract';
