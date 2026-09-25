@@ -43,13 +43,23 @@
     dup: boolean;
   }
 
-  // 見出し: 見出しが 2 行以上あるとき、同じ値が横に連続するセルを colspan でまとめる。
+  // 区分の列（左）と数値の列（右）の境目。見出しの最後の行で「必要単位」を含む最初の列より左が区分。
+  // 見つからない（または区分の列が無い）ときは 0 とし、13 列をそのまま出す従来表示にフォールバックする。
+  const split = $derived.by(() => {
+    if (!credits || credits.headerRows < 1) return 0;
+    const last = credits.rows[credits.headerRows - 1];
+    const i = last ? last.findIndex((t) => t.includes('必要単位')) : -1;
+    return i > 0 ? i : 0;
+  });
+
+  // 見出し: split 列目以降について、見出しが 2 行以上あるとき同じ値が横に連続するセルを colspan でまとめる。
+  // 区分の列（split > 0 のとき）は「区分」1 セルにまとめて出すので、ここには含めない。
   const headRows = $derived.by<HeadCell[][]>(() => {
     if (!credits) return [];
     const head = credits.rows.slice(0, credits.headerRows);
     return head.map((row, r) => {
       const cells: HeadCell[] = [];
-      for (let c = 0; c < row.length; c++) {
+      for (let c = split; c < row.length; c++) {
         const last = cells[cells.length - 1];
         if (head.length >= 2 && last && last.text === row[c]) {
           last.span++;
@@ -63,8 +73,25 @@
 
   const bodyRows = $derived(credits ? credits.rows.slice(credits.headerRows) : []);
 
+  // 区分の列を 1 つのラベルにする。左から順に、直前の列と同じ値・空の値は飛ばし、残りを「 › 」でつなぐ。
+  function labelOf(row: string[]): string {
+    const parts: string[] = [];
+    for (let c = 0; c < split; c++) {
+      if (row[c] === '' || (c > 0 && row[c] === row[c - 1])) continue;
+      parts.push(row[c]);
+    }
+    return parts.join(' › ');
+  }
+
+  const TOTAL_WORDS = ['合計', '最上位合計', '中要件合計', '大要件合計', '要件外'];
+  function isTotal(row: string[]): boolean {
+    const label = labelOf(row);
+    return TOTAL_WORDS.some((w) => label.includes(w));
+  }
+
   // 左側の「区分」の列の数。前の行と（左の列も含めて）同じ値が続く列を、左から数える。
   const labelCols = $derived.by(() => {
+    if (split > 0) return 0;
     const cols = bodyRows[0]?.length ?? 0;
     let n = 0;
     while (n < cols && bodyRows.some((_, r) => isRepeat(r, n))) n++;
@@ -102,10 +129,13 @@
     </p>
   {/if}
   <div class="scroll">
-    <table>
+    <table class:grouped={split > 0}>
       <thead>
-        {#each headRows as row}
+        {#each headRows as row, r}
           <tr>
+            {#if split > 0 && r === 0}
+              <th class="label-head" rowspan={headRows.length}>区分</th>
+            {/if}
             {#each row as cell}
               <th colspan={cell.span} class:dup={cell.dup}>{cell.text}</th>
             {/each}
@@ -114,9 +144,16 @@
       </thead>
       <tbody>
         {#each bodyRows as row, r}
-          <tr>
-            {#each row as cell, c}
-              <td class:label={c < labelCols} class:dup={c < labelCols && isRepeat(r, c)}>{cell}</td>
+          <tr class:total={split > 0 && isTotal(row)}>
+            {#if split > 0}
+              <td class="label group">{labelOf(row)}</td>
+            {/if}
+            {#each row.slice(split) as cell, i}
+              <td
+                class:label={split === 0 && i < labelCols}
+                class:num={split > 0}
+                class:dup={split === 0 && i < labelCols && isRepeat(r, i)}>{cell}</td
+              >
             {/each}
           </tr>
         {/each}
@@ -189,6 +226,45 @@
   .dup {
     color: var(--primary-pale);
     font-weight: 400;
+  }
+  /* 区分の列を 1 つにまとめた表示（モバイルでも数値の列が見えるよう、余白とフォントを詰める）。 */
+  table.grouped {
+    font-size: 0.75rem;
+  }
+  table.grouped th,
+  table.grouped td {
+    padding: 6px 3px;
+  }
+  table.grouped th {
+    white-space: normal;
+    min-width: 2.4em;
+    line-height: 1.3;
+  }
+  table.grouped td.num {
+    text-align: right;
+  }
+  table.grouped th.label-head,
+  table.grouped td.group {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    min-width: 5.5em;
+    max-width: 7.5em;
+    padding-left: 8px;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.35;
+    background: var(--card);
+    box-shadow: 1px 0 0 var(--border);
+  }
+  table.grouped th.label-head {
+    background: var(--primary-bg);
+  }
+  table.grouped tr.total td {
+    background: var(--primary-bg);
+    font-weight: 700;
+    color: var(--navy);
   }
   .muted {
     color: var(--muted);
