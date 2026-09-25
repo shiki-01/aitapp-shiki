@@ -145,5 +145,9 @@ export class SelfClient implements ToolClient {
     return this.downloadAsBase64(`/api/moodle/file?url=${encodeURIComponent(fileUrl)}`, suggestedName);
   }
 
+  async downloadApi(apiPath: string, suggestedName: string): Promise<DownloadedFile> {
+    return this.downloadAsBase64(apiPath, suggestedName);
+  }
+
   // readLocalFile は提供しない（クラウド実行にローカルファイルは存在しない）。
 }
