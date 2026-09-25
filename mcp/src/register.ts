@@ -11,6 +11,7 @@ import { registerPerformanceTools } from './tools/performance';
 import { registerCommonFileTools } from './tools/commonfiles';
 import { registerReportTools } from './tools/reports';
 import { registerFacilityTools } from './tools/facilities';
+import { registerAcademicTools } from './tools/academic';
 import { registerEnqueteTools } from './tools/enquetes';
 import { registerQuizTools } from './tools/quiz';
 import { registerMoodleFileTools } from './tools/moodle-files';
@@ -28,6 +29,7 @@ export function createAitappServer(client: ToolClient): McpServer {
   registerCommonFileTools(server, client);
   registerReportTools(server, client);
   registerFacilityTools(server, client);
+  registerAcademicTools(server, client);
   registerMoodleCourseTools(server, client);
   registerQuizTools(server, client);
   registerMoodleFileTools(server, client);

@@ -20,6 +20,9 @@ export type {
   ReportDetail,
   FacilityItem,
   FacilityWeek,
+  CreditStatus,
+  CurriculumItem,
+  SchoolEvents,
 } from '../../shared/contract';
 // AssignmentWithStatus が extends するためローカル束縛としても取り込む。
 import type { Assignment } from '../../shared/contract';
