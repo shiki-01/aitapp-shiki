@@ -178,3 +178,63 @@ export interface CommonFileDetail {
   publicPeriod: string;
   files: PcFileLink[];
 }
+
+// ---- LCAM レポート（授業サポート > レポート）----
+
+/** レポート一覧の 1 件。 */
+export interface ReportItem {
+  /** 上流のレポート ID。詳細・ファイル取得の指定に使う。 */
+  id: string;
+  subject: string;
+  /** 学期/曜日時限（例: 後期/木1）。 */
+  term: string;
+  title: string;
+  /** 状態（受付中・締切など。上流の表記のまま）。 */
+  status: string;
+  /** 提出期間（例: 2026/09/23 18:00 ～ 2026/09/24 23:00）。 */
+  period: string;
+  /** 最終提出日時。未提出なら空。 */
+  lastSubmittedAt: string;
+  /** 実施形式（Web / 紙）。 */
+  format: string;
+  /** 一覧の「提出」ボタンが出ているか（受付中で提出できる）。 */
+  canSubmit: boolean;
+  /** 一覧の「提出取消」ボタンが出ているか。 */
+  canCancel: boolean;
+}
+
+export interface ReportSubmissionFile {
+  studentCode: string;
+  submitNo: number;
+  fileNo: number;
+  name: string;
+}
+
+/** 提出履歴の 1 回分。 */
+export interface ReportSubmission {
+  /** 見出し（例: 1.comment by 氏名 2026/09/24 22:25）。 */
+  heading: string;
+  /** 見出しの下の本文行（提出コメント・教員のコメント・点数など。上流の並びのまま）。 */
+  lines: string[];
+  files: ReportSubmissionFile[];
+}
+
+export interface ReportDetail {
+  id: string;
+  /** 全体の状態（受付中・締切など）。 */
+  status: string;
+  title: string;
+  period: string;
+  /** 評価方法（例: 点数（上限 200点））。 */
+  evaluation: string;
+  description: string;
+  /** 参考資料の表記（ファイルの取得は未対応）。 */
+  referenceMaterial: string;
+  /** 伝達事項。 */
+  notice: string;
+  /** 催促通知の表記（例: 登録されていません。）。 */
+  reminder: string;
+  /** 評価結果の本文行（結果公開中のときだけ。形は未観測のため上流の並びのまま）。 */
+  result: string[];
+  submissions: ReportSubmission[];
+}

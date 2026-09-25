@@ -74,8 +74,15 @@ export function cookieHeader(c: LcamCookies): string {
   return [c.jsessionid, c.liveApps, ...(c.extra ?? [])].filter(Boolean).join('; ');
 }
 
-function formBody(data: Record<string, string>): string {
-  return new URLSearchParams(data).toString();
+/** フォーム本文。配列の値は同名で複数送る（チェックボックス等）。 */
+export type FormFields = Record<string, string | string[]>;
+
+function formBody(data: FormFields): string {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(data)) {
+    for (const item of Array.isArray(v) ? v : [v]) params.append(k, item);
+  }
+  return params.toString();
 }
 
 /** 同一オリジン内リダイレクトの追従上限。 */
@@ -111,7 +118,7 @@ export function resolveRedirect(location: string, from: string): string {
 export async function httpAccess(
   url: string,
   headers: Record<string, string>,
-  body?: Record<string, string>,
+  body?: FormFields,
 ): Promise<Response> {
   let target = url;
   let method = body ? 'POST' : 'GET';
@@ -615,7 +622,7 @@ export function pcHeaders(
 export async function postPcForm(
   cookies: LcamCookies,
   path: string,
-  fields: Record<string, string>,
+  fields: FormFields,
 ): Promise<string> {
   const res = await httpAccess(`${BASE}/portalv2${path}`, pcHeaders(cookies, { post: true }), fields);
   return res.text();
@@ -628,7 +635,7 @@ export async function postPcForm(
 export async function postPcStream(
   cookies: LcamCookies,
   path: string,
-  fields: Record<string, string>,
+  fields: FormFields,
 ): Promise<Response> {
   const url = `${BASE}/portalv2${path}`;
   const res = await lcamFetch(

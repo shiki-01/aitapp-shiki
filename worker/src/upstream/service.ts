@@ -9,6 +9,7 @@ const LCAM_PATHS = [
   '/api/enquetes',
   '/api/file/',
   '/api/commonfiles',
+  '/api/reports',
 ] as const;
 
 export function classifyUpstreamService(path: string, detail: string): UpstreamService {

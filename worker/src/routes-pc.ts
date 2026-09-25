@@ -11,6 +11,12 @@ import {
   fetchCommonFileDetail,
   downloadCommonFile,
 } from './upstream/lcam/commonfile';
+import {
+  fetchReportList,
+  fetchReportDetail,
+  downloadReportFile,
+  type ReportQuery,
+} from './upstream/lcam/report';
 import { ValidationError } from './upstream/errors';
 import { applyInlineView } from './inline-view';
 
@@ -28,6 +34,23 @@ function numericId(raw: string | undefined, name: string): string {
 function positiveInt(raw: string | undefined, name: string): number {
   if (!raw || !/^\d{1,6}$/.test(raw)) throw new ValidationError(`${name} is invalid`);
   return parseInt(raw, 10);
+}
+
+/** レポートの絞り込み（year=年度, semester=1|2, unsubmitted=1）。指定が無ければ上流の初期表示。 */
+function reportQuery(q: (name: string) => string | undefined): ReportQuery {
+  const query: ReportQuery = {};
+  const year = q('year');
+  if (year !== undefined) {
+    if (!/^20\d{2}$/.test(year)) throw new ValidationError('year is invalid');
+    query.year = parseInt(year, 10);
+  }
+  const semester = q('semester');
+  if (semester !== undefined) {
+    if (semester !== '1' && semester !== '2') throw new ValidationError('semester is invalid');
+    query.semester = semester === '1' ? 1 : 2;
+  }
+  if (q('unsubmitted') === '1') query.unsubmittedOnly = true;
+  return query;
 }
 
 /** 上流のダウンロード応答を、body を溜めずにそのまま返す。 */
@@ -66,6 +89,36 @@ export function registerPcRoutes(app: App): void {
     const no = positiveInt(c.req.query('no'), 'no');
     const upstream = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
       downloadCommonFile(cookies, id, no),
+    );
+    return streamDownload(upstream, c.req.query('inline') === '1');
+  });
+
+  // ---- レポート（授業サポート > レポート。参照のみ） ----
+  app.get('/api/reports', async (c) => {
+    const query = reportQuery((n) => c.req.query(n));
+    const reports = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      fetchReportList(cookies, query),
+    );
+    return c.json({ reports });
+  });
+
+  app.get('/api/reports/detail', async (c) => {
+    const id = numericId(c.req.query('id'), 'id');
+    const query = reportQuery((n) => c.req.query(n));
+    const detail = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      fetchReportDetail(cookies, id, query),
+    );
+    return c.json({ detail });
+  });
+
+  // 提出履歴のファイル。提出物は詳細画面にあるものだけ取れる（submitNo・fileNo で指定）。
+  app.get('/api/reports/download', async (c) => {
+    const id = numericId(c.req.query('id'), 'id');
+    const submitNo = positiveInt(c.req.query('submitNo'), 'submitNo');
+    const fileNo = positiveInt(c.req.query('fileNo'), 'fileNo');
+    const query = reportQuery((n) => c.req.query(n));
+    const upstream = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      downloadReportFile(cookies, id, submitNo, fileNo, query),
     );
     return streamDownload(upstream, c.req.query('inline') === '1');
   });

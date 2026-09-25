@@ -8,7 +8,7 @@ import type { LcamCookies } from '../../types';
 import { parseHtml, textLines, type HTMLElement } from '../../html/parser';
 import { LcamExpiredError, UpstreamError } from '../errors';
 import { looksLikeLoginPage } from './detect';
-import { getClassTimeTableBody, postPcForm } from './access';
+import { getClassTimeTableBody, postPcForm, type FormFields } from './access';
 import type { PcFileLink } from '../../../../shared/contract';
 
 const TOKEN_NAME = 'org.apache.struts.taglib.html.TOKEN';
@@ -67,7 +67,7 @@ export async function pcSubmit(
   cookies: LcamCookies,
   token: string,
   path: string,
-  fields: Record<string, string>,
+  fields: FormFields,
 ): Promise<string> {
   const html = await postPcForm(cookies, path, { [TOKEN_NAME]: token, ...fields });
   assertPcPage(html);
@@ -150,7 +150,8 @@ export function parseEntryTable(html: string): EntryRow[] {
   const root = parseHtml(html);
   const rows: EntryRow[] = [];
   for (const tr of root.querySelectorAll('table.ttb_entry tr')) {
-    const th = tr.querySelector('th');
+    // 先頭の行だけ、全体の状態を表す見出し（th_summary。rowspan）が前に付く。項目名は最後の th。
+    const th = tr.querySelectorAll('th').at(-1);
     const td = tr.querySelector('td');
     if (!th || !td) continue;
     const files: PcFileLink[] = [];
@@ -194,4 +195,10 @@ export function findRow(rows: EntryRow[], label: string): EntryRow | undefined {
 /** 表の行のセルをテキスト配列にする（一覧表用）。 */
 export function rowCells(tr: HTMLElement): string[] {
   return tr.querySelectorAll('td').map((td) => textLines(td).join(' '));
+}
+
+/** 詳細画面の表の左端にある全体の状態（`th.th_summary`。例: 締切）。 */
+export function entrySummary(html: string): string {
+  const th = parseHtml(html).querySelector('table.ttb_entry th.th_summary');
+  return th ? cellText(th) : '';
 }
