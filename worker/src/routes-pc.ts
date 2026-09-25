@@ -24,6 +24,8 @@ import {
   fetchSchoolEvents,
   fetchLotteryResults,
 } from './upstream/lcam/kyoumu';
+import { fetchPcNotices, fetchPcNoticeDetail, downloadPcNoticeFile } from './upstream/lcam/pcnotice';
+import type { PcNoticeKind, PcNoticeQuery } from '../../shared/contract';
 import { ValidationError } from './upstream/errors';
 import { applyInlineView } from './inline-view';
 
@@ -57,6 +59,49 @@ function reportQuery(q: (name: string) => string | undefined): ReportQuery {
     query.semester = semester === '1' ? 1 : 2;
   }
   if (q('unsubmitted') === '1') query.unsubmittedOnly = true;
+  return query;
+}
+
+function noticeKind(raw: string | undefined): PcNoticeKind {
+  if (raw !== 'campus' && raw !== 'class') throw new ValidationError('kind is invalid');
+  return raw;
+}
+
+/** 日付は YYYY-MM-DD / YYYY/MM/DD のどちらでも受け、上流の YYYY/MM/DD にそろえる。 */
+function slashDate(raw: string | undefined, name: string): string | undefined {
+  if (raw === undefined || raw === '') return undefined;
+  if (!/^\d{4}[-/]\d{2}[-/]\d{2}$/.test(raw)) throw new ValidationError(`${name} is invalid`);
+  return raw.replace(/-/g, '/');
+}
+
+/** 連絡の絞り込み（keyword, category, subject, from, to, unread=1, todo=1, attachment=1, year, semester）。 */
+function noticeQuery(q: (name: string) => string | undefined): PcNoticeQuery {
+  const query: PcNoticeQuery = {};
+  const text = (name: string, max: number) => {
+    const v = q(name);
+    if (v === undefined || v === '') return undefined;
+    if (v.length > max) throw new ValidationError(`${name} is too long`);
+    return v;
+  };
+  query.keyword = text('keyword', 100);
+  query.category = text('category', 50);
+  query.subject = text('subject', 100);
+  query.from = slashDate(q('from'), 'from');
+  query.to = slashDate(q('to'), 'to');
+  if (q('unread') === '1') query.unreadOnly = true;
+  if (q('todo') === '1') query.todoOnly = true;
+  if (q('attachment') === '1') query.attachmentOnly = true;
+  const year = q('year');
+  if (year !== undefined && year !== '') {
+    if (!/^20\d{2}$/.test(year)) throw new ValidationError('year is invalid');
+    query.year = parseInt(year, 10);
+  }
+  const semester = q('semester');
+  if (semester !== undefined && semester !== '') {
+    if (semester !== '1' && semester !== '2') throw new ValidationError('semester is invalid');
+    query.semester = semester === '1' ? 1 : 2;
+  }
+  for (const k of Object.keys(query) as Array<keyof PcNoticeQuery>) if (query[k] === undefined) delete query[k];
   return query;
 }
 
@@ -185,5 +230,37 @@ export function registerPcRoutes(app: App): void {
       fetchLotteryResults(cookies),
     );
     return c.json({ lottery });
+  });
+
+  // ---- 連絡の検索（PC 版。kind=campus 学内連絡 / class 授業連絡。参照のみ） ----
+  // 詳細・添付は、一覧を出したときと同じ条件を付けて呼ぶ（上流の一覧の行番号を使うため、同じ検索を再現する）。
+  app.get('/api/pcnotices', async (c) => {
+    const kind = noticeKind(c.req.query('kind'));
+    const query = noticeQuery((n) => c.req.query(n));
+    const list = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      fetchPcNotices(cookies, kind, query),
+    );
+    return c.json({ list });
+  });
+
+  app.get('/api/pcnotices/detail', async (c) => {
+    const kind = noticeKind(c.req.query('kind'));
+    const id = numericId(c.req.query('id'), 'id');
+    const query = noticeQuery((n) => c.req.query(n));
+    const detail = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      fetchPcNoticeDetail(cookies, kind, id, query),
+    );
+    return c.json({ detail });
+  });
+
+  app.get('/api/pcnotices/file', async (c) => {
+    const kind = noticeKind(c.req.query('kind'));
+    const id = numericId(c.req.query('id'), 'id');
+    const no = positiveInt(c.req.query('no'), 'no');
+    const query = noticeQuery((n) => c.req.query(n));
+    const upstream = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      downloadPcNoticeFile(cookies, kind, id, no, query),
+    );
+    return streamDownload(upstream, c.req.query('inline') === '1');
   });
 }

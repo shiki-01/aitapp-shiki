@@ -15,6 +15,7 @@ const LCAM_PATHS = [
   '/api/curriculum',
   '/api/schoolevents',
   '/api/lottery',
+  '/api/pcnotices',
 ] as const;
 
 export function classifyUpstreamService(path: string, detail: string): UpstreamService {

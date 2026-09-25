@@ -346,3 +346,68 @@ export interface LotteryResult {
   /** 抽選処理日（YYYY/MM/DD）。処理前は空。 */
   processedAt: string;
 }
+
+// ---- LCAM 連絡の検索（PC 版。学内連絡 = キャンパスライフ > 学内連絡、授業連絡 = 授業サポート > 授業連絡）----
+
+export type PcNoticeKind = 'campus' | 'class';
+
+/** 連絡の絞り込み。省略した項目は上流の初期値（学内連絡は有効な連絡すべて、授業連絡は今の年度・学期）。 */
+export interface PcNoticeQuery {
+  /** タイトル・本文（授業連絡は教員名・科目名も）の検索語。 */
+  keyword?: string;
+  /** カテゴリ（学内連絡）/ 連絡種別（授業連絡）の表示名。一覧の categories に出る名前。 */
+  category?: string;
+  /** 連絡日の範囲（YYYY/MM/DD）。 */
+  from?: string;
+  to?: string;
+  unreadOnly?: boolean;
+  todoOnly?: boolean;
+  attachmentOnly?: boolean;
+  /** 授業連絡のみ。 */
+  year?: number;
+  /** 授業連絡のみ。1=前期 2=後期。 */
+  semester?: 1 | 2;
+  /** 授業連絡のみ。授業科目の表示名。一覧の subjects に出る名前。 */
+  subject?: string;
+}
+
+export interface PcNoticeItem {
+  kind: PcNoticeKind;
+  /** 上流の連絡 ID。詳細・添付の指定に使う。 */
+  id: string;
+  title: string;
+  /** カテゴリ（学内連絡）/ 連絡種別（授業連絡）。 */
+  category: string;
+  /** 連絡元 / 担当教員。 */
+  sender: string;
+  /** 授業連絡のみ: 授業科目と学期/曜日時限。 */
+  subject?: string;
+  term?: string;
+  important: boolean;
+  startAt: string;
+  endAt: string;
+}
+
+export interface PcNoticeList {
+  items: PcNoticeItem[];
+  /** 検索条件の候補（表示名）。 */
+  categories: string[];
+  subjects: string[];
+}
+
+export interface PcNoticeDetail {
+  kind: PcNoticeKind;
+  id: string;
+  category: string;
+  title: string;
+  /** 本文（改行を保ったテキスト。書式は落とす）。 */
+  body: string;
+  sender: string;
+  important: boolean;
+  /** 連絡日時（例: 2026/09/24 11:00 ～ 2026/10/02 00:00）。 */
+  period: string;
+  referenceUrls: string[];
+  files: PcFileLink[];
+  /** 授業連絡: 返信の可否の表記（例: 返信不可）。 */
+  reply?: string;
+}

@@ -139,8 +139,15 @@ export interface EntryRow {
   label: string;
   /** セルのテキスト（改行は残す）。 */
   text: string;
+  /** 段落の空行も残したテキスト（本文向け）。 */
+  rich: string;
   /** セル内の fileDownLoad('PREFIX','no','name') のリンク。 */
   files: PcFileLink[];
+}
+
+/** onclick の JS 文字列リテラルにある \uXXXX を文字に戻す（連絡の添付は名前が \u エスケープで出る）。 */
+export function decodeJsEscapes(s: string): string {
+  return s.replace(/\\u([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
 }
 
 const FILE_LINK = /fileDownLoad\(\s*'([^']*)'\s*,\s*'(\d+)'\s*,\s*'([^']*)'\s*\)/;
@@ -159,9 +166,9 @@ export function parseEntryTable(html: string): EntryRow[] {
       const m = FILE_LINK.exec(a.getAttribute('onclick') ?? '');
       if (!m) continue;
       const after = nextSizeText(a);
-      files.push({ prefix: m[1], no: parseInt(m[2], 10), name: m[3], ...(after ? { size: after } : {}) });
+      files.push({ prefix: m[1], no: parseInt(m[2], 10), name: decodeJsEscapes(m[3]), ...(after ? { size: after } : {}) });
     }
-    rows.push({ label: cellText(th), text: cellText(td), files });
+    rows.push({ label: cellText(th), text: cellText(td), rich: richText(td), files });
   }
   return rows;
 }
@@ -173,6 +180,24 @@ function nextSizeText(a: HTMLElement): string | undefined {
   const idx = text.indexOf(a.text.trim());
   const rest = idx >= 0 ? text.slice(idx + a.text.trim().length) : '';
   return /\(([^)]+)\)/.exec(rest)?.[1]?.trim();
+}
+
+/**
+ * 本文向けのテキスト。<br> とブロック要素の終わりを改行にし、段落の空行（<br><br> や空の div）を残す。
+ * script/style の中身は含めない。空行は連続 2 つまで。
+ */
+export function richText(el: HTMLElement): string {
+  const html = el.innerHTML
+    .replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(div|p|li|tr|h[1-6])>/gi, '\n');
+  return parseHtml(`<x>${html}</x>`)
+    .text.replace(/\u00a0/g, ' ')
+    .split('\n')
+    .map((l) => l.replace(/[ \t]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /** セルのテキスト。行内の空白は詰め、改行は残す。 */
@@ -201,4 +226,53 @@ export function rowCells(tr: HTMLElement): string[] {
 export function entrySummary(html: string): string {
   const th = parseHtml(html).querySelector('table.ttb_entry th.th_summary');
   return th ? cellText(th) : '';
+}
+
+// ---- フォームの初期値 ----
+
+/**
+ * フォームの、ブラウザが送るはずの初期値（input の value、チェック済みのチェックボックス/ラジオ、select の選択中の値）。
+ * 検索フォームを「画面の初期条件 + 指定した項目だけ上書き」で POST するために使う。disabled の項目は含めない。
+ */
+export function formDefaults(html: string, formName: string): Record<string, string | string[]> {
+  const start = html.indexOf(`name="${formName}"`);
+  if (start < 0) return {};
+  const rest = html.slice(start);
+  const end = rest.search(/<\/form>|<form[\s>]/i);
+  const region = end > 0 ? rest.slice(0, end) : rest;
+  const out: Record<string, string | string[]> = {};
+  const add = (name: string, value: string) => {
+    const cur = out[name];
+    out[name] = cur === undefined ? value : Array.isArray(cur) ? [...cur, value] : [cur, value];
+  };
+  for (const m of region.matchAll(/<input\b[^>]*>/gi)) {
+    const tag = m[0];
+    const name = /\bname="([^"]*)"/.exec(tag)?.[1];
+    if (!name || /\bdisabled\b/i.test(tag)) continue;
+    const type = (/\btype="([^"]*)"/.exec(tag)?.[1] ?? 'text').toLowerCase();
+    if (['button', 'submit', 'image', 'file', 'reset'].includes(type)) continue;
+    if ((type === 'checkbox' || type === 'radio') && !/\bchecked\b/i.test(tag)) continue;
+    add(name, decodeAttr(/\bvalue="([^"]*)"/.exec(tag)?.[1] ?? (type === 'checkbox' || type === 'radio' ? 'on' : '')));
+  }
+  for (const m of region.matchAll(/<select\b([^>]*)>([\s\S]*?)<\/select>/gi)) {
+    const name = /\bname="([^"]*)"/.exec(m[1])?.[1];
+    if (!name || /\bdisabled\b/i.test(m[1])) continue;
+    const opts = [...m[2].matchAll(/<option\b([^>]*)>/gi)].map((o) => ({
+      value: decodeAttr(/\bvalue="([^"]*)"/.exec(o[1])?.[1] ?? ''),
+      selected: /\bselected\b/i.test(o[1]),
+    }));
+    const chosen = opts.find((o) => o.selected) ?? opts[0];
+    if (chosen) add(name, chosen.value);
+  }
+  return out;
+}
+
+/** `<select name=…>` の選択肢（表示名 → 値）。 */
+export function selectOptions(html: string, name: string): Array<{ label: string; value: string }> {
+  const sel = parseHtml(html).querySelector(`select[name="${name}"]`);
+  if (!sel) return [];
+  return sel.querySelectorAll('option').map((o) => ({
+    label: cellText(o),
+    value: o.getAttribute('value') ?? '',
+  }));
 }
