@@ -18,7 +18,12 @@ import {
   type ReportQuery,
 } from './upstream/lcam/report';
 import { fetchFacilityList, fetchFacilityWeek } from './upstream/lcam/facility';
-import { fetchCreditStatus, fetchCurriculum, fetchSchoolEvents } from './upstream/lcam/kyoumu';
+import {
+  fetchCreditStatus,
+  fetchCurriculum,
+  fetchSchoolEvents,
+  fetchLotteryResults,
+} from './upstream/lcam/kyoumu';
 import { ValidationError } from './upstream/errors';
 import { applyInlineView } from './inline-view';
 
@@ -172,5 +177,13 @@ export function registerPcRoutes(app: App): void {
       fetchSchoolEvents(cookies, month),
     );
     return c.json({ events });
+  });
+
+  // 抽選履修登録の結果（申し込んだ科目ごとの当落）。
+  app.get('/api/lottery', async (c) => {
+    const lottery = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      fetchLotteryResults(cookies),
+    );
+    return c.json({ lottery });
   });
 }

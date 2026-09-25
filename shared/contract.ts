@@ -324,3 +324,25 @@ export interface SchoolEvents {
   nendo: number;
   months: SchoolEventMonth[];
 }
+
+/** 抽選履修登録の結果の 1 行（学事システム > 抽選履修登録結果）。 */
+export interface LotteryResult {
+  /** 曜日時限（例: 火Ⅳ）。 */
+  slot: string;
+  subject: string;
+  classCode: string;
+  /** 隔週授業の表記。 */
+  biweekly: string;
+  category: string;
+  creditType: string;
+  credits: number;
+  /** 校舎区分（例: 八草）。 */
+  campus: string;
+  capacity: number;
+  /** 希望順位。 */
+  preference: number;
+  /** 当選・落選。処理前は空。 */
+  result: string;
+  /** 抽選処理日（YYYY/MM/DD）。処理前は空。 */
+  processedAt: string;
+}

@@ -7,6 +7,7 @@ import {
   parseCurriculum,
   parseSchoolEventMonth,
   parseNendo,
+  parseLotteryResults,
   fetchCreditStatus,
   fetchSchoolEvents,
   kyoumuGet,
@@ -87,6 +88,14 @@ describe('parseHandoff / parseKyoumuMenu', () => {
   });
 });
 
+const LOTTERY_HEAD =
+  '<tr><td>曜日時限</td><td>ナンバリング</td><td>科目名</td><td>クラスコード</td><td>隔週授業</td><td>科目区分</td><td>単位区分</td><td>単位数</td><td>校舎区分</td><td>定員</td><td>希望順位</td><td>抽選結果</td><td>抽選処理日</td></tr>';
+const LOTTERY =
+  `<html><body><div>抽選履修登録結果</div>` +
+  `<table class="txt12">${LOTTERY_HEAD}<tr><td>火Ⅳ</td><td></td><td>サンプル概論</td><td>A2</td><td></td><td>総合（選択）</td><td>選択</td><td>2</td><td>八草</td><td>3</td><td>1</td><td>当選</td><td>2026/09/18</td></tr></table>` +
+  `<table class="txt12">${LOTTERY_HEAD}<tr><td>水Ⅱ</td><td></td><td>別科目</td><td>B2</td><td></td><td>総合（選択）</td><td>選択</td><td>2</td><td>八草</td><td>0</td><td>2</td><td></td><td></td></tr></table>` +
+  `</body></html>`;
+
 describe('parse pages', () => {
   it('単位修得情報: タブ・見出し行数・展開済みの表・注記', () => {
     const c = parseCreditStatus(CREDIT);
@@ -95,6 +104,18 @@ describe('parse pages', () => {
     expect(c.rows[3]).toEqual(['専門教育科目', '選択', '7', '7']);
     expect(c.note).toBe('総修得単位数 35 単位以上');
     expect(() => parseCreditStatus('<html>別画面</html>')).toThrow(UpstreamError);
+  });
+
+  it('抽選履修登録結果: 曜日時限ごとの表を平らに読む（処理前は当落・処理日が空）', () => {
+    const r = parseLotteryResults(LOTTERY);
+    expect(r).toHaveLength(2);
+    expect(r[0]).toEqual({
+      slot: '火Ⅳ', subject: 'サンプル概論', classCode: 'A2', biweekly: '', category: '総合（選択）', creditType: '選択',
+      credits: 2, campus: '八草', capacity: 3, preference: 1, result: '当選', processedAt: '2026/09/18',
+    });
+    expect([r[1].result, r[1].processedAt]).toEqual(['', '']);
+    expect(parseLotteryResults('<html><body>抽選履修登録結果</body></html>')).toEqual([]);
+    expect(() => parseLotteryResults('<html>別画面</html>')).toThrow(UpstreamError);
   });
 
   it('カリキュラム: 見出し行を除いて科目を読む', () => {

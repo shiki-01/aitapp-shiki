@@ -14,7 +14,13 @@ import { UpstreamError, LcamExpiredError } from '../errors';
 import { BASE, lcamFetch, pcHeaders, resolveRedirect } from './access';
 import { firstToken, pcEnter, pcMenu, cellText } from './pc';
 import { extractStrutsTokenByForm } from './csrf';
-import type { CreditStatus, CurriculumItem, SchoolEvents, SchoolEventMonth } from '../../../../shared/contract';
+import type {
+  CreditStatus,
+  CurriculumItem,
+  LotteryResult,
+  SchoolEvents,
+  SchoolEventMonth,
+} from '../../../../shared/contract';
 
 const KYOUMU_PREFIX = '/kyoumu/';
 const MAX_REDIRECTS = 3;
@@ -297,4 +303,45 @@ export async function fetchSchoolEvents(cookies: LcamCookies, month: number | 'a
     out.push(parseSchoolEventMonth(html, m, nendo));
   }
   return { nendo, months: out };
+}
+
+// ---- 抽選履修登録の結果 ----
+
+/**
+ * 抽選履修登録結果の表。曜日時限ごとに表が分かれ、どれも同じ見出し（曜日時限・ナンバリング・科目名・クラスコード・隔週授業・
+ * 科目区分・単位区分・単位数・校舎区分・定員・希望順位・抽選結果・抽選処理日）を持つ。
+ * 抽選に申し込んでいなければ表が無い（空配列）。画面自体を認識できなければ UpstreamError。
+ */
+export function parseLotteryResults(html: string): LotteryResult[] {
+  const root = parseHtml(html);
+  if (!root.text.includes('抽選')) throw new UpstreamError('抽選履修登録結果の画面を認識できませんでした');
+  const results: LotteryResult[] = [];
+  for (const table of innermostTables(root)) {
+    if (!table.classList.contains('txt12')) continue;
+    const grid = tableGrid(table);
+    if (!grid[0]?.[0]?.includes('曜日時限')) continue;
+    for (const r of grid.slice(1)) {
+      if (r.length < 13 || !r[2]) continue;
+      results.push({
+        slot: r[0],
+        subject: r[2],
+        classCode: r[3],
+        biweekly: r[4],
+        category: r[5],
+        creditType: r[6],
+        credits: parseFloat(r[7]) || 0,
+        campus: r[8],
+        capacity: parseInt(r[9], 10) || 0,
+        preference: parseInt(r[10], 10) || 0,
+        result: r[11],
+        processedAt: r[12],
+      });
+    }
+  }
+  return results;
+}
+
+export async function fetchLotteryResults(cookies: LcamCookies): Promise<LotteryResult[]> {
+  const session = await openKyoumu(cookies);
+  return parseLotteryResults(await kyoumuGet(session, menuPath(session, '抽選履修登録結果')));
 }
