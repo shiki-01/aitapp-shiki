@@ -11,7 +11,9 @@ import {
   fetchCreditStatus,
   fetchSchoolEvents,
   kyoumuGet,
+  prepareKyoumuHandoff,
 } from '../src/upstream/lcam/kyoumu';
+import { handoffPage } from '../src/handoff-page';
 import { parseHtml } from '../src/html/parser';
 import { UpstreamError } from '../src/upstream/errors';
 
@@ -199,5 +201,27 @@ describe('openKyoumu / fetch*', () => {
     stub({});
     await expect(kyoumuGet({ cookie: 'x', links: new Map(), menuUrl: BASE }, '/portalv2/common/generalPurpose/')).rejects.toBeInstanceOf(UpstreamError);
     await expect(kyoumuGet({ cookie: 'wrong', links: new Map(), menuUrl: BASE }, '/kyoumu/x.do')).rejects.toBeInstanceOf(UpstreamError);
+  });
+});
+
+describe('prepareKyoumuHandoff / handoffPage', () => {
+  it('引き渡しの手前（フォームの宛先と loginID）で止まる。学事システムには何も POST しない', async () => {
+    const calls = stub({});
+    const h = await prepareKyoumuHandoff(cookies);
+    expect(h).toEqual({ action: `${BASE}/kyoumu/portalRedirect.do;JSESSIONID=SESSK.kmap2`, loginId: 'x00000' });
+    expect(calls.some((c) => c.url.includes('/kyoumu/'))).toBe(false);
+  });
+
+  it('自動送信フォームのページ: 値をエスケープし、キャッシュ・Referer を止め、送信先を LCAM に限る', async () => {
+    const res = handoffPage(`${BASE}/kyoumu/portalRedirect.do;JSESSIONID=A"B`, 'x"><script>');
+    const html = await res.text();
+    expect(html).toContain('action="https://lcam.aitech.ac.jp/kyoumu/portalRedirect.do;JSESSIONID=A&quot;B"');
+    expect(html).toContain('value="x&quot;&gt;&lt;script&gt;"');
+    expect(html).not.toContain('<script>"');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(res.headers.get('content-security-policy')).toContain('form-action https://lcam.aitech.ac.jp');
+    const nonce = /nonce-([^']+)'/.exec(res.headers.get('content-security-policy')!)![1];
+    expect(html).toContain(`<script nonce="${nonce}">`);
   });
 });

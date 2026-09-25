@@ -27,6 +27,8 @@ import {
 import { fetchPcNotices, fetchPcNoticeDetail, downloadPcNoticeFile } from './upstream/lcam/pcnotice';
 import type { PcNoticeKind, PcNoticeQuery } from '../../shared/contract';
 import { searchStaff, fetchStaffSchedule } from './upstream/lcam/staff';
+import { prepareKyoumuHandoff } from './upstream/lcam/kyoumu';
+import { handoffPage } from './handoff-page';
 import { ValidationError } from './upstream/errors';
 import { applyInlineView } from './inline-view';
 
@@ -285,5 +287,16 @@ export function registerPcRoutes(app: App): void {
       fetchStaffSchedule(cookies, name, code, week),
     );
     return c.json({ schedule });
+  });
+
+  // ---- 本家（学事システム）を開く。履修登録・取消・抽選・学籍情報の更新など、aitapp では行わない操作用 ----
+  // Worker が引き渡しの手前まで進め、ブラウザに自動送信フォーム（loginID の POST）を返す。ブラウザが学事システムの
+  // セッションを持って入る（本人のセッション。LCAM 本体にはログインしない）。GET で副作用があり本人の情報を含む応答なので、
+  // 認証（SameSite=Strict の session cookie）を通った同一サイトからの遷移だけが成立する。
+  app.get('/api/open/kyoumu', async (c) => {
+    const { action, loginId } = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
+      prepareKyoumuHandoff(cookies),
+    );
+    return handoffPage(action, loginId);
   });
 }

@@ -106,12 +106,34 @@ export function parseKyoumuMenu(html: string): Map<string, string> {
   return links;
 }
 
-/** LCAM のセッションから学事システムへ入る（3〜4 リクエスト）。 */
-export async function openKyoumu(cookies: LcamCookies): Promise<KyoumuSession> {
+/**
+ * 学事システムへの引き渡しの手前まで進め、自動送信フォームの宛先（action と loginID）を返す。
+ * ユーザーのブラウザにこのフォームを POST させれば、ブラウザが学事システムのセッション（Cookie）を持って入れる
+ * （実測: Cookie なしの POST でメニューが返る）。Worker 自身は学事システムのセッションを作らない。
+ */
+export async function prepareKyoumuHandoff(cookies: LcamCookies): Promise<{ action: string; loginId: string }> {
+  const token = await homeCooperationToken(cookies);
+  const step1 = await kyoumuFetch(`${BASE}/portalv2/home/systemCooperationLink/initialize?renkeiType=kyoumu`, {
+    method: 'POST',
+    headers: pcHeaders(cookies, { post: true }),
+    body: new URLSearchParams({ 'org.apache.struts.taglib.html.TOKEN': token }).toString(),
+  });
+  if (step1.status !== 200) throw new UpstreamError(`学事システムの引き渡しに失敗しました（${step1.status}）`);
+  return parseHandoff(await bodyText(step1));
+}
+
+/** PC ホーム（Z07）を開き、連携リンクのフォームの token を返す。 */
+async function homeCooperationToken(cookies: LcamCookies): Promise<string> {
   const entry = await pcEnter(cookies);
   const home = await pcMenu(cookies, entry, 'Z07', '/home/home/initialize');
   const token = extractStrutsTokenByForm(home, 'home_systemCooperationLink') ?? firstToken(home);
   if (token == null) throw new UpstreamError('LCAM のホームから token を取得できませんでした');
+  return token;
+}
+
+/** LCAM のセッションから学事システムへ入る（3〜4 リクエスト）。 */
+export async function openKyoumu(cookies: LcamCookies): Promise<KyoumuSession> {
+  const token = await homeCooperationToken(cookies);
 
   const step1 = await kyoumuFetch(`${BASE}/portalv2/home/systemCooperationLink/initialize?renkeiType=kyoumu`, {
     method: 'POST',
