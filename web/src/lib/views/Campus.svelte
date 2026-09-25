@@ -9,6 +9,8 @@
   import SchoolEvents from './campus/SchoolEvents.svelte';
   import NoticeSearch from './campus/NoticeSearch.svelte';
   import Lottery from './campus/Lottery.svelte';
+  import Staff from './campus/Staff.svelte';
+  import { api } from '$lib/api';
 
   let { onBack }: { onBack?: () => void } = $props();
 
@@ -78,10 +80,24 @@
       icon: 'edit',
       component: Lottery,
     },
+    {
+      id: 'staff',
+      label: '教職員スケジュール',
+      description: '教職員の授業・予定を氏名から探す（参照のみ）',
+      icon: 'calendar',
+      component: Staff,
+    },
   ];
 
   let currentId = $state<string | null>(null);
   const current = $derived(ITEMS.find((i) => i.id === currentId));
+
+  // 「本家で行う操作」の行き先。学事システムを新しいタブで開く URL（desktop 版は null）。
+  const kyoumuUrl = api.kyoumuOpenUrl();
+  const HONKE_ACTIONS = [
+    '履修登録・取消・抽選履修登録',
+    '学籍情報の更新・教職履修カルテの登録',
+  ];
 </script>
 
 <header class="head">
@@ -113,6 +129,42 @@
       </li>
     {/each}
   </ul>
+
+  <section class="honke">
+    <h2>本家で行う操作</h2>
+    <p class="honke-desc">
+      次の操作は取り消しにくいため、aitapp からは行わず、学事システム（本家）で行います。
+    </p>
+    {#if kyoumuUrl}
+      <ul class="list">
+        {#each HONKE_ACTIONS as label (label)}
+          <li>
+            <a class="link" href={kyoumuUrl} target="_blank" rel="noopener">
+              <Icon name="external" size={18} color="var(--primary)" />
+              <span class="link-text">
+                <span class="label">{label}</span>
+                <span class="desc">学事システムを開く</span>
+              </span>
+              <Icon name="chevron-right" size={16} color="var(--muted)" />
+            </a>
+          </li>
+        {/each}
+      </ul>
+      <p class="honke-note">学事システムが新しいタブで開きます。メニューから該当の項目を選んでください。</p>
+      <p class="honke-note">
+        LCAM の PC 版にログインし直すと、aitapp の LCAM 連携が切れることがあります。ここから開けば、LCAM
+        本体へはログインし直しません。
+      </p>
+    {:else}
+      <ul class="plain">
+        {#each HONKE_ACTIONS as label (label)}
+          <li>{label}</li>
+        {/each}
+      </ul>
+      <p class="honke-note">ブラウザ版の aitapp から開いてください。</p>
+    {/if}
+    <p class="honke-note">パスワード変更など、LCAM の PC 版でしか行えない操作は、LCAM の PC 版で行ってください。</p>
+  </section>
 {/if}
 
 <style>
@@ -167,5 +219,46 @@
   .desc {
     color: var(--muted);
     font-size: 0.8rem;
+  }
+  .honke {
+    margin-top: 24px;
+  }
+  .honke h2 {
+    margin: 0 0 6px;
+    font-size: 1rem;
+    color: var(--navy);
+  }
+  .honke-desc {
+    margin: 0 0 10px;
+    font-size: 0.85rem;
+  }
+  .honke-note {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .link {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 13px 14px;
+    text-decoration: none;
+    color: var(--fg);
+  }
+  .link-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .plain {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 0.9rem;
   }
 </style>

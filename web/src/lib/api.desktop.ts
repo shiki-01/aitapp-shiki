@@ -219,6 +219,16 @@ export const desktopApi: ApiClient = {
     }
     await openPath(localPath);
   },
+  async staff(name) {
+    return call(`/api/staff${qs({ name })}`);
+  },
+  async staffSchedule(name, code, week) {
+    return call(`/api/staff/schedule${qs({ name, code, week })}`);
+  },
+  kyoumuOpenUrl() {
+    // Worker の session cookie が要るため、desktop 版（Rust backend 経由）では開けない。
+    return null;
+  },
   fileUrl() {
     // desktop版はopenFile()でOS既定アプリを開くため呼ばれない。
     throw new ApiError(500, 'fileUrl is not supported on desktop');

@@ -24,6 +24,7 @@ import type {
   LotteryResult,
   PcNoticeList,
   PcNoticeDetail,
+  StaffMember,
 } from '../../../shared/contract';
 
 // ---- 連絡（LCAM） ----
@@ -794,3 +795,29 @@ export const dummyLottery: LotteryResult[] = [
     processedAt: '',
   },
 ];
+
+// ---- 教職員スケジュール（LCAM） ----
+
+export const dummyStaff: StaffMember[] = [
+  { code: 'S0001', name: '佐藤　花子', kana: 'サトウ　ハナコ', department: '情報学部 情報科学科' },
+  { code: 'S0002', name: '佐藤　一郎', kana: 'サトウ　イチロウ', department: '工学部 電気電子工学科' },
+];
+
+export const dummyStaffSchedule: { staff: StaffMember; days: ScheduleDay[] } = {
+  staff: dummyStaff[0],
+  days: [
+    {
+      date: '2026-09-25',
+      events: [
+        {
+          title: 'コンピュータネットワーク',
+          startTime: '2026-09-25T10:40',
+          endTime: '2026-09-25T12:10',
+          location: '3-102',
+          period: 2,
+        },
+      ],
+    },
+    { date: '2026-09-26', events: [] },
+  ],
+};

@@ -187,6 +187,16 @@ export const browserApi: ApiClient = {
     // browser版はpcNoticeFileUrl()を<a href target=_blank>で開くため呼ばれない。
     throw new ApiError(500, 'openPcNoticeFile is not supported on browser');
   },
+  async staff(name) {
+    return request(`/api/staff${qs({ name })}`);
+  },
+  async staffSchedule(name, code, week) {
+    return request(`/api/staff/schedule${qs({ name, code, week })}`);
+  },
+  kyoumuOpenUrl() {
+    // fetch では使わず、<a target=_blank> で開く（自動送信フォームの HTML ページ）。
+    return `${BASE}/api/open/kyoumu`;
+  },
   fileUrl(relativePath) {
     // inline=1: ブラウザ標準ビューアで表示(pdf/画像/txt)。他形式は従来どおりダウンロード。
     return `${BASE}${fileApiPath(relativePath)}?inline=1`;

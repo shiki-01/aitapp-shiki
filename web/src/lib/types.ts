@@ -53,6 +53,7 @@ import type {
   PcNoticeItem,
   PcNoticeList,
   PcNoticeDetail,
+  StaffMember,
 } from '../../../shared/contract';
 export type {
   UnivNotice,
@@ -91,6 +92,7 @@ export type {
   PcNoticeItem,
   PcNoticeList,
   PcNoticeDetail,
+  StaffMember,
 };
 
 // NoticeDetail / TimetableEntry / ScheduleEvent / ScheduleDay / Assignment /
@@ -253,6 +255,22 @@ export interface ApiClient {
     filename?: string,
     query?: PcNoticeQuery,
   ): Promise<void>;
+  /** LCAM の教職員スケジュール検索（氏名の一部 1〜30 文字。参照のみ）。 */
+  staff(name: string): Promise<{ staff: StaffMember[] }>;
+  /**
+   * 教職員 1 人のスケジュール。name は staff() で使った検索語、code は検索結果の code。
+   * week 省略または 0 は今日から 7 日、N≠0 は今週の月曜を起点に N 週後（-4〜8。負は前）。
+   */
+  staffSchedule(
+    name: string,
+    code: string,
+    week?: number,
+  ): Promise<{ schedule: { staff: StaffMember; days: ScheduleDay[] } }>;
+  /**
+   * 学事システム（本家）を新しいタブで開く URL（自動送信フォームのページ）。browser 版のみ。
+   * Worker の session cookie が要るため、desktop 版は null。
+   */
+  kyoumuOpenUrl(): string | null;
   fileUrl(relativePath: string): string;
   openFile(relativePath: string): Promise<void>;
 }
