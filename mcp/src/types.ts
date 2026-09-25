@@ -24,6 +24,7 @@ export type {
   CurriculumItem,
   SchoolEvents,
   LotteryResult,
+  StaffMember,
   PcNoticeKind,
   PcNoticeQuery,
   PcNoticeItem,

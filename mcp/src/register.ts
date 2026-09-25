@@ -13,6 +13,7 @@ import { registerReportTools } from './tools/reports';
 import { registerPcNoticeTools } from './tools/pcnotices';
 import { registerFacilityTools } from './tools/facilities';
 import { registerAcademicTools } from './tools/academic';
+import { registerStaffTools } from './tools/staff';
 import { registerEnqueteTools } from './tools/enquetes';
 import { registerQuizTools } from './tools/quiz';
 import { registerMoodleFileTools } from './tools/moodle-files';
@@ -32,6 +33,7 @@ export function createAitappServer(client: ToolClient): McpServer {
   registerPcNoticeTools(server, client);
   registerFacilityTools(server, client);
   registerAcademicTools(server, client);
+  registerStaffTools(server, client);
   registerMoodleCourseTools(server, client);
   registerQuizTools(server, client);
   registerMoodleFileTools(server, client);

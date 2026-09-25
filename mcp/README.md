@@ -107,6 +107,8 @@ Moodleへの認証は、ログイン時に一度だけID/パスワードで `log
 | `lcam_get_curriculum` | `GET /api/curriculum`（学事システムのカリキュラム。keyword・category・onlyUngraded で絞り込み） |
 | `lcam_get_school_events` | `GET /api/schoolevents`（学内スケジュール。month は 1〜12 か all、keyword で行事名検索。行事のある日だけ返す） |
 | `lcam_get_lottery_results` | `GET /api/lottery`（学事システムの抽選履修登録の結果。処理前の科目は result が空） |
+| `lcam_search_staff` | `GET /api/staff`（教職員スケジュールの氏名検索。姓だけでも可。同姓は所属で区別。読み取り専用） |
+| `lcam_get_staff_schedule` | `GET /api/staff/schedule`（教職員の授業・予定。search で使った name と code を渡す。week は -4〜8、省略は今日から 7 日。登録済みの授業・予定のみで在室状況ではない） |
 | `lcam_search_notices` | `GET /api/pcnotices`（PC 版の連絡検索。kind=campus 学内連絡 / class 授業連絡。keyword・category・subject・期間・未読/ToDo/添付で絞り込み。categories・subjects の候補も返す。読み取り専用） |
 | `lcam_get_notice_search_detail` | `GET /api/pcnotices/detail`（検索と同じ絞り込みを渡す） |
 | `lcam_download_notice_search_file` | `GET /api/pcnotices/file`（検索と同じ絞り込みを渡す） |
