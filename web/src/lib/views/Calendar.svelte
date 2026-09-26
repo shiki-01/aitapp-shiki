@@ -10,11 +10,12 @@
   } from '$lib/date';
   import { events, memos, classMemos } from '$lib/stores/local.svelte';
   import { schedule } from '$lib/stores/schedule.svelte';
+  import { onActivate, sameData } from '$lib/activate.svelte';
   import MonthCalendar from '$lib/components/MonthCalendar.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
 
-  let { onMore }: { onMore?: () => void } = $props();
+  let { onMore, active = true }: { onMore?: () => void; active?: boolean } = $props();
 
   let selected = $state(new Date());
   let timetable = $state<TimetableEntry[]>([]);
@@ -32,20 +33,29 @@
   let memoDraft = $state('');
 
   // 時間割を一度だけ取得（曜日×時限）。worker 未起動でも握りつぶす。
-  $effect(() => {
-    (async () => {
-      try {
-        const res = await api.timetable();
-        timetable = res.timetable;
-      } catch (err) {
-        ttError = err instanceof ApiError ? err.message : '';
-        timetable = [];
-      }
-    })();
-  });
-
-  // LCAM の個人スケジュール（休講・学校行事など）。キャッシュが古いときだけ取り直す。
-  $effect(() => {
+  let first = true;
+  onActivate(() => active, () => {
+    if (first) {
+      first = false;
+      (async () => {
+        try {
+          const res = await api.timetable();
+          timetable = res.timetable;
+        } catch (err) {
+          ttError = err instanceof ApiError ? err.message : '';
+          timetable = [];
+        }
+      })();
+    } else {
+      // 再取得（静かに実行）
+      (async () => {
+        try {
+          const res = await api.timetable();
+          if (!sameData(res.timetable, timetable)) timetable = res.timetable;
+        } catch {}
+      })();
+    }
+    // LCAM の個人スケジュール（キャッシュが古いときだけ取り直す）も毎回呼ぶ
     void schedule.ensureFresh();
   });
 
@@ -620,7 +630,11 @@
   @media (--mobile) {
     .page {
       grid-template-columns: 1fr;
-      grid-template-rows: 300px 1fr;
+      grid-template-rows: 318px 1fr;
+    }
+
+    .cal-area {
+      padding-top: 16px;
     }
 
     .lower {

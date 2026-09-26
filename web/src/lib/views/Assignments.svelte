@@ -1,7 +1,10 @@
 <script lang="ts">
   import { api, ApiError, type Assignment } from '$lib/api';
+  import { onActivate, sameData } from '$lib/activate.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import { submissions } from '$lib/stores/submission.svelte';
+
+  let { active = true }: { active?: boolean } = $props();
 
   type Filter = 'upcoming' | 'overdue' | 'done' | 'all';
   const DONE_KEY = 'aitapp.assignments.done.v1';
@@ -83,18 +86,36 @@
     return `あと${Math.floor(h / 24)}日`;
   }
 
-  async function load() {
-    loading = true;
-    error = '';
+  async function load(silent = false) {
+    if (!silent) {
+      loading = true;
+      error = '';
+    }
     try {
       const res = await api.assignments();
-      items = [...res.assignments].sort((a, b) => a.dueEpochMs - b.dueEpochMs);
+      const sorted = [...res.assignments].sort((a, b) => a.dueEpochMs - b.dueEpochMs);
+      if (silent) {
+        // 静かな再取得：違うときだけ代入
+        if (!sameData(sorted, items)) items = sorted;
+      } else {
+        // 通常の読み込み
+        items = sorted;
+      }
     } catch (err) {
-      items = [];
-      error = err instanceof ApiError ? err.message : '課題の取得に失敗しました';
+      if (!silent) {
+        items = [];
+        error = err instanceof ApiError ? err.message : '課題の取得に失敗しました';
+      }
     } finally {
-      loading = false;
+      if (!silent) loading = false;
     }
+  }
+
+  function visibleIds(): number[] {
+    const now = Date.now();
+    const ahead = list.filter((a) => a.dueEpochMs === 0 || a.dueEpochMs >= now);
+    const past = list.filter((a) => a.dueEpochMs !== 0 && a.dueEpochMs < now).reverse();
+    return [...ahead, ...past].slice(0, 45).map((a) => a.id);
   }
 
   const FILTERS: { key: Filter; label: string }[] = [
@@ -122,24 +143,29 @@
     });
   });
 
-  $effect(() => {
-    load();
+  let first = true;
+  onActivate(() => active, () => {
+    if (first) {
+      first = false;
+      void load();
+    } else {
+      void load(true);
+    }
+    // 提出状況取得は毎回
+    const ids = visibleIds();
+    if (ids.length > 0) void submissions.ensure(ids);
   });
 
   // 表示中の課題（先頭から 45 件まで）の提出状況を取得する。取得できた分だけ順に反映される。
   $effect(() => {
-    // 締切が近い順に、これからの課題 → 期限切れは新しいものから（古い課題より、直近の提出状況が知りたいため）。
-    const now = Date.now();
-    const ahead = list.filter((a) => a.dueEpochMs === 0 || a.dueEpochMs >= now);
-    const past = list.filter((a) => a.dueEpochMs !== 0 && a.dueEpochMs < now).reverse();
-    const ids = [...ahead, ...past].slice(0, 45).map((a) => a.id);
+    const ids = visibleIds();
     if (ids.length > 0) void submissions.ensure(ids);
   });
 </script>
 
 <header class="head">
   <h1>課題</h1>
-  <button class="reload" onclick={load} disabled={loading} aria-label="再読み込み">再読み込み</button>
+  <button class="reload" onclick={() => load()} disabled={loading} aria-label="再読み込み">再読み込み</button>
 </header>
 
 <div class="filters">

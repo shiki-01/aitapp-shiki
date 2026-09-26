@@ -1,8 +1,8 @@
 <script lang="ts">
   import Icon, { type IconName } from './Icon.svelte';
-  import type { Tab } from './BottomNav.svelte';
+  import { TAB_PATH, type Tab } from '$lib/tabs';
 
-  let { tab = $bindable() }: { tab: Tab } = $props();
+  let { tab }: { tab: Tab | undefined } = $props();
 
   const ITEMS: { key: Tab; icon: IconName; label: string }[] = [
     { key: 'home', icon: 'home', label: 'ホーム' },
@@ -15,15 +15,15 @@
 
 <nav class="side-nav" aria-label="メインナビゲーション">
   {#each ITEMS as it (it.key)}
-    <button
+    <a
       class="item"
       class:active={tab === it.key}
       aria-current={tab === it.key ? 'page' : undefined}
-      onclick={() => (tab = it.key)}
+      href={TAB_PATH[it.key]}
     >
       <span class="ico"><Icon name={it.icon} size={22} color={tab === it.key ? '#fff' : 'var(--navy)'} /></span>
       <span class="label">{it.label}</span>
-    </button>
+    </a>
   {/each}
 </nav>
 
@@ -50,6 +50,7 @@
     border-radius: var(--radius-sm);
     text-align: left;
     color: var(--navy);
+    text-decoration: none;
   }
   .item:hover {
     background: var(--primary-bg);

@@ -14,10 +14,11 @@
   import { memos } from '$lib/stores/local.svelte';
   import { toEnqueteView, isPending, type EnqueteView } from '$lib/enquete';
   import { submissions } from '$lib/stores/submission.svelte';
+  import { onActivate, sameData } from '$lib/activate.svelte';
   import Icon from '$lib/components/Icon.svelte';
-  import type { Tab } from '$lib/components/BottomNav.svelte';
+  import type { Tab } from '$lib/tabs';
 
-  let { userId = '', onNavigate }: { userId?: string; onNavigate?: (t: Tab) => void } = $props();
+  let { userId = '', onNavigate, active = true }: { userId?: string; onNavigate?: (t: Tab) => void; active?: boolean } = $props();
 
   let assignments = $state<Assignment[]>([]);
   let notices = $state<Notice[]>([]);
@@ -28,48 +29,45 @@
   // （登録状況の取得は KV 読み取りのみで LCAM へはアクセスしない）。取得に失敗したら何も出さない。
   let lcam = $state<LcamSessionStatus | undefined>(undefined);
 
-  const now = new Date();
-  const greeting =
-    now.getHours() < 11 ? 'おはようございます' : now.getHours() < 18 ? 'こんにちは' : 'こんばんは';
-  const dateLabel = `${now.getMonth() + 1}月${now.getDate()}日 (${WEEKDAY_LABELS[now.getDay()]})`;
+  let now = $state(new Date());
+  const greeting = $derived(
+    now.getHours() < 11 ? 'おはようございます' : now.getHours() < 18 ? 'こんにちは' : 'こんばんは'
+  );
+  const dateLabel = $derived(`${now.getMonth() + 1}月${now.getDate()}日 (${WEEKDAY_LABELS[now.getDay()]})`);
 
-  // 各 API は失敗しても握りつぶし、表示できる範囲で出す。
-  $effect(() => {
-    api
-      .lcamSession()
-      .then((r) => (lcam = r))
-      .catch(() => {});
-    (async () => {
-      try {
-        assignments = (await api.assignments()).assignments;
-      } catch {
-        assignments = [];
-      }
-    })();
-    (async () => {
-      try {
-        notices = (await api.notices('common')).notices;
-      } catch {
-        notices = [];
-      }
-    })();
-    (async () => {
-      try {
-        enquetes = (await api.enquetes()).items.map(toEnqueteView);
-      } catch {
-        enquetes = [];
-      }
-    })();
-    (async () => {
-      try {
-        timetable = (await api.timetable()).timetable;
-      } catch {
-        timetable = [];
-      }
-    })();
-  });
+  // 各 API は失敗しても握りつぶし、表示できる範囲で出す。タブは切替で破棄されず保持されるため、
+  // 表示されるたびに裏で取り直し、変化があったときだけ差し替える（失敗時は既存の表示を保つ）。
+  async function sync<T>(fetcher: () => Promise<T>, get: () => T, set: (v: T) => void) {
+    try {
+      const v = await fetcher();
+      if (!sameData(v, get())) set(v);
+    } catch {
+      // 既存の表示を維持
+    }
+  }
 
-  const todayKey = TIMETABLE_DAY_KEYS[now.getDay()];
+  onActivate(
+    () => active,
+    () => {
+      now = new Date();
+      void sync(() => api.lcamSession(), () => lcam, (v) => (lcam = v));
+      void sync(async () => (await api.assignments()).assignments, () => assignments, (v) => (assignments = v));
+      void sync(async () => (await api.notices('common')).notices, () => notices, (v) => (notices = v));
+      void sync(
+        async () => (await api.enquetes()).items.map(toEnqueteView),
+        () => enquetes,
+        (v) => (enquetes = v),
+      );
+      void sync(async () => (await api.timetable()).timetable, () => timetable, (v) => (timetable = v));
+      void submissions.ensure(upcomingIds());
+    },
+  );
+
+  function upcomingIds(): number[] {
+    return upcoming.slice(0, 15).map((a) => a.id);
+  }
+
+  const todayKey = $derived(TIMETABLE_DAY_KEYS[now.getDay()]);
   const todayClasses = $derived(
     todayKey
       ? PERIODS.map((p) => timetable.find((e) => e.day === todayKey && e.period === p.period))
@@ -98,7 +96,7 @@
   const pendingEnquetes = $derived(enquetes.filter(isPending));
   // これからの課題のうち、先頭 15 件の提出状況を取る（提出済みを一覧から外すため）。
   $effect(() => {
-    const ids = upcoming.slice(0, 15).map((a) => a.id);
+    const ids = upcomingIds();
     if (ids.length > 0) void submissions.ensure(ids);
   });
 

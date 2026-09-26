@@ -165,8 +165,14 @@ Tauri 版は `(--desktop)` / `(--mobile)` がビルド種別で固定される�
 
 ## 3. ページ一覧
 
-ルーティングは現行踏襲: `/login` と `/`（タブシェル）。More 配下のサブビューは
-`/` 内のビュー切替（Sheet またはビュースタック）で実装し、URL は増やさない。
+ルーティング: タブはパスで管理する（`/` ホーム、`/notices`、`/calendar`、`/assignments`、`/more`）。
+`src/routes/(app)/+layout.svelte` が認証チェック・BottomNav / SideNav・各タブのビューを持つ
+（各 `+page.svelte` は空）。ナビの DOM はタブ遷移でも再生成されず、BottomNav の青い丸が選択中の
+項目へスライドする。開いたタブのビューは破棄せず保持し（読み込み済みデータ・入力状態・スクロール位置を残す）、
+切替時はナビの並び順に従って左右にスライドする。ビューは再びアクティブになるたびに
+`onActivate`（`$lib/activate.svelte.ts`）で裏から取り直し、結果が変わったときだけ表示を差し替える。
+タブ⇄パスの対応と並び順は `$lib/tabs.ts`。`/login` と `/syllabus` は (app) の外。More 配下のサブビューは
+`/more` 内のビュー切替（Sheet またはビュースタック）で実装し、URL は増やさない。
 
 ### 3.1 `/login` — ログイン
 

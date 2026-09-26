@@ -178,5 +178,13 @@
     .cell {
       aspect-ratio: 3 / 2;
     }
+    /* 月がスクロール領域に収まる幅では、必ず月の頭で止め、1 回の操作で複数の月を飛ばさない。
+       PC 幅は 1 月がスクロール領域より高くなり得るため、proximity のまま。 */
+    .scroll {
+      scroll-snap-type: y mandatory;
+    }
+    .month {
+      scroll-snap-stop: always;
+    }
   }
 </style>

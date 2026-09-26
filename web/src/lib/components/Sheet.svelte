@@ -21,10 +21,14 @@
   // 上へこれだけ引いて離すと余白なし、余白なし状態から下へこれだけ引くと通常に戻る(px)
   const SNAP_DRAG = 60;
   const RADIUS = 20;
+  // 閉じるアニメーションの長さ(ms)。CSS の transition と揃える
+  const CLOSE_MS = 220;
 
   let expanded = $state(false);
   let dy = $state(0);
   let dragging = $state(false);
+  let closing = $state(false);
+  let closeTimer: ReturnType<typeof setTimeout> | undefined;
   let startY = 0;
   let pointerId = -1;
 
@@ -38,15 +42,23 @@
       expanded = false;
       dy = 0;
       dragging = false;
+      closing = false;
+      clearTimeout(closeTimer);
     }
   });
 
+  // 画面下までスライドしきってから閉じる
   function close() {
-    open = false;
+    if (closing) return;
+    closing = true;
+    dragging = false;
+    closeTimer = setTimeout(() => {
+      open = false;
+    }, CLOSE_MS);
   }
 
   function dragStart(e: PointerEvent) {
-    if (!tall || (e.target as HTMLElement).closest('button')) return;
+    if (!tall || closing || (e.target as HTMLElement).closest('button')) return;
     dragging = true;
     startY = e.clientY;
     pointerId = e.pointerId;
@@ -75,6 +87,7 @@
 {#if open}
   <div
     class="overlay"
+    class:closing
     role="presentation"
     onclick={(e) => e.target === e.currentTarget && close()}
   >
@@ -86,7 +99,11 @@
       aria-modal="true"
       aria-label={title}
       tabindex="-1"
-      style:transform={overshoot > 0 ? `translateY(${overshoot}px)` : undefined}
+      style:transform={closing
+        ? 'translateY(100%)'
+        : overshoot > 0
+          ? `translateY(${overshoot}px)`
+          : undefined}
       style:height={tall ? `calc(100dvh - ${gap}px)` : undefined}
       style:border-radius={tall ? `${RADIUS * (gap / TOP_GAP)}px ${RADIUS * (gap / TOP_GAP)}px 0 0` : undefined}
       style:--k={tall ? 1 - gap / TOP_GAP : undefined}
@@ -122,6 +139,11 @@
     display: flex;
     align-items: flex-end;
     justify-content: center;
+    transition: background 0.22s ease;
+  }
+  .overlay.closing {
+    background: rgba(16, 32, 64, 0);
+    pointer-events: none;
   }
   .sheet {
     width: 100%;
@@ -132,6 +154,7 @@
     max-height: 86dvh;
     overflow-y: auto;
     animation: rise 0.22s ease;
+    transition: transform 0.22s ease;
   }
   .sheet.tall {
     /* 高さ・角丸・上余白はドラッグ状態に応じて inline で指定する。中身が少なくても高さは変えない */
@@ -141,7 +164,7 @@
     flex-direction: column;
     overflow: hidden;
     transition:
-      transform 0.18s ease,
+      transform 0.22s ease,
       height 0.22s ease,
       border-radius 0.22s ease,
       padding-top 0.22s ease;

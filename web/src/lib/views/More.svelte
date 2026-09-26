@@ -5,8 +5,9 @@
   import Campus from '$lib/views/Campus.svelte';
   import { api, ApiError, type LcamSessionStatus } from '$lib/api';
   import { isDesktop, isTauri } from '$lib/platform';
+  import { onActivate, sameData } from '$lib/activate.svelte';
 
-  let { userId = '', onLogout }: { userId?: string; onLogout?: () => void } = $props();
+  let { userId = '', onLogout, active = true }: { userId?: string; onLogout?: () => void; active?: boolean } = $props();
 
   // 「学内サービス」を開いている間は More の本体の代わりに Campus を出す（下タブは増やさない）。
   let campusOpen = $state(false);
@@ -54,10 +55,12 @@
   function loadLcam() {
     api
       .lcamSession()
-      .then((r) => (lcam = r))
+      .then((r) => {
+        if (!sameData(r, lcam)) lcam = r;
+      })
       .catch(() => {});
   }
-  $effect(loadLcam);
+  onActivate(() => active, loadLcam);
 
   function fmtTime(ms: number | null): string {
     return ms ? new Date(ms).toLocaleString('ja-JP') : '—';
@@ -69,7 +72,7 @@
   // 「LCAM に接続」の結果。ボタンの直下に表示する（貼り付け欄の下だと見落とすため）。
   let lcamConnectResult = $state<{ ok: boolean; text: string } | null>(null);
 
-  $effect(() => {
+  onActivate(() => active, () => {
     api.lcamAutoGet?.().then((v) => (lcamAuto = v)).catch(() => {});
   });
 
@@ -159,7 +162,7 @@
   let mcpCopied = $state(false);
   let mcpWrites = $state<boolean | undefined>(undefined);
 
-  $effect(() => {
+  onActivate(() => active, () => {
     api
       .me()
       .then((r) => {

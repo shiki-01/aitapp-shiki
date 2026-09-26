@@ -100,11 +100,18 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-// ---- CORS（credentials 付き、APP_ORIGIN 限定） ----
+// ---- 許可オリジン（APP_ORIGIN + 追加のローカル開発ポート 5174） ----
+const EXTRA_DEV_ORIGINS = ['http://localhost:5174'];
+
+function allowedOrigins(env: Env): string[] {
+  return [env.APP_ORIGIN ?? 'http://localhost:5173', ...EXTRA_DEV_ORIGINS];
+}
+
+// ---- CORS（credentials 付き、許可オリジン限定） ----
 app.use('/api/*', async (c, next) => {
-  const origin = c.env.APP_ORIGIN ?? 'http://localhost:5173';
+  const allowed = allowedOrigins(c.env);
   return cors({
-    origin,
+    origin: (origin) => (allowed.includes(origin) ? origin : null),
     credentials: true,
     allowMethods: ['GET', 'POST', 'OPTIONS'],
     allowHeaders: ['Content-Type'],
@@ -113,9 +120,8 @@ app.use('/api/*', async (c, next) => {
 
 // ---- 状態変更系の Origin チェック（要件 §13） ----
 function checkOrigin(c: { req: { header: (n: string) => string | undefined }; env: Env }): boolean {
-  const allowed = c.env.APP_ORIGIN ?? 'http://localhost:5173';
   const origin = c.req.header('Origin');
-  return origin === allowed;
+  return origin !== undefined && allowedOrigins(c.env).includes(origin);
 }
 
 // ---- 不可逆/取り消しにくい書き込み操作の out-of-band confirm 検証 ----
@@ -1275,9 +1281,9 @@ app.onError((err, c) => {
   // /api のエラー応答にはここで CORS ヘッダを付ける（付けないとブラウザが本文を
   // 読めず、フロントでは一律「通信エラー」になり correlationId も見えない）。
   if (path.startsWith('/api/')) {
-    const allowed = c.env.APP_ORIGIN ?? 'http://localhost:5173';
-    if (c.req.header('Origin') === allowed) {
-      c.header('Access-Control-Allow-Origin', allowed);
+    const reqOrigin = c.req.header('Origin');
+    if (reqOrigin && allowedOrigins(c.env).includes(reqOrigin)) {
+      c.header('Access-Control-Allow-Origin', reqOrigin);
       c.header('Access-Control-Allow-Credentials', 'true');
       c.header('Vary', 'Origin');
     }

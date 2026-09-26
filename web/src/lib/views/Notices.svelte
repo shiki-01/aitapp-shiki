@@ -2,6 +2,7 @@
   import { api, ApiError, type Notice, type NoticeDetail } from '$lib/api';
   import { toEnqueteView, isPending, type EnqueteView } from '$lib/enquete';
   import { isTauri } from '$lib/platform';
+  import { onActivate, sameData } from '$lib/activate.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import {
@@ -10,6 +11,8 @@
     fullClassNotice,
     fullNoticeDetail,
   } from '$lib/dummy';
+
+  let { active = true }: { active?: boolean } = $props();
 
   // レイアウト確認用: 一覧先頭に全項目入りの通知を強制挿入する。確認が済んだら false にする。
   const DEBUG_FORCE_FULL_NOTICE = false;
@@ -108,6 +111,27 @@
     }
   }
 
+  async function syncSilently() {
+    // 保持したまま再表示されたときの裏での取り直し。await の間にユーザーが種別や件数を変えたら結果は捨てる。
+    const savedType = type;
+    const savedCount = count;
+    try {
+      if (savedType !== 'enquete') {
+        const res = await api.notices(noticeType(), savedCount);
+        if (type !== savedType || count !== savedCount) return;
+        if (!sameData(res.notices, loaded)) {
+          loaded = res.notices;
+          noMore = res.notices.length < savedCount;
+        }
+      }
+      // アンケートは一覧（種別が enquete のとき）とタブのバッジの両方に使う。
+      const items = (await api.enquetes()).items.map(toEnqueteView);
+      if (!sameData(items, enquetes)) enquetes = items;
+    } catch {
+      // 既存の表示を維持
+    }
+  }
+
   async function more() {
     // 累積件数を増やして全件を取り直す。件数が伸びなければ末尾。
     if (loadingMore || noMore) return;
@@ -156,17 +180,24 @@
     }
   }
 
-  $effect(() => {
-    load();
-    // アンケートの未回答数をタブのバッジに出すため、最初に一度だけ取っておく。
-    if (type !== 'enquete' && !enqueteLoaded) {
-      api
-        .enquetes()
-        .then((res) => {
-          enquetes = res.items.map(toEnqueteView);
-          enqueteLoaded = true;
-        })
-        .catch(() => {});
+  let first = true;
+  onActivate(() => active, () => {
+    if (first) {
+      first = false;
+      load();
+      // アンケートの未回答数をタブのバッジに出すため、最初に一度だけ取っておく。
+      if (type !== 'enquete' && !enqueteLoaded) {
+        api
+          .enquetes()
+          .then((res) => {
+            enquetes = res.items.map(toEnqueteView);
+            enqueteLoaded = true;
+          })
+          .catch(() => {});
+      }
+    } else {
+      // 再取得（静かに実行）
+      void syncSilently();
     }
   });
 </script>
