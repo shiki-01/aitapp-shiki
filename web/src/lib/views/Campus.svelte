@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Component } from 'svelte';
+  import type { KyoumuTarget } from '$lib/types';
   import Icon, { type IconName } from '$lib/components/Icon.svelte';
   import CommonFiles from './campus/CommonFiles.svelte';
   import Reports from './campus/Reports.svelte';
@@ -92,12 +93,13 @@
   let currentId = $state<string | null>(null);
   const current = $derived(ITEMS.find((i) => i.id === currentId));
 
-  // 「本家で行う操作」の行き先。学事システムを新しいタブで開く URL（desktop 版は null）。
-  const kyoumuUrl = api.kyoumuOpenUrl();
-  const HONKE_ACTIONS = [
-    '履修登録・取消・抽選履修登録',
-    '学籍情報の更新・教職履修カルテの登録',
+  // 「本家で行う操作」の行き先。学事システムの画面を新しいタブで開く URL（desktop 版は null）。
+  const HONKE_ACTIONS: { label: string; to: KyoumuTarget }[] = [
+    { label: '履修登録', to: 'register' },
+    { label: '履修取消', to: 'cancel' },
+    { label: '抽選履修登録', to: 'lottery' },
   ];
+  const kyoumuUrls = HONKE_ACTIONS.map((a) => api.kyoumuOpenUrl(a.to));
 </script>
 
 <header class="head">
@@ -135,14 +137,14 @@
     <p class="honke-desc">
       次の操作は取り消しにくいため、aitapp からは行わず、学事システム（本家）で行います。
     </p>
-    {#if kyoumuUrl}
+    {#if kyoumuUrls[0]}
       <ul class="list">
-        {#each HONKE_ACTIONS as label (label)}
+        {#each HONKE_ACTIONS as action, i (action.to)}
           <li>
-            <a class="link" href={kyoumuUrl} target="_blank" rel="noopener">
+            <a class="link" href={kyoumuUrls[i]} target="_blank" rel="noopener">
               <Icon name="external" size={18} color="var(--primary)" />
               <span class="link-text">
-                <span class="label">{label}</span>
+                <span class="label">{action.label}</span>
                 <span class="desc">学事システムを開く</span>
               </span>
               <Icon name="chevron-right" size={16} color="var(--muted)" />
@@ -150,15 +152,15 @@
           </li>
         {/each}
       </ul>
-      <p class="honke-note">学事システムが新しいタブで開きます。メニューから該当の項目を選んでください。</p>
+      <p class="honke-note">学事システムの該当の画面が新しいタブで開きます。学籍情報の更新・教職履修カルテの登録は、LCAM の PC 版で行ってください。</p>
       <p class="honke-note">
         LCAM の PC 版にログインし直すと、aitapp の LCAM 連携が切れることがあります。ここから開けば、LCAM
         本体へはログインし直しません。
       </p>
     {:else}
       <ul class="plain">
-        {#each HONKE_ACTIONS as label (label)}
-          <li>{label}</li>
+        {#each HONKE_ACTIONS as action (action.to)}
+          <li>{action.label}</li>
         {/each}
       </ul>
       <p class="honke-note">ブラウザ版の aitapp から開いてください。</p>

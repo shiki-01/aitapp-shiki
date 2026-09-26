@@ -32,6 +32,13 @@ import { handoffPage } from './handoff-page';
 import { ValidationError } from './upstream/errors';
 import { applyInlineView } from './inline-view';
 
+/** `/api/open/kyoumu?to=` で開ける学事システムの画面（履修登録・履修取消・抽選履修登録）。 */
+const KYOUMU_LANDING: Record<string, string> = {
+  register: '/kyoumu/rishuuCheckInit.do?mainMenuCode=002',
+  cancel: '/kyoumu/kmgCou04Index.do?mainMenuCode=003',
+  lottery: '/kyoumu/chuusenRishuuInit.do?mainMenuCode=019',
+};
+
 type App = Hono<{
   Bindings: Env;
   Variables: { userId: string; state: UserState; correlationId: string };
@@ -293,10 +300,15 @@ export function registerPcRoutes(app: App): void {
   // Worker が引き渡しの手前まで進め、ブラウザに自動送信フォーム（loginID の POST）を返す。ブラウザが学事システムの
   // セッションを持って入る（本人のセッション。LCAM 本体にはログインしない）。GET で副作用があり本人の情報を含む応答なので、
   // 認証（SameSite=Strict の session cookie）を通った同一サイトからの遷移だけが成立する。
+  // to: 引き渡しのあとに開く画面（下の許可リストのキー。省略は register）。着地先は、実ブラウザで引き渡し後に
+  // 表示できることを確認した画面だけ（2026-09-25）。
   app.get('/api/open/kyoumu', async (c) => {
+    const to = c.req.query('to') ?? 'register';
+    const landing = KYOUMU_LANDING[to];
+    if (!landing) throw new ValidationError('to is invalid');
     const { action, loginId } = await withLcamSession(c.env, c.get('userId'), c.get('state'), (cookies) =>
       prepareKyoumuHandoff(cookies),
     );
-    return handoffPage(action, loginId);
+    return handoffPage(action, loginId, landing);
   });
 }

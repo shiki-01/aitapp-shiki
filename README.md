@@ -422,7 +422,7 @@ Claude Codeの `.mcp.json` に登録して使う。認証情報・上流ロジ�
 | GET | `/api/pcnotices?kind=campus\|class&keyword=…` `/detail` `/file` | 学内連絡・授業連絡の検索（キーワード・カテゴリ・日付・未読・ToDo・添付・科目） |
 | GET | `/api/credits` `/api/curriculum` `/api/schoolevents[?month=]` `/api/lottery` | 学事システム: 単位修得情報・カリキュラム・年間行事・抽選履修登録結果 |
 | GET | `/api/staff?name=` `/api/staff/schedule?name=&code=&week=` | 教職員スケジュール |
-| GET | `/api/open/kyoumu` | 学事システム（本家）を開く自動送信フォーム。履修登録・取消などをブラウザで行うためのリンク先 |
+| GET | `/api/open/kyoumu?to=register\|cancel\|lottery` | 学事システム（本家）を開く（引き渡しのあと、履修登録・履修取消・抽選履修登録の画面へ移動）。ブラウザで行うためのリンク先 |
 
 ## 開発コマンド
 

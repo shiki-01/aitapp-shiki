@@ -12,20 +12,20 @@ const cookies = { jsessionid: 'JSESSIONID=a', liveApps: 'LiveApps-Cookie=b' };
 const BASE = 'https://lcam.aitech.ac.jp/portalv2';
 const TOKEN = 'org.apache.struts.taglib.html.TOKEN';
 
-// 実 LCAM（2026-09-25）の構造に合わせた合成 HTML。個人情報・実ファイルは含めない。
+// 実 LCAM（2026-09-25）の構造に合わせた合成 HTML（先頭の空の列・末尾の並べ替え用の列も実物どおり）。個人情報・実ファイルは含めない。
 function listPage(token: string, rows: Array<[string, string, string, string, string]>): string {
   const trs = rows
     .map(
       (r, i) =>
-        `<tr class="even"><td>${r[0]}</td><td><a href="javascript:moveToDetail(${i})">${r[1]}</a></td>` +
-        `<td class="right">${r[2]}</td><td class="right">${r[3]}</td><td>${r[4]}</td></tr>`,
+        `<tr class="even"><td></td><td>${r[0]}</td><td><a href="javascript:moveToDetail(${i})">${r[1]}</a></td>` +
+        `<td class="right">${r[2]}</td><td class="right">${r[3]}</td><td>${r[4]}</td><td>1マニュアル</td><td>825582</td></tr>`,
     )
     .join('');
   const ids = rows.map((_, i) => `<input type="hidden" name="detailCommonFileId" value="${100 + i}">`).join('');
   return (
     `<html><body><form name="commonfile_commonFileActionForm" method="post" action="/portalv2/commonfile/commonFile/">` +
     `<input type="hidden" name="${TOKEN}" value="${token}">` +
-    `<table id="tbl_commonFileList" class="display tr-color"><thead><tr><th>カテゴリ（タグ）</th><th>タイトル</th><th>DL数</th><th>サイズ</th><th>更新日時</th></tr></thead>` +
+    `<table id="tbl_commonFileList" class="display tr-color"><thead><tr><th></th><th>カテゴリ（タグ）</th><th>タイトル</th><th>DL数</th><th>サイズ</th><th>更新日時</th><th></th><th></th></tr></thead>` +
     `<tbody>${trs}</tbody></table>${ids}<input type="hidden" name="prevPageId" value="backToList"></form></body></html>`
   );
 }

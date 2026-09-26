@@ -79,6 +79,18 @@ async function kyoumuFetch(
   }
 }
 
+/**
+ * メニューの本文が空だったときに使う既定のリンク（メニューコードは docs/LCAM_FEATURES.md §3）。
+ * アプリ方式（lamyapp:// の key）のセッションでは、引き渡し後の POST が本文の無い 200 と学事システムの Cookie だけを返し、
+ * その Cookie で各画面を直接 GET できた（実測 2026-09-25）。PC 画面ログインのときはメニューが返るので、そちらを優先する。
+ */
+const DEFAULT_LINKS: ReadonlyArray<[string, string]> = [
+  ['単位修得情報の参照', '/kyoumu/taniShuutokuJouhouSearchInit.do?mainMenuCode=009&parentMenuCode=007'],
+  ['カリキュラムの参照', '/kyoumu/curriculumReference.do?mainMenuCode=010&parentMenuCode=007'],
+  ['学内スケジュール', '/kyoumu/schoolEventSchedule.do?mainMenuCode=017&parentMenuCode=014'],
+  ['抽選履修登録結果', '/kyoumu/chuusenRishuuInit.do?mainMenuCode=020'],
+];
+
 /** 引き渡し用の自動送信フォームから action と loginID を取る。action は /kyoumu/ 配下だけ許す。 */
 export function parseHandoff(html: string): { action: string; loginId: string } {
   const action = /name="ssoCooperation"[^>]*\baction="([^"]+)"/.exec(html)?.[1] ?? /\baction="([^"]*\/kyoumu\/[^"]+)"/.exec(html)?.[1];
@@ -159,7 +171,11 @@ export async function openKyoumu(cookies: LcamCookies): Promise<KyoumuSession> {
   const jar = cookiePairs(step2);
   const menuHtml = await bodyText(step2);
   const links = parseKyoumuMenu(menuHtml);
-  if (links.size === 0) throw new UpstreamError('学事システムのメニューを認識できませんでした');
+  if (links.size === 0) {
+    // 本文が空で Cookie がある場合だけ既定のリンクを使う（エラー画面などの想定外の本文は認識失敗のまま）。
+    if (menuHtml.trim() !== '' || jar.length === 0) throw new UpstreamError('学事システムのメニューを認識できませんでした');
+    for (const [label, path] of DEFAULT_LINKS) links.set(label, path);
+  }
   return { cookie: jar.join('; '), links, menuUrl: action };
 }
 
@@ -317,11 +333,12 @@ export async function fetchSchoolEvents(cookies: LcamCookies, month: number | 'a
   const base = menuPath(session, '学内スケジュール');
   const months = month === 'all' ? [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3] : [month];
   const out: SchoolEventMonth[] = [];
-  let nendo = 0;
+  // 上流は画面の状態をセッションに持つため、月の切り替えの前に通常の表示を 1 回 GET する（切り替えだけだと
+  // 別の画面が返る。実測 2026-09-25）。年度はこの最初の表示から取る。
+  const sep = base.includes('?') ? '&' : '?';
+  const nendo = parseNendo(await kyoumuGet(session, base));
   for (const m of months) {
-    const sep = base.includes('?') ? '&' : '?';
     const html = await kyoumuGet(session, `${base}${sep}actionStatus=change&changeTarget=month&targetMonth=${m}`);
-    if (!nendo) nendo = parseNendo(html);
     out.push(parseSchoolEventMonth(html, m, nendo));
   }
   return { nendo, months: out };

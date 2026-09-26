@@ -189,7 +189,10 @@ export async function appLogin(cred: LcamAppCredential): Promise<LcamCookies> {
     await probeSpSession(cookies);
   } catch (e) {
     if (e instanceof LcamExpiredError) {
-      throw new LcamAppCredentialRejectedError('ログイン後に SP セッション確認で失効を検知しました。');
+      // 資格情報の拒否（status=fail・JSESSIONID なし）とは区別する。LCAM は単一セッションのため、同時に再ログインした
+      // 別のリクエストにセッションを奪われても、ここに来る（実測 2026-09-25: PC 画面の 4 並行で発生）。これを拒否と
+      // 扱うと保存済みの資格情報が消え、key の再登録が要る。資格情報は残し、一時的な失敗として返す。
+      throw new UpstreamError('LCAM のログイン直後の確認に失敗しました（他のリクエストとセッションが競合した可能性があります）');
     }
     throw e;
   }

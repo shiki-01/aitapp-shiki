@@ -193,9 +193,9 @@ export const browserApi: ApiClient = {
   async staffSchedule(name, code, week) {
     return request(`/api/staff/schedule${qs({ name, code, week })}`);
   },
-  kyoumuOpenUrl() {
+  kyoumuOpenUrl(to) {
     // fetch では使わず、<a target=_blank> で開く（自動送信フォームの HTML ページ）。
-    return `${BASE}/api/open/kyoumu`;
+    return `${BASE}/api/open/kyoumu${qs({ to })}`;
   },
   fileUrl(relativePath) {
     // inline=1: ブラウザ標準ビューアで表示(pdf/画像/txt)。他形式は従来どおりダウンロード。

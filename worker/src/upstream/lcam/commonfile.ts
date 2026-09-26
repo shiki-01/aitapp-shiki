@@ -31,20 +31,27 @@ export function parseCommonFileList(html: string): CommonFileItem[] {
   }
   const ids = hiddenValues(html, LIST_FORM, 'detailCommonFileId');
   const items: CommonFileItem[] = [];
+  // 実 HTML は先頭にチェック用の空の列があり、末尾にも並べ替え用の列が付く（実測 2026-09-25）。位置は見出しから決める。
+  const head = parseHtml(html).querySelectorAll('#tbl_commonFileList th').map((th) => th.text.replace(/\s+/g, '').trim());
+  const col = (name: string) => head.indexOf(name);
+  const [cCategory, cTitle, cCount, cSize, cUpdated] = ['カテゴリ（タグ）', 'タイトル', 'DL数', 'サイズ', '更新日時'].map(col);
+  if ([cCategory, cTitle, cCount, cSize, cUpdated].includes(-1)) {
+    throw new UpstreamError('学内共有ファイルの一覧の見出しを認識できませんでした');
+  }
   for (const tr of parseHtml(html).querySelectorAll('#tbl_commonFileList tr')) {
     const cells = rowCells(tr);
-    if (cells.length < 5) continue; // 見出し行・「データなし」行
+    if (cells.length <= Math.max(cCategory, cTitle, cCount, cSize, cUpdated)) continue; // 見出し行・「データなし」行
     const link = tr.querySelector('a');
     const idx = /moveToDetail\((\d+)\)/.exec(`${link?.getAttribute('href') ?? ''}${link?.getAttribute('onclick') ?? ''}`)?.[1];
     const id = idx != null ? ids[parseInt(idx, 10)] : undefined;
     if (!id) throw new UpstreamError('学内共有ファイルの一覧から ID を取得できませんでした');
     items.push({
       id,
-      category: cells[0],
-      title: cells[1],
-      downloadCount: parseInt(cells[2].replace(/[^\d]/g, ''), 10) || 0,
-      size: cells[3],
-      updatedAt: cells[4],
+      category: cells[cCategory],
+      title: cells[cTitle],
+      downloadCount: parseInt(cells[cCount].replace(/[^\d]/g, ''), 10) || 0,
+      size: cells[cSize],
+      updatedAt: cells[cUpdated],
     });
   }
   return items;

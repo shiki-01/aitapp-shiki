@@ -198,10 +198,12 @@ describe('appLogin', () => {
     expect(e).not.toBeInstanceOf(LcamAppCredentialRejectedError);
   });
 
-  it('ログイン後の SP 時間割確認で失効なら LcamAppCredentialRejectedError', async () => {
+  it('ログイン後の SP 時間割確認で失効なら、資格情報の拒否ではなく UpstreamError（並行の再ログインとの競合でも起きるため）', async () => {
     loginFlow(new Response('<html>home</html>', { status: 200 }));
     vi.mocked(probeSpSession).mockRejectedValue(new LcamExpiredError());
-    await expect(appLogin(cred)).rejects.toBeInstanceOf(LcamAppCredentialRejectedError);
+    const e = await appLogin(cred).catch((x) => x);
+    expect(e).toBeInstanceOf(UpstreamError);
+    expect(e).not.toBeInstanceOf(LcamAppCredentialRejectedError);
   });
 
   it('確認中のその他のエラーはそのまま伝播する', async () => {

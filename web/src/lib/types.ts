@@ -100,6 +100,9 @@ export type {
 // 集約し、冒頭で再エクスポート済み。
 
 /** レポートの絞り込み。未指定の項目は送らない（= 上流の初期表示＝今の年度・学期）。 */
+/** 学事システム（本家）で開く画面。Worker の `/api/open/kyoumu?to=` の許可リストと同じ。 */
+export type KyoumuTarget = 'register' | 'cancel' | 'lottery';
+
 export interface ReportQuery {
   year?: number;
   semester?: 1 | 2;
@@ -267,10 +270,10 @@ export interface ApiClient {
     week?: number,
   ): Promise<{ schedule: { staff: StaffMember; days: ScheduleDay[] } }>;
   /**
-   * 学事システム（本家）を新しいタブで開く URL（自動送信フォームのページ）。browser 版のみ。
-   * Worker の session cookie が要るため、desktop 版は null。
+   * 学事システム（本家）の画面（履修登録・履修取消・抽選履修登録）を新しいタブで開く URL（自動送信フォームのページ）。
+   * browser 版のみ。Worker の session cookie が要るため、desktop 版は null。
    */
-  kyoumuOpenUrl(): string | null;
+  kyoumuOpenUrl(to: KyoumuTarget): string | null;
   fileUrl(relativePath: string): string;
   openFile(relativePath: string): Promise<void>;
 }

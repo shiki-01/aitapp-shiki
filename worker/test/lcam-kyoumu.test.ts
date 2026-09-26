@@ -145,7 +145,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 interface Call { method: string; url: string; headers: Record<string, string>; body: string }
 
-function stub(pages: Record<string, string>): Call[] {
+function stub(pages: Record<string, string>, menuBody: string = MENU): Call[] {
   const calls: Call[] = [];
   vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
     const u = String(url);
@@ -159,7 +159,7 @@ function stub(pages: Record<string, string>): Call[] {
     if (path.startsWith('/kyoumu/portalRedirect.do')) {
       const h = new Headers();
       h.append('set-cookie', 'JSESSIONID=SESSK.kmap2; Path=/kyoumu; HttpOnly');
-      return new Response(MENU, { headers: h });
+      return new Response(menuBody, { headers: h });
     }
     if ((init.headers as Record<string, string>)?.Cookie !== 'JSESSIONID=SESSK.kmap2') return new Response('error', { status: 500 });
     for (const [key, html] of Object.entries(pages)) if (path.includes(key)) return new Response(html);
@@ -193,8 +193,24 @@ describe('openKyoumu / fetch*', () => {
     expect(ev.nendo).toBe(2026);
     expect(ev.months.map((m) => m.month)).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3]);
     const gets = calls.filter((x) => x.url.includes('schoolEventSchedule'));
-    expect(gets).toHaveLength(12);
-    expect(gets[0].url).toContain('?mainMenuCode=017&parentMenuCode=014&actionStatus=change&changeTarget=month&targetMonth=4');
+    // 月の切り替えの前に、通常の表示を 1 回 GET する（切り替えだけだと別の画面が返る。実測）。
+    expect(gets).toHaveLength(13);
+    expect(gets[0].url).not.toContain('actionStatus');
+    expect(gets[1].url).toContain('?mainMenuCode=017&parentMenuCode=014&actionStatus=change&changeTarget=month&targetMonth=4');
+  });
+
+  it('メニューの本文が空（アプリ方式のセッション）でも、学事の Cookie があれば既定のリンクで各画面を GET する', async () => {
+    const calls = stub({ taniShuutokuJouhouSearchInit: CREDIT }, '');
+    const c = await fetchCreditStatus(cookies);
+    expect(c.note).toBe('総修得単位数 35 単位以上');
+    const last = calls[calls.length - 1];
+    expect(last.url).toBe(`${BASE}/kyoumu/taniShuutokuJouhouSearchInit.do?mainMenuCode=009&parentMenuCode=007`);
+    expect(last.headers.Cookie).toBe('JSESSIONID=SESSK.kmap2');
+  });
+
+  it('メニューの本文が空でなくリンクも無い（エラー画面など）なら、既定のリンクは使わず UpstreamError', async () => {
+    stub({}, '<html>エラー</html>');
+    await expect(fetchCreditStatus(cookies)).rejects.toBeInstanceOf(UpstreamError);
   });
 
   it('学事システムの外のパスは取得しない。500（セッション切れ）は UpstreamError', async () => {
@@ -212,8 +228,8 @@ describe('prepareKyoumuHandoff / handoffPage', () => {
     expect(calls.some((c) => c.url.includes('/kyoumu/'))).toBe(false);
   });
 
-  it('自動送信フォームのページ: 値をエスケープし、キャッシュ・Referer を止め、送信先を LCAM に限る', async () => {
-    const res = handoffPage(`${BASE}/kyoumu/portalRedirect.do;JSESSIONID=A"B`, 'x"><script>');
+  it('自動送信フォームのページ: 値をエスケープし、キャッシュ・Referer を止め、送信先・フレームを LCAM に限る。POST は iframe に向け、着地先へ移動する', async () => {
+    const res = handoffPage(`${BASE}/kyoumu/portalRedirect.do;JSESSIONID=A"B`, 'x"><script>', '/kyoumu/chuusenRishuuInit.do?mainMenuCode=019');
     const html = await res.text();
     expect(html).toContain('action="https://lcam.aitech.ac.jp/kyoumu/portalRedirect.do;JSESSIONID=A&quot;B"');
     expect(html).toContain('value="x&quot;&gt;&lt;script&gt;"');
@@ -221,6 +237,10 @@ describe('prepareKyoumuHandoff / handoffPage', () => {
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(res.headers.get('referrer-policy')).toBe('no-referrer');
     expect(res.headers.get('content-security-policy')).toContain('form-action https://lcam.aitech.ac.jp');
+    expect(res.headers.get('content-security-policy')).toContain('frame-src https://lcam.aitech.ac.jp');
+    expect(html).toContain('<iframe name="h" hidden></iframe>');
+    expect(html).toContain('method="post" target="h"');
+    expect(html).toContain('location.replace("https://lcam.aitech.ac.jp/kyoumu/chuusenRishuuInit.do?mainMenuCode=019")');
     const nonce = /nonce-([^']+)'/.exec(res.headers.get('content-security-policy')!)![1];
     expect(html).toContain(`<script nonce="${nonce}">`);
   });
