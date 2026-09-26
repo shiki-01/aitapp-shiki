@@ -168,7 +168,7 @@ pub async fn api_request(
 }
 
 // ---- /api/file/:id 相当。バイト列を一時ファイルへ書き出し、パスだけ返す。
-//      呼び出し元(フロント)はtauri-plugin-openerでOS既定アプリに開かせる。
+//      呼び出し元(フロント)はopenInBrowserコマンドで既定ブラウザに開かせる。
 //      api_requestと同じく、401なら1回だけ再ログインしてリトライする。 ----
 #[tauri::command]
 pub async fn download_file(
@@ -211,6 +211,42 @@ pub async fn download_file(
     let file_path = dir.join(sanitize_filename(&name));
     std::fs::write(&file_path, outcome.bytes).map_err(|e| e.to_string())?;
     Ok(file_path.to_string_lossy().to_string())
+}
+
+// ---- ローカルファイルを127.0.0.1の一時HTTPサーバで配信し、既定ブラウザで開く。
+//      pathはapp_cache_dir()/downloads配下である必要がある（セキュリティ検証済み）。 ----
+#[tauri::command]
+pub async fn open_in_browser(app: AppHandle, path: String) -> Result<(), String> {
+    use tauri::Manager;
+    use tauri_plugin_opener::OpenerExt;
+    use std::path::PathBuf;
+
+    // pathをcanonicalizeする
+    let file_path = PathBuf::from(&path);
+    let canonical_path = file_path.canonicalize().map_err(|e| e.to_string())?;
+
+    // 許可ディレクトリ(app_cache_dir()/downloads)を取得して canonicalize
+    let downloads_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("downloads");
+    let canonical_downloads = downloads_dir.canonicalize().map_err(|e| e.to_string())?;
+
+    // pathがdownloadsディレクトリの配下かチェック
+    if !canonical_path.starts_with(&canonical_downloads) {
+        return Err("file is not in downloads directory".to_string());
+    }
+
+    // HTTPサーバでファイルを配信
+    let url = crate::browser_open::serve_file_once(canonical_path)
+        .await
+        .map_err(|e| format!("failed to start server: {}", e))?;
+
+    // 既定ブラウザで開く
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(|e| format!("failed to open browser: {}", e))
 }
 
 pub(crate) fn current_cookie(app: &AppHandle, state: &State<'_, SessionState>) -> Result<String, String> {

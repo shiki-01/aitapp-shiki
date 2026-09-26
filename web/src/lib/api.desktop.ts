@@ -4,7 +4,6 @@
 // 独自にHTTPクライアントとしてWorkerへ話しかけ、cookie保持とOSキーチェーンへの
 // 永続化(永続ログイン)を担う。
 import { invoke } from '@tauri-apps/api/core';
-import { openPath } from '@tauri-apps/plugin-opener';
 import { ApiError, type ApiClient } from './types';
 import { qs, fileApiPath, reportParams, pcNoticeParams } from './apiPath';
 
@@ -141,7 +140,7 @@ export const desktopApi: ApiClient = {
     return call(`/api/commonfiles/detail${qs({ id })}`);
   },
   commonFileDownloadUrl() {
-    // desktop版はopenCommonFile()でOS既定アプリを開くため呼ばれない。
+    // desktop版はopenCommonFile()で既定ブラウザを開くため呼ばれない。
     throw new ApiError(500, 'commonFileDownloadUrl is not supported on desktop');
   },
   async openCommonFile(id, no, filename) {
@@ -155,7 +154,11 @@ export const desktopApi: ApiClient = {
     } catch (err) {
       throw toApiError(err);
     }
-    await openPath(localPath);
+    try {
+      await invoke('open_in_browser', { path: localPath });
+    } catch (err) {
+      throw toApiError(err);
+    }
   },
   async reports(query) {
     return call(`/api/reports${qs(reportParams(query))}`);
@@ -164,7 +167,7 @@ export const desktopApi: ApiClient = {
     return call(`/api/reports/detail${qs({ id, ...reportParams(query) })}`);
   },
   reportDownloadUrl() {
-    // desktop版はopenReportFile()でOS既定アプリを開くため呼ばれない。
+    // desktop版はopenReportFile()で既定ブラウザを開くため呼ばれない。
     throw new ApiError(500, 'reportDownloadUrl is not supported on desktop');
   },
   async openReportFile(id, submitNo, fileNo, filename, query) {
@@ -177,7 +180,11 @@ export const desktopApi: ApiClient = {
     } catch (err) {
       throw toApiError(err);
     }
-    await openPath(localPath);
+    try {
+      await invoke('open_in_browser', { path: localPath });
+    } catch (err) {
+      throw toApiError(err);
+    }
   },
   async facilities() {
     return call('/api/facilities');
@@ -204,7 +211,7 @@ export const desktopApi: ApiClient = {
     return call(`/api/pcnotices/detail${qs({ kind, id, ...pcNoticeParams(query) })}`);
   },
   pcNoticeFileUrl() {
-    // desktop版はopenPcNoticeFile()でOS既定アプリを開くため呼ばれない。
+    // desktop版はopenPcNoticeFile()で既定ブラウザを開くため呼ばれない。
     throw new ApiError(500, 'pcNoticeFileUrl is not supported on desktop');
   },
   async openPcNoticeFile(kind, id, no, filename, query) {
@@ -217,7 +224,11 @@ export const desktopApi: ApiClient = {
     } catch (err) {
       throw toApiError(err);
     }
-    await openPath(localPath);
+    try {
+      await invoke('open_in_browser', { path: localPath });
+    } catch (err) {
+      throw toApiError(err);
+    }
   },
   async staff(name) {
     return call(`/api/staff${qs({ name })}`);
@@ -230,7 +241,7 @@ export const desktopApi: ApiClient = {
     return null;
   },
   fileUrl() {
-    // desktop版はopenFile()でOS既定アプリを開くため呼ばれない。
+    // desktop版はopenFile()で既定ブラウザを開くため呼ばれない。
     throw new ApiError(500, 'fileUrl is not supported on desktop');
   },
   async openFile(relativePath) {
@@ -243,6 +254,10 @@ export const desktopApi: ApiClient = {
     } catch (err) {
       throw toApiError(err);
     }
-    await openPath(localPath);
+    try {
+      await invoke('open_in_browser', { path: localPath });
+    } catch (err) {
+      throw toApiError(err);
+    }
   },
 };

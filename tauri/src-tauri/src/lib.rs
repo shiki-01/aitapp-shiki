@@ -1,5 +1,6 @@
 // アプリ本体。デスクトップは main.rs から、モバイル（iOS/Android）は mobile_entry_point から呼ぶ。
 
+mod browser_open;
 mod commands;
 mod config;
 mod keychain;
@@ -29,6 +30,7 @@ pub fn run() {
             commands::restore_session,
             commands::api_request,
             commands::download_file,
+            commands::open_in_browser,
             commands::lcam_connect,
             commands::lcam_auto_get,
             commands::lcam_auto_set,

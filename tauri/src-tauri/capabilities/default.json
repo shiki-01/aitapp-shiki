@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "aitapp-desktop メインウィンドウの権限。自前コマンド(login等)はデフォルトで許可されるため、\nここではプラグイン権限(添付ファイルをOS既定アプリで開くopener)のみ明示する。",
+  "description": "aitapp-desktop メインウィンドウの権限。自前コマンド(login等)はデフォルトで許可されるため、\nここではプラグイン権限(既定ブラウザを開くopener)のみ明示する。\nファイルの配信はRustの内部HTTPサーバで行い、openerのファイルオープン機能は使用しない。",
   "windows": ["main"],
   "permissions": ["core:default", "opener:default"]
 }
