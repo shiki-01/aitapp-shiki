@@ -95,6 +95,25 @@ jobs:
           zip -qry aitapp-unsigned.ipa Payload
           ls -la aitapp-unsigned.ipa
 
+      # AITAPP_WORKER_BASE_URL/AITAPP_APP_ORIGIN がバイナリに正しく埋め込まれたかを検証する
+      # （Xcode の Run Script が env を引き継がない問題の回帰確認。artifact をダウンロードできない
+      #   ネットワークからでも、この時点でログに正誤が残る）。
+      - name: Verify embedded worker URL in the binary
+        run: |
+          set -eux
+          ARCHIVE=$(find tauri/src-tauri/gen/apple -name '*.xcarchive' -maxdepth 4 | head -1)
+          APP=$(find "$ARCHIVE/Products/Applications" -name '*.app' -maxdepth 1 | head -1)
+          BIN=$(find "$APP" -maxdepth 1 -type f -perm +111 | head -1)
+          test -n "$BIN"
+          echo "binary: $BIN"
+          if strings -a "$BIN" | grep -qx "https://aitapp.shiki-01.com"; then
+            echo "OK: 本番 Worker URL が埋め込まれている"
+          else
+            echo "NG: 本番 Worker URL が見つからない。埋め込まれている候補:"
+            strings -a "$BIN" | grep -E "localhost:8787|localhost:5173|aitapp\.shiki-01\.com" || echo "(該当なし)"
+            exit 1
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: aitapp-unsigned-ipa
