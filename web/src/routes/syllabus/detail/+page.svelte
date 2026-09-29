@@ -26,6 +26,16 @@
   // 科目名の表記ゆれ（全角半角・空白）を吸収して比べる。
   const norm = (s: string) => s.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
 
+  // 科目名末尾の「(29)」「(A2)」「[抽選]」のような括弧書きを（複数あっても）全て取り除く。
+  function stripSuffixes(t: string): string {
+    let cur = t.trim();
+    for (;;) {
+      const next = cur.replace(/\s*(?:[(（][^()（）]*[)）]|[\[［][^\[\]［］]*[\]］]|【[^【】]*】)\s*$/, '');
+      if (next === cur) return cur;
+      cur = next;
+    }
+  }
+
   // 日付の属する年度（4 月始まり）。
   function academicYear(date: string | null): number {
     const d = date ? new Date(date) : new Date();
@@ -79,7 +89,7 @@
       }
       // 時間割の授業名には「(29)」のようなクラス番号が付くことがあり、シラバスの科目名とは一致しない。
       // まず原題で、ヒットしなければ末尾の括弧を除いた名前で探す（該当なしは 404 で返る）。
-      const base = title.replace(/\s*[(（][^()（）]*[)）]\s*$/, '').trim();
+      const base = stripSuffixes(title);
       let results: SyllabusListItem[] = [];
       let used = title;
       for (const word of base && base !== title ? [title, base] : [title]) {
