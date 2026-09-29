@@ -1,6 +1,6 @@
 {
-  "name": "愛工大ポータル",
-  "short_name": "愛工大ポータル",
+  "name": "aitapp",
+  "short_name": "aitapp",
   "lang": "ja",
   "start_url": "/",
   "scope": "/",

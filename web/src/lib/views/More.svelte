@@ -281,7 +281,7 @@
   <div class="avatar"><Icon name="home" size={22} color="#fff" /></div>
   <div>
     <div class="uid">{userId || 'ゲスト'}</div>
-    <div class="sub">愛工大ポータル</div>
+    <div class="sub">aitapp</div>
   </div>
 </section>
 
