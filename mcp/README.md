@@ -92,6 +92,7 @@ Moodleへの認証は、ログイン時に一度だけID/パスワードで `log
 | `lcam_download_notice_attachment` | `GET /api/file/:id`（連絡の添付ファイルのみ対応） |
 | `lcam_set_session` | `POST /api/lcam/session`（LCAM を登録。`appKey`（`lamyapp://` の URL または key。推奨）か `cookies` のどちらか一方。MFA のため初回に必要。値は会話でユーザーが渡したものだけ） |
 | `lcam_get_timetable` | `GET /api/timetable` |
+| `lcam_get_schedule` | `GET /api/schedule`（個人予定。休講・補講・学校行事など時間割に載らないもの。weeks・monthで絞り込み） |
 | `lcam_get_grades` | `GET /api/performance` |
 | `lcam_list_enquetes` | `GET /api/enquetes` |
 | `lcam_list_common_files` | `GET /api/commonfiles` |

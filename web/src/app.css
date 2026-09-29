@@ -95,6 +95,9 @@
 html, body {
     margin: 0;
     height: 100%;
+    /* iOS(WKWebView)はページ全体にデフォルトでラバーバンド(バウンス)スクロールが効き、
+       端まで着くと慣性で少しオーバースクロールしてから戻るため、一瞬下に隙間が見える。 */
+    overscroll-behavior-y: none;
 }
 
 body {
