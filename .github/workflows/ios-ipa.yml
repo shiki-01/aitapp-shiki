@@ -108,11 +108,18 @@ jobs:
           BIN=$(find "$APP" -maxdepth 1 -type f -perm +111 | head -1)
           test -n "$BIN"
           echo "binary: $BIN"
-          if strings -a "$BIN" | grep -qx "https://aitapp.shiki-01.com"; then
-            echo "OK: 本番 Worker URL が埋め込まれている"
+          # strings は隣接する文字列リテラルをヌル区切りなしで連結して1行として出すことがあるため
+          # 行完全一致(-x)ではなく部分一致で見る。localhost:8787(AITAPP_WORKER_BASE_URLの
+          # デフォルト値そのもの)が残っていないことを本体判定にする
+          # （devUrl由来のlocalhost:5173はTauri標準の設定文字列で無害なため対象外）。
+          HAS_PROD=$(strings -a "$BIN" | grep -c "aitapp\.shiki-01\.com" || true)
+          HAS_LOCAL_WORKER=$(strings -a "$BIN" | grep -c "localhost:8787" || true)
+          echo "aitapp.shiki-01.com 出現数: $HAS_PROD / localhost:8787 出現数: $HAS_LOCAL_WORKER"
+          if [ "$HAS_PROD" -gt 0 ] && [ "$HAS_LOCAL_WORKER" -eq 0 ]; then
+            echo "OK: 本番 Worker URL が埋め込まれ、localhost:8787 は残っていない"
           else
-            echo "NG: 本番 Worker URL が見つからない。埋め込まれている候補:"
-            strings -a "$BIN" | grep -E "localhost:8787|localhost:5173|aitapp\.shiki-01\.com" || echo "(該当なし)"
+            echo "NG:"
+            strings -a "$BIN" | grep -E "localhost:8787|aitapp\.shiki-01\.com" || echo "(該当なし)"
             exit 1
           fi
 
