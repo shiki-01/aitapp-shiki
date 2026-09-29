@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api, ApiError, type SyllabusDetail, type SyllabusListItem } from '$lib/api';
+  import { api, ApiError, type SyllabusDetail, type SyllabusListItem, type SyllabusDetailContext } from '$lib/api';
   import { session } from '$lib/stores/session.svelte';
   import Icon from '$lib/components/Icon.svelte';
 
@@ -87,18 +87,29 @@
         error = '年度を取得できませんでした';
         return;
       }
-      // 時間割の授業名には「(29)」のようなクラス番号が付くことがあり、シラバスの科目名とは一致しない。
-      // まず原題で、ヒットしなければ末尾の括弧を除いた名前で探す（該当なしは 404 で返る）。
+      // 時間割の授業名には「(29)」「[抽選]」のような括弧書きが付くことがあり、シラバスの科目名とは一致しない。
+      // 同名の科目（クラス違い）が複数あるため、まず 学期・曜日・時限 でも絞り、該当なし(404)なら条件を緩めていく。
+      // 学期は通年科目が漏れないよう、最後に外す。
       const base = stripSuffixes(title);
+      const d = q.get('date') ? new Date(q.get('date') as string) : null;
+      const week = d && d.getDay() >= 1 && d.getDay() <= 6 ? d.getDay() : undefined; // 1=月〜6=土
+      const hour = q.get('period') ? Number(q.get('period')) : undefined;
+      const semester = d ? (d.getMonth() >= 3 && d.getMonth() <= 8 ? 1 : 2) : undefined;
+      const levels: SyllabusDetailContext[] = [];
+      if (week && hour) levels.push({ semester, week, hour }, { week, hour });
+      levels.push({});
+      const words = base && base !== title ? [title, base] : [title];
       let results: SyllabusListItem[] = [];
-      let used = title;
-      for (const word of base && base !== title ? [title, base] : [title]) {
-        try {
-          results = (await api.syllabusSearch({ year, word })).results;
-          used = word;
-          break;
-        } catch (err) {
-          if (!(err instanceof ApiError && err.status === 404)) throw err;
+      let used: SyllabusDetailContext & { word: string } = { word: title };
+      search: for (const lv of levels) {
+        for (const word of words) {
+          try {
+            results = (await api.syllabusSearch({ year, word, ...lv })).results;
+            used = { word, ...lv };
+            break search;
+          } catch (err) {
+            if (!(err instanceof ApiError && err.status === 404)) throw err;
+          }
         }
       }
       const hit = pick(results, base || title, q.get('teacher') ?? '');
@@ -106,7 +117,7 @@
         error = `「${title}」のシラバスが見つかりませんでした。シラバス検索から探してください。`;
         return;
       }
-      const res = await api.syllabusDetail(hit.url, { year, word: used });
+      const res = await api.syllabusDetail(hit.url, { year, ...used });
       detail = res.detail;
     } catch (err) {
       error = err instanceof ApiError ? err.message : 'シラバスの取得に失敗しました';

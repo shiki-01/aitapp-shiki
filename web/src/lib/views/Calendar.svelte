@@ -149,7 +149,12 @@
   function openSyllabus() {
     const entry = memoTarget?.entry;
     if (!entry) return;
-    const q = new URLSearchParams({ title: entry.title, date: selKey, from: 'calendar' });
+    const q = new URLSearchParams({
+      title: entry.title,
+      date: selKey,
+      period: String(memoTarget?.period.period ?? ''),
+      from: 'calendar',
+    });
     if (entry.teacher) q.set('teacher', entry.teacher);
     memoSheetOpen = false;
     void goto(`/syllabus/detail?${q}`);
