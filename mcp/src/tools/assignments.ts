@@ -27,6 +27,7 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
         '出典を指定せず単に「課題」と聞かれた場合は、こちらとlcam_list_notices(type=class)の' +
         '両方を確認し、どちらの結果かを明示して両方提示する。' +
         '「Moodleの」等と出典を指定された場合はこちらのみを使う。',
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async () => {
       const res = await client.request<{ assignments: Assignment[] }>('/api/assignments');
@@ -70,6 +71,7 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
           .optional()
           .describe('trueで締切超過済みの課題も含める（デフォルトfalse）'),
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ assignmentId, courseId, nameFilter, dueWithinDays, includePastDue }) => {
       const params = new URLSearchParams();
@@ -103,6 +105,8 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
         assignmentId: z.number().int(),
         text: z.string().describe('提出するテキスト本文'),
       },
+      // 「下書き」だが submissiondrafts=0 の課題では即時の本提出扱いになりうる(issue #9)ため destructive 扱い。
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
     },
     async ({ assignmentId, text }) => {
       // 確認秘密は config/env（out-of-band）から取り、LLM 引数からは取らない。
@@ -144,6 +148,8 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
           .describe('ファイル内容のbase64（filePathが使えないリモート実行時に使う）'),
         fileName: z.string().optional().describe('fileBase64使用時のファイル名（拡張子を含める）'),
       },
+      // アップロードだが submissiondrafts=0 の課題では即時の本提出扱いになりうる(issue #9)ため destructive 扱い。
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
     },
     async ({ assignmentId, filePath, fileBase64, fileName }) => {
       // 確認秘密は config/env（out-of-band）から取り、LLM 引数からは取らない。
@@ -201,6 +207,8 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
       inputSchema: {
         assignmentId: z.number().int(),
       },
+      // 採点対象としての最終提出。取り消し不可。
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
     },
     async ({ assignmentId }) => {
       // 確認秘密は config/env（out-of-band）から取り、LLM 引数からは取らない。

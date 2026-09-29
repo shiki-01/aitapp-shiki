@@ -25,6 +25,7 @@ export function registerNoticeTools(server: McpServer, client: ToolClient): void
         type: z.enum(['common', 'class']).default('common'),
         count: z.number().int().min(1).default(10),
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ type, count }) => {
       const res = await client.request<{ notices: Notice[] }>(
@@ -45,6 +46,7 @@ export function registerNoticeTools(server: McpServer, client: ToolClient): void
         type: z.enum(['common', 'class']).default('common'),
         index: z.number().int().min(0),
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ type, index }) => {
       const res = await client.request<{ detail: NoticeDetail }>(
@@ -67,6 +69,7 @@ export function registerNoticeTools(server: McpServer, client: ToolClient): void
         path: z.string().describe('lcam_get_notice_detailのfilesの値（相対パス）'),
         fileName: z.string().describe('lcam_get_notice_detailのfilesのキー（保存時のファイル名に使う）'),
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ path, fileName }) => {
       const res = await client.downloadAttachment(path, fileName);

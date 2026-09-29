@@ -18,6 +18,7 @@ export function registerMoodleFileTools(server: McpServer, client: ToolClient): 
         '（課題やクイズの参考資料として案内されることが多い、例: 単語帳・配布資料）の' +
         '一覧をfileUrlとともに取得する（参照のみ）。fileUrlはmoodle_download_fileへ渡せる。',
       inputSchema: { courseId: z.number().int() },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ courseId }) => {
       const res = await client.request<{ files: MoodleCourseFile[] }>(
@@ -42,6 +43,7 @@ export function registerMoodleFileTools(server: McpServer, client: ToolClient): 
         fileUrl: z.string().describe('cms.aitech.ac.jp配下のファイルの絶対URL'),
         fileName: z.string().describe('保存時のファイル名（拡張子を含める）'),
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ fileUrl, fileName }) => {
       const res = await client.downloadMoodleFile(fileUrl, fileName);

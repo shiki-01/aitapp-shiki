@@ -23,6 +23,7 @@ export function registerEnqueteTools(server: McpServer, client: ToolClient): voi
       inputSchema: {
         type: z.enum(['class', 'evaluation', 'campus']).default('class'),
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ type }) => {
       const res = await client.request<EnqueteList>(`/api/enquetes?type=${type}`);
@@ -41,6 +42,7 @@ export function registerEnqueteTools(server: McpServer, client: ToolClient): voi
       inputSchema: {
         index: z.number().int().min(0),
       },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ index }) => {
       const res = await client.request<EnqueteAnswerForm>(
@@ -68,6 +70,13 @@ export function registerEnqueteTools(server: McpServer, client: ToolClient): voi
         answers: z
           .record(z.string(), z.string())
           .describe('設問index(文字列、lcam_get_enquete_questionsのindexと対応)→回答文字列'),
+      },
+      // 一時保存は上書き・再保存が可能な可逆書き込み（最終提出ではない）。
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     },
     async ({ index, answers }) => {
@@ -105,6 +114,8 @@ export function registerEnqueteTools(server: McpServer, client: ToolClient): voi
           .record(z.string(), z.string())
           .describe('設問index(文字列、lcam_get_enquete_questionsのindexと対応)→回答文字列'),
       },
+      // 本登録（最終提出）。取り消しにはLCAM上の別操作が必要で、実質的に破壊的。
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
     },
     async ({ index, answers }) => {
       // 確認秘密は config/env（out-of-band）から取り、LLM 引数からは取らない。
