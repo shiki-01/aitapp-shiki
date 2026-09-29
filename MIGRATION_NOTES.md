@@ -1460,3 +1460,15 @@ POST を再現して確認した**（Worker からの実行は未検証。§17.5
 
 **デスクトップ版でファイルを開く**: 上記とは別に、Tauri の `openPath` が `opener.open_path not allowed`（権限 `opener:allow-open-path` が無い）で
 失敗していた。既定ブラウザで開く方式に変更した（`tauri/src-tauri/src/browser_open.rs`。BACKLOG）。
+
+## 18. Tauri 版で「不可逆操作を許可」チェックボックスが編集できない不具合の修正（2026-09-29）
+
+- **症状**: `web/src/lib/views/More.svelte` の「不可逆操作を許可」チェックボックスが、Tauri（デスクトップ）版で常に `disabled` になり操作できない。
+- **原因**: `web/src/lib/api.desktop.ts` の `me()` が `restore_session`（Rust の keyring 復元）の戻り値 `userId` のみを返し、
+  ブラウザ版の `me()`（`GET /api/auth/me`）が返す `mcp` / `mcpWrites` を返していなかった。`More.svelte` はこの2つが無いと
+  チェックボックスを `mcpWrites === undefined` として無効化する。
+- **修正**: `restore_session` で Rust 側のセッション（cookie jar）を復元したあと、`call('/api/auth/me')`（`api_request` invoke 経由、
+  Worker の `/api/auth/me` を叩く）を呼び、`mcp` / `mcpWrites` を含む応答をそのまま返すよう変更した（`api.desktop.ts`）。
+  Worker 側（`POST /api/auth/mcp-writes`、`state.mcpAllowWrites`）は変更していない。ブラウザ版は元々 `/api/auth/me` を直接叩いており対象外。
+- **確認**: `web/` で `bun run check`（`svelte-kit sync && svelte-check`）が 0 エラー・0 警告で通過。Tauri 実機での動作は未確認
+  （`tauri dev` でチェックボックスが操作可能になることの確認が要る。`docs/BACKLOG.md` から本項目は削除）。

@@ -57,7 +57,7 @@ export const desktopApi: ApiClient = {
       throw toApiError(err);
     }
     if (!uid) throw new ApiError(401, 'unauthorized');
-    return { userId: uid };
+    return call('/api/auth/me');
   },
   // MCP トークンの発行/失効は worker の /api を Rust backend 経由で叩くだけ（GET/POST のみで
   // 済むよう worker 側のエンドポイントを POST に揃えてある）。

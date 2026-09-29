@@ -1,6 +1,6 @@
 # 未確認・未対応・要修正の項目
 
-最終更新: 2026-09-25（スケジュール・アンケート・提出状況の画面反映を追記）。LCAM を本家アプリ方式（`lamyapp://` の key → アプリ用資格情報で透過再ログイン。
+最終更新: 2026-09-29（Tauri 版「不可逆操作を許可」チェックボックスの不具合を修正し解消）。LCAM を本家アプリ方式（`lamyapp://` の key → アプリ用資格情報で透過再ログイン。
 `MIGRATION_NOTES.md` §15）に変更した時点の一覧。解消したら、この表から消して、根拠を `MIGRATION_NOTES.md` に残す。
 
 上流（LCAM・Moodle・シラバス）の実観測が要る項目の台帳は、別文書 `docs/VERIFICATION_BACKLOG.md`（2026-07 時点、
@@ -20,19 +20,6 @@
   （HTML・SVG・Office 文書）は保存になる。opener の JS 権限は使わない。単体テスト・`cargo check`・型チェックは通過。
 - **未確認**: `tauri dev` の実機で、各画面のファイルが既定ブラウザで開くこと。確認できたらこの項目を消す。
 
-### 「不可逆操作を許可」のチェックボックスが Tauri 版で編集できない
-
-- **症状**: 「その他 → Claude 連携」の「不可逆操作を許可（クイズ受験開始・課題/アンケート提出）」を操作できない。
-- **原因（コードからの推定。実機での再現は未確認）**:
-  - `web/src/lib/views/More.svelte` の `disabled={mcpBusy || mcpWrites === undefined}`（L455 付近）。`mcpWrites` は
-    `api.me()` の `mcpWrites` で初期化する（L157-166）。
-  - ブラウザ版の `me()`（`GET /api/auth/me`）は `mcp` / `mcpWrites` を返すが、Tauri 版の `me()`
-    （`web/src/lib/api.desktop.ts` L53-61）は `restore_session` の `userId` しか返さない。そのため `mcpWrites` が
-    `undefined` のままになり、チェックボックスが常に `disabled` になる。`mcpIssued`（MCP の発行済み表示）も同様に取れない。
-- **直し方の案**: Tauri 版の `me()` で、`restore_session` のあとに `GET /api/auth/me`（`api_request` 経由）を呼び、
-  `mcp` / `mcpWrites` も返す。ブラウザ版で編集できるかも、あわせて確認する。
-- Worker 側（`POST /api/auth/mcp-writes`、`state.mcpAllowWrites`）は変更不要のはず。
-
 ## 未確認（実機・実データで確認が必要）
 
 | 項目 | 状況 |
@@ -50,6 +37,7 @@
 | `/mcp` の未対応プロトコルバージョンでの 500 の修正（`718a154`）の効果 | 修正・デプロイ済み。**コネクタを再接続して、`wrangler tail` で 500 が出なくなったか確認する** |
 | Moodle のローカル認証がいつまで使えるか | 止まると `/api/auth/login` 自体が通らなくなる（`MIGRATION_NOTES.md` §14.4） |
 | Entra の「サインインの状態を維持」（約 90 日）が切れたときの再認証 | WebView 内の Microsoft セッションの期限。切れると番号入力が要る（§14.7） |
+| Tauri 版「不可逆操作を許可」チェックボックスの修正（`MIGRATION_NOTES.md` §18） | `web/src/lib/api.desktop.ts` の `me()` 修正・型チェックは通過。`tauri dev` 実機でチェックボックスが操作できることは未確認 |
 
 ## 未対応（意図的に実装していない）
 
