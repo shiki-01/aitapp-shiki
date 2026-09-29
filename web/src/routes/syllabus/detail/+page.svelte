@@ -70,19 +70,33 @@
       }
       const ay = String(academicYear(q.get('date')));
       const { filters } = await api.syllabusFilters();
-      const years = Object.values(filters.year);
-      const year = years.find((v) => v === ay) ?? years[0];
+      // filters.year は 表示名(「2025年度」等) → 検索用 ID(「0024」等)。年度は表示名で探す。
+      const yearEntries = Object.entries(filters.year);
+      const year = (yearEntries.find(([label]) => label.normalize('NFKC').includes(ay)) ?? yearEntries[0])?.[1];
       if (!year) {
         error = '年度を取得できませんでした';
         return;
       }
-      const { results } = await api.syllabusSearch({ year, word: title });
-      const hit = pick(results, title, q.get('teacher') ?? '');
+      // 時間割の授業名には「(29)」のようなクラス番号が付くことがあり、シラバスの科目名とは一致しない。
+      // まず原題で、ヒットしなければ末尾の括弧を除いた名前で探す（該当なしは 404 で返る）。
+      const base = title.replace(/\s*[(（][^()（）]*[)）]\s*$/, '').trim();
+      let results: SyllabusListItem[] = [];
+      let used = title;
+      for (const word of base && base !== title ? [title, base] : [title]) {
+        try {
+          results = (await api.syllabusSearch({ year, word })).results;
+          used = word;
+          break;
+        } catch (err) {
+          if (!(err instanceof ApiError && err.status === 404)) throw err;
+        }
+      }
+      const hit = pick(results, base || title, q.get('teacher') ?? '');
       if (!hit) {
         error = `「${title}」のシラバスが見つかりませんでした。シラバス検索から探してください。`;
         return;
       }
-      const res = await api.syllabusDetail(hit.url, { year, word: title });
+      const res = await api.syllabusDetail(hit.url, { year, word: used });
       detail = res.detail;
     } catch (err) {
       error = err instanceof ApiError ? err.message : 'シラバスの取得に失敗しました';
