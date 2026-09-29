@@ -122,3 +122,41 @@ button {
 a {
     color: var(--primary);
 }
+
+/* ページ遷移のスライド（+layout.svelte の onNavigate が data-nav を付ける）。
+   forward: 新しい画面が右から入る / back: 今の画面が右へ出ていく。下になる側は少しだけ動かす。 */
+html[data-nav]::view-transition-old(root),
+html[data-nav]::view-transition-new(root) {
+    animation-duration: 300ms;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    animation-fill-mode: both;
+    mix-blend-mode: normal;
+}
+html[data-nav='forward']::view-transition-old(root) {
+    animation-name: nav-shift-left;
+    z-index: 1;
+}
+html[data-nav='forward']::view-transition-new(root) {
+    animation-name: nav-from-right;
+    z-index: 2;
+}
+html[data-nav='back']::view-transition-old(root) {
+    animation-name: nav-to-right;
+    z-index: 2;
+}
+html[data-nav='back']::view-transition-new(root) {
+    animation-name: nav-shift-in;
+    z-index: 1;
+}
+@keyframes nav-from-right {
+    from { transform: translateX(100%); }
+}
+@keyframes nav-shift-left {
+    to { transform: translateX(-30%); }
+}
+@keyframes nav-to-right {
+    to { transform: translateX(100%); }
+}
+@keyframes nav-shift-in {
+    from { transform: translateX(-30%); }
+}

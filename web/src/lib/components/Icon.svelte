@@ -18,7 +18,8 @@
     | 'note'
     | 'check'
     | 'close'
-    | 'clock';
+    | 'clock'
+    | 'more';
 </script>
 
 <script lang="ts">
@@ -104,5 +105,9 @@
   {:else if name === 'clock'}
     <circle cx="12" cy="12" r="8.5" />
     <path d="M12 7.5V12l3 2" />
+  {:else if name === 'more'}
+    <circle cx="12" cy="5.5" r="1.6" fill={color} stroke="none" />
+    <circle cx="12" cy="12" r="1.6" fill={color} stroke="none" />
+    <circle cx="12" cy="18.5" r="1.6" fill={color} stroke="none" />
   {/if}
 </svg>

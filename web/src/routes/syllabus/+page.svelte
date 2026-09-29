@@ -3,14 +3,16 @@
   import { goto } from '$app/navigation';
   import { api } from '$lib/api';
   import { isTauri } from '$lib/platform';
+  import { session } from '$lib/stores/session.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import Syllabus from '$lib/views/Syllabus.svelte';
 
-  let checking = $state(true);
+  let checking = $state(!session.userId);
 
   onMount(async () => {
     try {
-      await api.me();
+      const me = await api.me();
+      session.userId = me.userId;
       checking = false;
     } catch (err) {
       // 401 でも通信不能でもログイン画面へ。

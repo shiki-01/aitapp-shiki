@@ -11,6 +11,7 @@
   import NoticeSearch from './campus/NoticeSearch.svelte';
   import Lottery from './campus/Lottery.svelte';
   import Staff from './campus/Staff.svelte';
+  import SlideView from '$lib/components/SlideView.svelte';
   import { api } from '$lib/api';
 
   let { onBack }: { onBack?: () => void } = $props();
@@ -91,7 +92,6 @@
   ];
 
   let currentId = $state<string | null>(null);
-  const current = $derived(ITEMS.find((i) => i.id === currentId));
 
   // 「本家で行う操作」の行き先。学事システムの画面を新しいタブで開く URL（desktop 版は null）。
   const HONKE_ACTIONS: { label: string; to: KyoumuTarget }[] = [
@@ -102,19 +102,23 @@
   const kyoumuUrls = HONKE_ACTIONS.map((a) => api.kyoumuOpenUrl(a.to));
 </script>
 
-<header class="head">
-  <button
-    class="back"
-    aria-label={current ? '学内サービスへ戻る' : '戻る'}
-    onclick={() => (current ? (currentId = null) : onBack?.())}
-  >
-    <Icon name="chevron-left" size={22} color="var(--primary)" />
-  </button>
-  <h1>{current ? current.label : '学内サービス'}</h1>
-</header>
+<SlideView view={currentId ?? ''} forward={currentId !== null}>
+  {#snippet children(id)}
+    {@const cur = ITEMS.find((i) => i.id === id)}
+    <header class="head">
+      <button
+        class="back"
+        aria-label={cur ? '学内サービスへ戻る' : '戻る'}
+        onclick={() => (cur ? (currentId = null) : onBack?.())}
+      >
+        <Icon name="chevron-left" size={22} color="var(--primary)" />
+      </button>
+      <h1>{cur ? cur.label : '学内サービス'}</h1>
+    </header>
 
-{#if current}
-  {@const Screen = current.component}
+
+{#if cur}
+  {@const Screen = cur.component}
   <Screen />
 {:else}
   <ul class="list">
@@ -168,6 +172,8 @@
     <p class="honke-note">パスワード変更など、LCAM の PC 版でしか行えない操作は、LCAM の PC 版で行ってください。</p>
   </section>
 {/if}
+  {/snippet}
+</SlideView>
 
 <style>
   .head {

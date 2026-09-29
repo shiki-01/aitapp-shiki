@@ -3,6 +3,7 @@
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import Campus from '$lib/views/Campus.svelte';
+  import SlideView from '$lib/components/SlideView.svelte';
   import { api, ApiError, type LcamSessionStatus } from '$lib/api';
   import { isDesktop, isTauri } from '$lib/platform';
   import { onActivate, sameData } from '$lib/activate.svelte';
@@ -272,7 +273,9 @@
   ];
 </script>
 
-{#if campusOpen}
+<SlideView view={campusOpen ? 'campus' : 'more'} forward={campusOpen}>
+{#snippet children(v)}
+{#if v === 'campus'}
   <Campus onBack={() => (campusOpen = false)} />
 {:else}
 <header class="head"><h1>その他</h1></header>
@@ -490,6 +493,8 @@
 
 <p class="version">aitapp-web · prototype</p>
 {/if}
+{/snippet}
+</SlideView>
 
 <!-- メモ編集 -->
 <Sheet bind:open={memoOpen} title={editing ? 'メモを編集' : 'メモを追加'}>

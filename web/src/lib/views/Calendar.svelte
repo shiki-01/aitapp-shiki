@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { api, ApiError, type TimetableEntry } from '$lib/api';
   import {
     PERIODS,
@@ -9,6 +10,7 @@
     type Period,
   } from '$lib/date';
   import { events, memos, classMemos } from '$lib/stores/local.svelte';
+  import { calendarState } from '$lib/stores/calendar.svelte';
   import { schedule } from '$lib/stores/schedule.svelte';
   import { onActivate, sameData } from '$lib/activate.svelte';
   import MonthCalendar from '$lib/components/MonthCalendar.svelte';
@@ -17,7 +19,6 @@
 
   let { onMore, active = true }: { onMore?: () => void; active?: boolean } = $props();
 
-  let selected = $state(new Date());
   let timetable = $state<TimetableEntry[]>([]);
   let ttError = $state('');
 
@@ -62,8 +63,8 @@
   // カレンダーのドット = カスタム予定のある日 + LCAM の学校行事などのある日。
   const marked = $derived(new Set([...events.markedDates, ...schedule.markedDates]));
 
-  const selKey = $derived(dateKey(selected));
-  const dayKey = $derived(TIMETABLE_DAY_KEYS[selected.getDay()]);
+  const selKey = $derived(dateKey(calendarState.selected));
+  const dayKey = $derived(TIMETABLE_DAY_KEYS[calendarState.selected.getDay()]);
 
   // 選択日がスケジュールの取得範囲内なら、実際の授業（補講・休講の反映済み）を使う。
   // 範囲外の日は曜日ごとの時間割で代用する。
@@ -144,6 +145,16 @@
     memoSheetOpen = true;
   }
 
+  // 授業名で該当のシラバスを探して、別ページで開く。
+  function openSyllabus() {
+    const entry = memoTarget?.entry;
+    if (!entry) return;
+    const q = new URLSearchParams({ title: entry.title, date: selKey, from: 'calendar' });
+    if (entry.teacher) q.set('teacher', entry.teacher);
+    memoSheetOpen = false;
+    void goto(`/syllabus/detail?${q}`);
+  }
+
   function saveClassMemo() {
     if (memoTarget) {
       classMemos.set(selKey, memoTarget.period.period, memoDraft);
@@ -152,7 +163,7 @@
   }
 
   const selLabel = $derived(
-    `${selected.getMonth() + 1}月${selected.getDate()}日 (${WEEKDAY_LABELS[selected.getDay()]})`,
+    `${calendarState.selected.getMonth() + 1}月${calendarState.selected.getDate()}日 (${WEEKDAY_LABELS[calendarState.selected.getDay()]})`,
   );
 
   const memoPreview = $derived(memos.sorted.slice(0, 3));
@@ -161,13 +172,13 @@
 <div class="page">
   <!-- 上半分: 縦スクロール月カレンダー -->
   <div class="cal-area">
-    <MonthCalendar bind:selected {marked} />
+    <MonthCalendar bind:selected={calendarState.selected} {marked} />
   </div>
 
   <!-- 下半分: 選択日の時間割 + メモプレビュー -->
   <div class="lower">
     <div class="day-head">
-      <span class="day-label" class:today={sameDay(selected, new Date())}>{selLabel}</span>
+      <span class="day-label" class:today={sameDay(calendarState.selected, new Date())}>{selLabel}</span>
     </div>
 
     {#if ttError}
@@ -196,10 +207,10 @@
           </div>
           <button
             class="edit"
-            aria-label="この時限にメモを追加"
+            aria-label="この時限のメニューを開く"
             onclick={() => openClassMemo(row.period, row.entry)}
           >
-            <Icon name="edit" size={20} color="var(--primary)" />
+            <Icon name="more" size={20} color="var(--primary)" />
           </button>
         </div>
       {/each}
@@ -335,6 +346,13 @@
         {#if memoTarget.entry.classRoom}<span class="tag">{memoTarget.entry.classRoom}</span>{/if}
         <span class="title">{memoTarget.entry.title}</span>
       </div>
+    {/if}
+    {#if memoTarget?.entry}
+      <button class="syllabus" onclick={openSyllabus}>
+        <Icon name="book" size={18} color="var(--primary)" />
+        <span>シラバスを見る</span>
+        <Icon name="chevron-right" size={16} color="var(--muted)" />
+      </button>
     {/if}
     <label>
       <span>メモ</span>
@@ -622,6 +640,21 @@
     color: #fff;
     padding: 12px;
     font-size: 1rem;
+  }
+  .syllabus {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+    background: var(--primary-bg);
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    color: var(--fg);
+  }
+  .syllabus span {
+    flex: 1;
+    font-weight: 500;
   }
   .save:disabled {
     opacity: 0.5;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { onNavigate } from '$app/navigation';
   import { isDesktop, isTauri } from '$lib/platform';
   import { setupPwa } from '$lib/pwa';
   import "@master/normal.css";
@@ -12,6 +13,26 @@
   if (isTauri) {
     document.documentElement.dataset.layout = isDesktop ? 'desktop' : 'mobile';
   }
+
+  // シラバスの画面は「奥へ進むと右から入り、戻ると右へ出る」スライドで移る（View Transitions）。
+  // 下部タブ間の切替は (app)/+layout.svelte が別にアニメーションするので対象外。
+  const isSyllabus = (p?: string) => !!p && p.startsWith('/syllabus');
+  onNavigate((nav) => {
+    const from = nav.from?.url.pathname;
+    const to = nav.to?.url.pathname;
+    if (!document.startViewTransition || (!isSyllabus(from) && !isSyllabus(to))) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const detail = '/syllabus/detail';
+    const back = from === detail || (from === '/syllabus' && to !== detail);
+    document.documentElement.dataset.nav = back ? 'back' : 'forward';
+    return new Promise<void>((resolve) => {
+      const vt = document.startViewTransition(async () => {
+        resolve();
+        await nav.complete;
+      });
+      void vt.finished.finally(() => delete document.documentElement.dataset.nav);
+    });
+  });
 
   onMount(() => {
     setupPwa();
