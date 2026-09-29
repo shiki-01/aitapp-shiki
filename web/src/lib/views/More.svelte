@@ -268,7 +268,7 @@
   // 外部システム導線。実 URL が不明なものは導線のみ（要件: 推測補完しない）。
   const LINKS: { label: string; href: string }[] = [
     { label: '大学ポータル (AIT Portal)', href: 'https://portal.aitech.ac.jp/' },
-    { label: 'Moodle', href: 'https://el.aitech.ac.jp/' },
+    { label: 'Moodle', href: 'https://cms.aitech.ac.jp/' },
   ];
 </script>
 

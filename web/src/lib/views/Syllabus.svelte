@@ -248,7 +248,7 @@
     padding: 10px 20px;
     border: none;
     border-radius: 10px;
-    background: var(--accent);
+    background: var(--primary);
     color: #fff;
     margin-bottom: 16px;
   }

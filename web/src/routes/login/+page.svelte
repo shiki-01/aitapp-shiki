@@ -37,7 +37,6 @@
 <div class="wrap">
   <form class="card" onsubmit={submit}>
     <img class="logo" src="/icons/icon-192.png" alt="aitapp" width="72" height="72" />
-    <h1>aitapp</h1>
     <p class="sub">ログイン</p>
     <p class="hint">
       Moodle と同じ ID・パスワードです。LCAM（連絡・時間割・成績）は多要素認証のため、
@@ -47,7 +46,7 @@
       <p class="error">{error}</p>
     {/if}
     <label>
-      <span>愛工大 ID</span>
+      <span>ID</span>
       <input
         type="text"
         bind:value={id}
@@ -87,11 +86,6 @@
     align-self: center;
     border-radius: 16px;
   }
-  h1 {
-    margin: 0;
-    font-size: 1.3rem;
-    text-align: center;
-  }
   .sub {
     margin: 0;
     text-align: center;
@@ -115,7 +109,7 @@
     padding: 12px;
     border: none;
     border-radius: 10px;
-    background: var(--accent);
+    background: var(--primary);
     color: #fff;
     font-size: 1rem;
   }
