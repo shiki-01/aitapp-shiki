@@ -41,6 +41,19 @@ jobs:
         working-directory: tauri
         run: bun install --frozen-lockfile
 
+      # Xcode の Run Script ビルドフェーズ（cargo build を呼ぶ）は、このジョブの `env:`
+      # （AITAPP_WORKER_BASE_URL 等）を引き継がない。Cargo 自身に読ませるため .cargo/config.toml に書く。
+      - name: Configure build-time env for Xcode's cargo build
+        working-directory: tauri/src-tauri
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml <<EOF
+          [env]
+          AITAPP_WORKER_BASE_URL = { value = "${AITAPP_WORKER_BASE_URL}", force = true }
+          AITAPP_APP_ORIGIN = { value = "${AITAPP_APP_ORIGIN}", force = true }
+          EOF
+          cat .cargo/config.toml
+
       - name: Generate iOS icons and project
         working-directory: tauri
         run: |
