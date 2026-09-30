@@ -18,7 +18,7 @@
   const PILL_H = 44;
 
   let bar: HTMLElement;
-  let items: HTMLElement[] = [];
+  let items = $state<HTMLElement[]>([]);
   let pos = $state<{ x: number; y: number } | null>(null);
   // 初回配置は移動させず、以降の変化だけアニメーションさせる。
   let animate = $state(false);
