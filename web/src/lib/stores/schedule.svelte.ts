@@ -4,7 +4,7 @@
 
 import { api, ApiError, type ScheduleDay, type ScheduleEvent } from '$lib/api';
 
-const KEY = 'aitapp.schedule.v2';
+const KEY = 'aitapp.schedule.v3';
 /** キャッシュを新しいとみなす期間。 */
 const FRESH_MS = 6 * 60 * 60 * 1000;
 /** 取得に失敗したあと、自動では取り直さない期間（手動の「更新」は常に可能）。 */

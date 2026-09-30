@@ -49,7 +49,7 @@ export interface TimetableEntry {
   day: string; // monday..sunday
   period: number; // 1..7
   title: string;
-  classRoom: string;
+  location: string;
   teacher: string;
 }
 
@@ -57,7 +57,10 @@ export interface ScheduleEvent {
   title: string;
   startTime: string; // YYYY-MM-DDTHH:mm
   endTime: string;
+  /** 上流の表記そのまま（例: 「八草 2-201」）。 */
   location?: string;
+  /** キャンパス名を除いた教室名のみ（例: 「2-201」）。 */
+  roomId?: string;
   teacher?: string;
   period?: number;
   /** 時限・教員・教室に当てはまらない追加行（休講・補講の表記など。形は未確定）。 */

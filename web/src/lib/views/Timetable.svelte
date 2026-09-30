@@ -63,7 +63,7 @@
               <td>
                 {#if c}
                   <div class="subject">{c.title}</div>
-                  <div class="room">{c.classRoom}</div>
+                  <div class="room">{c.location}</div>
                   <div class="teacher">{c.teacher}</div>
                 {/if}
               </td>

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { api, ApiError, type TimetableEntry } from '$lib/api';
+  import { goto } from "$app/navigation";
+  import { api, ApiError, type TimetableEntry } from "$lib/api";
   import {
     PERIODS,
     TIMETABLE_DAY_KEYS,
@@ -8,78 +8,93 @@
     sameDay,
     WEEKDAY_LABELS,
     type Period,
-  } from '$lib/date';
-  import { events, memos, classMemos } from '$lib/stores/local.svelte';
-  import { calendarState } from '$lib/stores/calendar.svelte';
-  import { schedule } from '$lib/stores/schedule.svelte';
-  import { onActivate, sameData } from '$lib/activate.svelte';
-  import MonthCalendar from '$lib/components/MonthCalendar.svelte';
-  import Sheet from '$lib/components/Sheet.svelte';
-  import Icon from '$lib/components/Icon.svelte';
+  } from "$lib/date";
+  import { events, memos, classMemos } from "$lib/stores/local.svelte";
+  import { calendarState } from "$lib/stores/calendar.svelte";
+  import { schedule } from "$lib/stores/schedule.svelte";
+  import { onActivate, sameData } from "$lib/activate.svelte";
+  import MonthCalendar from "$lib/components/MonthCalendar.svelte";
+  import Sheet from "$lib/components/Sheet.svelte";
+  import Icon from "$lib/components/Icon.svelte";
+  import { isTauri } from "$lib/platform";
+  import { facilityId as facilityIds } from "$lib/facilityId";
 
-  let { onMore, active = true }: { onMore?: () => void; active?: boolean } = $props();
+  type CalendarTimeTableEntry = TimetableEntry & { roomId?: string } & { note?: string }
+
+  let { onMore, active = true }: { onMore?: () => void; active?: boolean } =
+    $props();
 
   let timetable = $state<TimetableEntry[]>([]);
-  let ttError = $state('');
+  let ttError = $state("");
 
   // 予定追加シート（他の予定）
   let sheetOpen = $state(false);
-  let form = $state({ title: '', start: '', end: '', note: '' });
+  let form = $state({ title: "", start: "", end: "", note: "" });
 
   // 授業メモ編集シート（その日のその時限）
   let memoSheetOpen = $state(false);
-  let memoTarget = $state<{ period: Period; entry?: TimetableEntry } | null>(
+  let memoTarget = $state<{ period: Period; entry?: CalendarTimeTableEntry } | null>(
     null,
   );
-  let memoDraft = $state('');
+  let memoDraft = $state("");
 
   // 時間割を一度だけ取得（曜日×時限）。worker 未起動でも握りつぶす。
   let first = true;
-  onActivate(() => active, () => {
-    if (first) {
-      first = false;
-      (async () => {
-        try {
-          const res = await api.timetable();
-          timetable = res.timetable;
-        } catch (err) {
-          ttError = err instanceof ApiError ? err.message : '';
-          timetable = [];
-        }
-      })();
-    } else {
-      // 再取得（静かに実行）
-      (async () => {
-        try {
-          const res = await api.timetable();
-          if (!sameData(res.timetable, timetable)) timetable = res.timetable;
-        } catch {}
-      })();
-    }
-    // LCAM の個人スケジュール（キャッシュが古いときだけ取り直す）も毎回呼ぶ
-    void schedule.ensureFresh();
-  });
+  onActivate(
+    () => active,
+    () => {
+      if (first) {
+        first = false;
+        (async () => {
+          try {
+            const res = await api.timetable();
+            timetable = res.timetable;
+          } catch (err) {
+            ttError = err instanceof ApiError ? err.message : "";
+            timetable = [];
+          }
+        })();
+      } else {
+        // 再取得（静かに実行）
+        (async () => {
+          try {
+            const res = await api.timetable();
+            if (!sameData(res.timetable, timetable)) timetable = res.timetable;
+          } catch {}
+        })();
+      }
+      // LCAM の個人スケジュール（キャッシュが古いときだけ取り直す）も毎回呼ぶ
+      void schedule.ensureFresh();
+    },
+  );
 
   // カレンダーのドット = カスタム予定のある日 + LCAM の学校行事などのある日。
-  const marked = $derived(new Set([...events.markedDates, ...schedule.markedDates]));
+  const marked = $derived(
+    new Set([...events.markedDates, ...schedule.markedDates]),
+  );
 
   const selKey = $derived(dateKey(calendarState.selected));
   const dayKey = $derived(TIMETABLE_DAY_KEYS[calendarState.selected.getDay()]);
 
   // 選択日がスケジュールの取得範囲内なら、実際の授業（補講・休講の反映済み）を使う。
   // 範囲外の日は曜日ごとの時間割で代用する。
-  const scheduled = $derived(schedule.covers(selKey) ? schedule.forDate(selKey) : null);
+  const scheduled = $derived(
+    schedule.covers(selKey) ? schedule.forDate(selKey) : null,
+  );
 
-  function classAt(period: number): (TimetableEntry & { note?: string }) | undefined {
+  function classAt(
+    period: number,
+  ): (CalendarTimeTableEntry) | undefined {
     if (scheduled) {
       const ev = scheduled.find((e) => e.period === period);
       return ev
         ? {
-            day: dayKey ?? '',
+            day: dayKey ?? "",
             period,
             title: ev.title,
-            classRoom: ev.location ?? '',
-            teacher: ev.teacher ?? '',
+            location: ev.location ?? "",
+            roomId: ev.roomId ?? "",
+            teacher: ev.teacher ?? "",
             note: ev.note,
           }
         : undefined;
@@ -100,7 +115,9 @@
 
   // 学校の予定（授業以外。行事・休講日など）と、1〜6限に収まらない時限の授業。
   const schoolEvents = $derived(
-    (scheduled ?? []).filter((e) => e.period === undefined || e.period > PERIODS.length),
+    (scheduled ?? []).filter(
+      (e) => e.period === undefined || e.period > PERIODS.length,
+    ),
   );
 
   function timeOf(iso: string): string {
@@ -109,19 +126,19 @@
 
   const fetchedLabel = $derived.by(() => {
     const t = schedule.fetchedAt;
-    if (!t) return '';
+    if (!t) return "";
     const d = new Date(t);
-    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 更新`;
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} 更新`;
   });
 
   const dayEvents = $derived(events.forDate(selKey));
 
   function openAdd(prefill?: { start: string; end: string; title: string }) {
     form = {
-      title: prefill?.title ?? '',
-      start: prefill?.start ?? '',
-      end: prefill?.end ?? '',
-      note: '',
+      title: prefill?.title ?? "",
+      start: prefill?.start ?? "",
+      end: prefill?.end ?? "",
+      note: "",
     };
     sheetOpen = true;
   }
@@ -139,9 +156,9 @@
   }
 
   // 授業自体は編集不可。その日のその時限に対するメモのみ編集する。
-  function openClassMemo(period: Period, entry?: TimetableEntry) {
+  function openClassMemo(period: Period, entry?: CalendarTimeTableEntry) {
     memoTarget = { period, entry };
-    memoDraft = classMemos.get(selKey, period.period)?.body ?? '';
+    memoDraft = classMemos.get(selKey, period.period)?.body ?? "";
     memoSheetOpen = true;
   }
 
@@ -152,12 +169,31 @@
     const q = new URLSearchParams({
       title: entry.title,
       date: selKey,
-      period: String(memoTarget?.period.period ?? ''),
-      from: 'calendar',
+      period: String(memoTarget?.period.period ?? ""),
+      from: "calendar",
     });
-    if (entry.teacher) q.set('teacher', entry.teacher);
+    if (entry.teacher) q.set("teacher", entry.teacher);
     memoSheetOpen = false;
     void goto(`/syllabus/detail?${q}`);
+  }
+
+  // 全角英数字を半角に変換
+  function toHalfWidth(str: string) {
+    str = str.replace(/[Ａ-Ｚａ-ｚ０-９]/g, function (s) {
+      return String.fromCharCode(s.charCodeAt(0) - 0xfee0);
+    });
+    return str;
+  }
+
+  // 教室IDからfacilityIdを逆検索する
+  function openAITGuide(roomId: string) {
+    for (const [id, rooms] of Object.entries(facilityIds)) {
+      if (rooms.some((room) => room === roomId)) {
+        window.open(`https://ait-guide.sysken.net/?toId=${id}`, "_blank");
+      }
+    }
+
+    return undefined;
   }
 
   function saveClassMemo() {
@@ -183,11 +219,17 @@
   <!-- 下半分: 選択日の時間割 + メモプレビュー -->
   <div class="lower">
     <div class="day-head">
-      <span class="day-label" class:today={sameDay(calendarState.selected, new Date())}>{selLabel}</span>
+      <span
+        class="day-label"
+        class:today={sameDay(calendarState.selected, new Date())}
+        >{selLabel}</span
+      >
     </div>
 
     {#if ttError}
-      <p class="empty"><span class="sub">時間割は取得できませんでした。</span></p>
+      <p class="empty">
+        <span class="sub">時間割は取得できませんでした。</span>
+      </p>
     {/if}
 
     <!-- 1〜6限: 授業の有無に関わらず常に同じ表示。授業は編集不可、メモのみ可。 -->
@@ -195,19 +237,33 @@
       {#each dayRows as row (row.period.period)}
         <div class="row" class:vacant={!row.entry}>
           <div class="time">
-            <span>{row.period.start}</span><span>~</span><span>{row.period.end}</span>
+            <span>{row.period.start}</span><span>~</span><span
+              >{row.period.end}</span
+            >
           </div>
           <div class="content">
             {#if row.entry}
               <div class="topline">
-                {#if row.entry.classRoom}<span class="tag">{row.entry.classRoom}</span>{/if}
-                <span class="title" class:cancelled={row.entry.note?.includes('休講')}>{row.entry.title}</span>
+                {#if row.entry.location}<span class="tag"
+                    >{row.entry.location}</span
+                  >{/if}
+                <span
+                  class="title"
+                  class:cancelled={row.entry.note?.includes("休講")}
+                  >{row.entry.title}</span
+                >
               </div>
-              {#if row.entry.teacher}<span class="teacher">{row.entry.teacher}</span>{/if}
+              {#if row.entry.teacher}<span class="teacher"
+                  >{row.entry.teacher}</span
+                >{/if}
             {:else}
-              <span class="title vacant-label">{row.period.period}限（授業なし）</span>
+              <span class="title vacant-label"
+                >{row.period.period}限（授業なし）</span
+              >
             {/if}
-            {#if row.entry?.note}<span class="cancel-note">{row.entry.note}</span>{/if}
+            {#if row.entry?.note}<span class="cancel-note"
+                >{row.entry.note}</span
+              >{/if}
             {#if row.memo}<span class="memo-note">{row.memo.body}</span>{/if}
           </div>
           <button
@@ -230,7 +286,9 @@
         disabled={schedule.loading}
         aria-label="学校の予定を更新"
       >
-        {schedule.loading ? `更新中 ${schedule.progress}/${schedule.total}` : '更新'}
+        {schedule.loading
+          ? `更新中 ${schedule.progress}/${schedule.total}`
+          : "更新"}
       </button>
     </div>
     {#if schoolEvents.length > 0}
@@ -239,7 +297,9 @@
           <div class="row school">
             <div class="time school-time">
               {#if ev.period !== undefined}
-                <span>{timeOf(ev.startTime)}</span><span>~</span><span>{timeOf(ev.endTime)}</span>
+                <span>{timeOf(ev.startTime)}</span><span>~</span><span
+                  >{timeOf(ev.endTime)}</span
+                >
               {:else}
                 <span>終日</span>
               {/if}
@@ -247,7 +307,9 @@
             <div class="content">
               <span class="title wrap">{ev.title}</span>
               {#if ev.location || ev.teacher}
-                <span class="teacher">{[ev.location, ev.teacher].filter(Boolean).join(' · ')}</span>
+                <span class="teacher"
+                  >{[ev.location, ev.teacher].filter(Boolean).join(" · ")}</span
+                >
               {/if}
               {#if ev.note}<span class="cancel-note">{ev.note}</span>{/if}
             </div>
@@ -275,7 +337,9 @@
       </button>
     </div>
     {#if dayEvents.length === 0}
-      <p class="empty"><span class="sub">この日の他の予定はありません。</span></p>
+      <p class="empty">
+        <span class="sub">この日の他の予定はありません。</span>
+      </p>
     {:else}
       <div class="rows">
         {#each dayEvents as ev (ev.id)}
@@ -290,7 +354,11 @@
               <span class="title">{ev.title}</span>
               {#if ev.note}<span class="teacher">{ev.note}</span>{/if}
             </div>
-            <button class="edit" aria-label="削除" onclick={() => events.remove(ev.id)}>
+            <button
+              class="edit"
+              aria-label="削除"
+              onclick={() => events.remove(ev.id)}
+            >
               <Icon name="close" size={18} color="var(--muted)" />
             </button>
           </div>
@@ -301,7 +369,9 @@
     <!-- メモプレビュー -->
     <div class="memo-card">
       {#if memoPreview.length === 0}
-        <p class="memo-empty">メモはまだありません。「その他」やホームから追加できます。</p>
+        <p class="memo-empty">
+          メモはまだありません。「その他」やホームから追加できます。
+        </p>
       {:else}
         <div class="memo-list">
           {#each memoPreview as m (m.id)}
@@ -321,7 +391,11 @@
   <div class="form">
     <label>
       <span>タイトル</span>
-      <input type="text" bind:value={form.title} placeholder="例: ゼミ・バイト・締切" />
+      <input
+        type="text"
+        bind:value={form.title}
+        placeholder="例: ゼミ・バイト・締切"
+      />
     </label>
     <div class="row2">
       <label>
@@ -337,7 +411,9 @@
       <span>メモ（任意）</span>
       <textarea rows="2" bind:value={form.note}></textarea>
     </label>
-    <button class="save" onclick={saveEvent} disabled={!form.title.trim()}>追加する</button>
+    <button class="save" onclick={saveEvent} disabled={!form.title.trim()}
+      >追加する</button
+    >
   </div>
 </Sheet>
 
@@ -348,7 +424,9 @@
   <div class="form">
     {#if memoTarget?.entry}
       <div class="memo-class">
-        {#if memoTarget.entry.classRoom}<span class="tag">{memoTarget.entry.classRoom}</span>{/if}
+        {#if memoTarget.entry.location}<span class="tag"
+            >{memoTarget.entry.location}</span
+          >{/if}
         <span class="title">{memoTarget.entry.title}</span>
       </div>
     {/if}
@@ -358,10 +436,27 @@
         <span>シラバスを見る</span>
         <Icon name="chevron-right" size={16} color="var(--muted)" />
       </button>
+      {#if isTauri}
+        <span></span>
+      {:else}
+        <button
+          class="ait-guide"
+          onclick={() => openAITGuide(toHalfWidth(memoTarget?.entry?.roomId ?? ""))}
+        >
+          <Icon name="book" size={18} color="var(--primary)" /><span
+            >AIT ガイドで開く</span
+          >
+          <Icon name="chevron-right" size={16} color="var(--muted)" />
+        </button>
+      {/if}
     {/if}
     <label>
       <span>メモ</span>
-      <textarea rows="4" bind:value={memoDraft} placeholder="この授業の持ち物・連絡事項など"></textarea>
+      <textarea
+        rows="4"
+        bind:value={memoDraft}
+        placeholder="この授業の持ち物・連絡事項など"
+      ></textarea>
     </label>
     <button class="save" onclick={saveClassMemo}>保存する</button>
   </div>
@@ -658,6 +753,22 @@
     color: var(--fg);
   }
   .syllabus span {
+    flex: 1;
+    font-weight: 500;
+  }
+  .ait-guide {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    text-align: left;
+    background: var(--primary-bg);
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    color: var(--fg);
+  }
+  .ait-guide span {
     flex: 1;
     font-weight: 500;
   }

@@ -851,7 +851,10 @@ export function parseSchedule(html: string, anchor: Date = new Date()): Schedule
           period,
         };
         if (teacher) ev.teacher = teacher;
-        if (location) ev.location = location;
+        if (location) {
+          ev.location = location;
+          ev.roomId = location.replace(/八草/g, '').trim();
+        }
         // 印（休講・補講など）と、形が確定していない追加行は note に残す。
         const note = [tag, ...rest].filter(Boolean).join(' ');
         if (note) ev.note = note;

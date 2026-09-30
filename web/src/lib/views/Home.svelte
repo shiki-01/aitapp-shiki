@@ -142,7 +142,7 @@
     <div class="next">
       <span class="next-time">{nextClass.period.start}〜{nextClass.period.end}</span>
       <span class="next-title">{nextClass.entry.title}</span>
-      <span class="next-room">{nextClass.entry.classRoom}{#if nextClass.entry.teacher} · {nextClass.entry.teacher}{/if}</span>
+      <span class="next-room">{nextClass.entry.location}{#if nextClass.entry.teacher} · {nextClass.entry.teacher}{/if}</span>
     </div>
   {:else}
     <p class="empty">本日の残りの授業はありません。</p>
