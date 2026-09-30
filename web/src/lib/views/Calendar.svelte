@@ -189,7 +189,14 @@
   function openAITGuide(roomId: string) {
     for (const [id, rooms] of Object.entries(facilityIds)) {
       if (rooms.some((room) => room === roomId)) {
-        window.open(`https://ait-guide.sysken.net/?toId=${id}`, "_blank");
+        const url = `https://ait-guide.sysken.net/?toId=${id}`;
+        if (isTauri) {
+          // WebView 内ではなく OS の既定ブラウザで開く
+          import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url));
+        } else {
+          window.open(url, "_blank");
+        }
+        break;
       }
     }
 
@@ -436,19 +443,15 @@
         <span>シラバスを見る</span>
         <Icon name="chevron-right" size={16} color="var(--muted)" />
       </button>
-      {#if isTauri}
-        <span></span>
-      {:else}
-        <button
-          class="ait-guide"
-          onclick={() => openAITGuide(toHalfWidth(memoTarget?.entry?.roomId ?? ""))}
+      <button
+        class="ait-guide"
+        onclick={() => openAITGuide(toHalfWidth(memoTarget?.entry?.roomId ?? ""))}
+      >
+        <Icon name="book" size={18} color="var(--primary)" /><span
+          >AIT ガイドで開く</span
         >
-          <Icon name="book" size={18} color="var(--primary)" /><span
-            >AIT ガイドで開く</span
-          >
-          <Icon name="chevron-right" size={16} color="var(--muted)" />
-        </button>
-      {/if}
+        <Icon name="chevron-right" size={16} color="var(--muted)" />
+      </button>
     {/if}
     <label>
       <span>メモ</span>
