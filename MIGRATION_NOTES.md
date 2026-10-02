@@ -1033,15 +1033,16 @@ Tauri モバイルの流用可否（リポジトリ確認）:
   `commands.rs` の「保存済みパスワードで無言再ログイン」は Moodle 用としては有効だが LCAM には効かない。
 - 既知の不具合: wry 0.55.1 の Android は Cookie が無い URL で `getCookie` が null になり NPE の可能性
   （修正 PR は wry 0.57.1 向け）。wry を上げる必要がある。
-- 配布: iOS は Apple 無料アカウントだと 7 日で失効・3 アプリまで（自分の端末の PoC 専用）。他ユーザーへの配布は
-  Apple Developer Program（有料）が事実上必須で、「有料機能を使わない」方針と衝突する。Android は APK 配布で可。
+- 配布: Apple Developer Program（有料）に加入済み（2026-10-02 時点）。iOS は署名ありの IPA を TestFlight / Ad Hoc で配布する
+  （無料アカウントの 7 日失効・3 アプリ制限は受けない）。「有料機能を使わない」は Cloudflare 向けの制約であり、Apple の費用は対象外とする。
+  Android は APK 配布で可。
 
 **おすすめ**:
 1. （完了）§14.4 の最初の 3 項目は確定済み: 最小 Cookie は JSESSIONID のみ、IP/UA 紐付けなし、PC 画面ログインの
    Cookie が SP 画面で通る。よって Cookie 方式（B・C）は成立する見込み。
 2. **B（Tauri モバイル、Android 先行）** を自分の端末で PoC する。手間が最小（「接続」をタップして MFA を
    通すだけ）で、Worker 側は既存の `POST /api/lcam/session` をそのまま使える（アプリが Cookie を読んで登録するだけ）。
-   iOS は PoC までは無料アカウントで可能、配布時のみ有料プランが論点になる。
+   iOS は Apple Developer Program 加入済みのため、署名ありビルドで PoC から配布まで進められる。
 3. iOS の無料配布を優先するなら A を検討する。ただし読み取り専用のスナップショットで、
    既存のパーサ（`parse.ts`）は HTML を入力に取る純関数なので Worker 側で流用できるが、
    MCP からは「最後に取り込んだ時点のデータ」しか見えない。iOS Safari で動くかの実機確認が先。
@@ -1170,9 +1171,17 @@ Worker は Microsoft のセッションを持たない（Cookie を保存しな�
 
 ### 14.10 スマホ版（Tauri モバイル / iOS）の現状
 
-方針: **署名なしの IPA を GitHub Actions でビルドして配布**する。端末へは AltStore / SideStore / Sideloadly 等が、
-自分の（無料の）Apple ID で再署名して入れる。**有料の Apple Developer Program は不要**（無料アカウントの署名は 7 日で失効。
-AltStore/SideStore は同じ Wi-Fi 上で自動更新できる。同時に入れられるアプリ数などの制限あり）。
+方針（2026-10-02 改定）: Apple Developer Program（有料）に加入済みのため、**署名ありの IPA を GitHub Actions でビルドし、
+TestFlight（または Ad Hoc）で配布**する。署名の 7 日失効とアプリ数の制限は受けない。
+従来の方針（署名なし IPA を AltStore / SideStore / Sideloadly で無料 Apple ID により再署名）は、署名ありワークフローへ移行するまでの
+暫定手段として残す。
+
+署名ありビルドへの移行で必要になるもの（**未実施**。値は GitHub Secrets に置き、repo に含めない）:
+- Apple Distribution 証明書（`.p12`）とパスワード、プロビジョニングプロファイル（App Store 用 / Ad Hoc 用）。
+- Team ID、Bundle ID（現状 `com.aitapp.desktop`。App Store Connect へ登録する ID と一致させる）。
+- ワークフロー側の改修: 「Disable code signing」手順の削除、`project.yml` へ署名設定（Team ID・プロファイル）を注入、
+  `--export-method app-store-connect`（または `release-testing`）で export、TestFlight へはアップロード手順を追加（App Store Connect API キー）。
+  Xcode / `tauri ios build` の署名まわりの実際の挙動は、この環境では検証できていないため要確認。
 
 実装済み（2026-09-24）:
 - `lib.rs`（`run()` + `#[cfg_attr(mobile, tauri::mobile_entry_point)]`）/ `main.rs` の分割、`[lib] crate-type`。
@@ -1189,7 +1198,7 @@ AltStore/SideStore は同じ Wi-Fi 上で自動更新できる。同時に入れ
 - `tauri/package.json`: Xcode の「Build Rust Code」手順が `npm/bun run tauri` を `gen/apple` の上位で探すために必要（無いと失敗する）。
 
 **実機では未検証**（以下は端末で確認が要る）:
-1. 再署名して起動できるか。Bundle ID は再署名ツールが変更する場合がある（無料アカウントでは一意化されることが多い）。Keychain が動くか。
+1. 署名して起動できるか（暫定の再署名では、Bundle ID を再署名ツールが変更する場合がある）。Keychain が動くか。
 2. ログイン用 WebView（`WebviewWindowBuilder` の追加ウィンドウ）が iOS でどう表示され、閉じたあとにアプリ本体へ戻るか
    （公式ドキュメント: iPhone では新しいウィンドウが現在の UI を置き換えることが多い）。
 3. WKWebView で `cookies_for_url` / `cookies()` が HttpOnly の `JSESSIONID` を返すか、`delete_cookie` が効くか。
@@ -1199,10 +1208,10 @@ AltStore/SideStore は同じ Wi-Fi 上で自動更新できる。同時に入れ
 Android: 構成上は `lib.rs`/`tauri.conf` の流用が可能だが未着手。Android には `keyring` の保存先が無く代替が要る。`cookies()` は空を返す
 （`cookies_for_url` を使う実装済み）。wry 0.55.1 の Android は Cookie が無い URL で NPE の可能性があり wry の更新が要る。
 
-IPA の入手と導入:
+IPA の入手と導入（現状のワークフローは署名なし。署名ありへの移行後は TestFlight から入れる）:
 1. GitHub の Actions →「iOS IPA (unsigned)」→「Run workflow」。完了後、その実行の Artifacts から `aitapp-unsigned-ipa` をダウンロード
    （zip の中に `aitapp-unsigned.ipa`）。
-2. AltStore / SideStore / Sideloadly で、自分の Apple ID を使って端末に入れる（7 日で再署名が要る）。
+2. 暫定: AltStore / SideStore / Sideloadly で、自分の Apple ID を使って端末に入れる（無料アカウントでは 7 日で再署名が要る）。
 3. アプリで Moodle にログインし、「その他 → LCAM 連携」→「LCAM に接続」を押して、開いた画面で Microsoft のログインを通す。
 
 ## 15. 本家 L-Cam アプリ（Android v2.1.2）の静的解析（2026-09-24）

@@ -367,10 +367,20 @@ LCAM は単一セッションのため、再ログインするとブラウザ等
 Tauri の接続先の既定はローカルの Worker（`localhost:8787`）。本番向けには、ビルド時に
 `AITAPP_WORKER_BASE_URL` / `AITAPP_APP_ORIGIN` を指定する。詳細は `MIGRATION_NOTES.md` §15。
 
-### iOS 版（署名なし IPA）
+### iOS 版（署名あり IPA / TestFlight）
 
-GitHub の Actions →「iOS IPA (unsigned)」→「Run workflow」で、署名なしの `.ipa` を作れる（artifact を 7 日間ダウンロード可）。
-AltStore / SideStore / Sideloadly で自分の Apple ID により再署名して端末に入れる（無料アカウントは 7 日で失効。有料プログラム不要）。
+方針: Apple Developer Program（有料）加入済みを前提に、署名ありの `.ipa` をビルドし、TestFlight（または Ad Hoc）で配布する。
+署名の失効（7 日）とアプリ数の制限はない。Cloudflare の有料機能を使わない制約とは別の話で、Apple の費用は対象外とする。
+
+署名ありビルドに必要なもの（GitHub Secrets に登録する。値は repo に置かない）:
+
+- Apple Distribution 証明書（`.p12`）とそのパスワード
+- プロビジョニングプロファイル（App Store 配布用、または Ad Hoc 用）
+- Team ID、Bundle ID（現状 `com.aitapp.desktop`。App Store Connect 側に同じ ID を登録する）
+- TestFlight へアップロードする場合は App Store Connect API キー（Issuer ID / Key ID / `.p8`）
+
+現状: `.github/workflows/ios-ipa.yml` は署名なし IPA を作る手動ワークフローのままで、署名ありへの移行は未実施。
+当面は artifact の署名なし IPA を AltStore / SideStore / Sideloadly で再署名して入れられる。
 ビルドまでは CI で確認済みだが、端末での動作は未確認。詳細と確認項目は `MIGRATION_NOTES.md` §14.10。
 
 ### PC版のフロント差分
