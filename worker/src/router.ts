@@ -30,6 +30,7 @@ import {
   fetchSchedule,
   MAX_SCHEDULE_MONTH_OFFSET,
   fetchEnqueteQuestions,
+  fetchEnqueteFile,
   submitEnqueteAnswer,
   finalizeEnqueteAnswer,
 } from './upstream/lcam/client';
@@ -662,6 +663,26 @@ app.get('/api/enquetes/questions', async (c) => {
     fetchEnqueteQuestions(cookies, index),
   );
   return c.json(form);
+});
+
+// ---- GET /api/enquetes/file?index=&path=（授業アンケートの問題ファイル。stream proxy） ----
+// path は /api/enquetes/questions の files の値のみ許可（fetchEnqueteFile 内で照合）。
+app.get('/api/enquetes/file', async (c) => {
+  const index = parseInt(c.req.query('index') ?? '', 10);
+  const path = c.req.query('path') ?? '';
+  if (Number.isNaN(index) || !path) return c.json({ error: 'index and path required' }, 400);
+  const userId = c.get('userId');
+  const state = c.get('state');
+  const upstream = await withLcamSession(c.env, userId, state, (cookies) =>
+    fetchEnqueteFile(cookies, index, path),
+  );
+  const headers = new Headers();
+  for (const h of ['content-type', 'content-disposition', 'content-length']) {
+    const v = upstream.headers.get(h);
+    if (v) headers.set(h, v);
+  }
+  headers.set('cache-control', 'no-store');
+  return new Response(upstream.body, { status: upstream.status, headers });
 });
 
 // アンケート回答系エンドポイント共通のリクエストボディ検証。

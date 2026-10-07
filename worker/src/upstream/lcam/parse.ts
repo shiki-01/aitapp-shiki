@@ -530,6 +530,34 @@ export interface EnqueteQuestion {
 export interface EnqueteAnswerForm {
   classEnqId: string;
   questions: EnqueteQuestion[];
+  /** 設問に添付された問題ファイル（ファイル名 → /portalv2/common/fileUploadDownload/... のパス）。 */
+  files: Record<string, string>;
+}
+
+/**
+ * アンケートの詳細/回答フォーム HTML から添付ファイルのダウンロードパスを抽出する。
+ * `<a>` の href / onclick に含まれる `/portalv2/common/fileUploadDownload/...` をそのまま拾う
+ * （連絡の添付と同じダウンロードエンドポイント）。実データ未観測のため、
+ * 見つからなければ空を返す（推測でパスを組み立てない）。
+ */
+export function parseEnqueteFiles(...htmls: string[]): Record<string, string> {
+  const files: Record<string, string> = {};
+  for (const html of htmls) {
+    const root = parseHtml(html);
+    let n = 0;
+    for (const a of root.querySelectorAll('a')) {
+      const src = `${a.getAttribute('href') ?? ''} ${a.getAttribute('onclick') ?? ''}`.replace(
+        /&amp;/g,
+        '&',
+      );
+      const m = /(?:\/portalv2)?(\/common\/fileUploadDownload\/[^'"\s)]+)/.exec(src);
+      if (!m) continue;
+      n++;
+      const name = a.text.trim() || `ファイル${n}`;
+      files[name] = `/portalv2${m[1]}`;
+    }
+  }
+  return files;
 }
 
 /**
@@ -538,7 +566,7 @@ export interface EnqueteAnswerForm {
  * 対応する回答欄（`name="value{i}"`）が設問と同じ順序で並ぶことを利用して対応付ける
  * （実データ3問で dt 3個・value1〜3 の順序一致を確認済み）。
  */
-export function parseEnqueteAnswerForm(html: string): EnqueteAnswerForm {
+export function parseEnqueteAnswerForm(html: string, detailHtml = ''): EnqueteAnswerForm {
   const root = parseHtml(html);
   const classEnqId = root.querySelector('#classEnqId')?.getAttribute('value') ?? '';
   if (!classEnqId) {
@@ -561,7 +589,7 @@ export function parseEnqueteAnswerForm(html: string): EnqueteAnswerForm {
 
     questions.push({ index: i + 1, label, prompt, maxLength, answerType, fieldName });
   }
-  return { classEnqId, questions };
+  return { classEnqId, questions, files: parseEnqueteFiles(detailHtml, html) };
 }
 
 // ---- 授業アンケート確認画面（登録確認） ----

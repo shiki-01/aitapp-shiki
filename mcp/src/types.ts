@@ -64,6 +64,8 @@ export interface EnqueteQuestion {
 export interface EnqueteAnswerForm {
   classEnqId: string;
   questions: EnqueteQuestion[];
+  /** 添付された問題ファイル（ファイル名→パス）。lcam_download_class_enquete_fileへ渡す。 */
+  files: Record<string, string>;
 }
 
 /** 課題＋提出状況（GET /api/moodle/assignment/status）。 */

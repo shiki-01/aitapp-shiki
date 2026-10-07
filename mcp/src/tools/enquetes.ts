@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolClient } from '../tool-client';
 import { resolveConfirm } from './confirm';
+import { downloadedFileContent } from './download-content';
 import type { EnqueteList, EnqueteAnswerForm } from '../types';
 
 function json(data: unknown) {
@@ -36,7 +37,7 @@ export function registerEnqueteTools(server: McpServer, client: ToolClient): voi
     {
       title: 'LCAM授業アンケートの設問を取得',
       description:
-        'lcam_list_enquetesが返す授業アンケート(type=class)の設問一覧を取得する（参照のみ、送信は行わない）。' +
+        'lcam_list_enquetesが返す授業アンケート(type=class)の設問一覧と添付された問題ファイル(files)を取得する（参照のみ、送信は行わない）。' +
         'indexはlcam_list_enquetesの結果内での0始まりの並び順。answerTypeが"text"の設問のみ' +
         'lcam_save_class_enquete_answer_draftで回答できる。',
       inputSchema: {
@@ -49,6 +50,30 @@ export function registerEnqueteTools(server: McpServer, client: ToolClient): voi
         `/api/enquetes/questions?index=${index}`,
       );
       return json(res);
+    },
+  );
+
+  server.registerTool(
+    'lcam_download_class_enquete_file',
+    {
+      title: 'LCAM授業アンケートの問題ファイルをダウンロード',
+      description:
+        'lcam_get_enquete_questionsのfilesに含まれる、授業アンケートに添付された問題ファイルを取得する（参照のみ）。' +
+        'indexはlcam_get_enquete_questionsに渡したものと同じ値。' +
+        'ローカル(stdio)実行時は一時ディレクトリへ保存しパスを返す。リモート(HTTP)実行時はファイル内容を直接返す。',
+      inputSchema: {
+        index: z.number().int().min(0).describe('lcam_list_enquetesの結果内での0始まりの並び順'),
+        path: z.string().describe('lcam_get_enquete_questionsのfilesの値'),
+        fileName: z.string().describe('lcam_get_enquete_questionsのfilesのキー（保存時のファイル名に使う）'),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ index, path, fileName }) => {
+      const res = await client.downloadApi(
+        `/api/enquetes/file?index=${index}&path=${encodeURIComponent(path)}`,
+        fileName,
+      );
+      return downloadedFileContent(res);
     },
   );
 

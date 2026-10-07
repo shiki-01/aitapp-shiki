@@ -5,7 +5,7 @@ import type { LcamCookies } from '../../types';
 import { parseHtml } from '../../html/parser';
 import { extractStrutsToken, extractStrutsTokenByForm } from './csrf';
 import { looksLikeLoginPage } from './detect';
-import { LcamExpiredError, UpstreamError, ValidationError } from '../errors';
+import { LcamExpiredError, NotFoundError, UpstreamError, ValidationError } from '../errors';
 import {
   getStrutsTokenBody,
   getNoticeBody,
@@ -186,6 +186,15 @@ export async function fetchEnqueteQuestions(
   cookies: LcamCookies,
   index: number,
 ): Promise<EnqueteAnswerForm> {
+  const { detailBody, answerBody } = await openEnquete(cookies, index);
+  return parseEnqueteAnswerForm(answerBody, detailBody);
+}
+
+/** list → goDetail(index) → answer/initialize と辿り、サーバー側に「選択中のアンケート」を確立する。 */
+async function openEnquete(
+  cookies: LcamCookies,
+  index: number,
+): Promise<{ detailBody: string; answerBody: string }> {
   const listBody = await getEnqueteBody(cookies, 'class');
   assertSpSessionAlive(listBody);
   const listToken = extractStrutsTokenByForm(
@@ -199,7 +208,26 @@ export async function fetchEnqueteQuestions(
 
   const answerBody = await getEnqueteAnswerFormBody(cookies);
   assertSpSessionAlive(answerBody);
-  return parseEnqueteAnswerForm(answerBody);
+  return { detailBody, answerBody };
+}
+
+/**
+ * 授業アンケートの添付（問題ファイル）をダウンロードする。
+ * ダウンロード URL（no=N）は「選択中のアンケート」に依存するため、
+ * 同一セッションで goDetail まで辿り直したうえで、設問取得で得た path を取得する。
+ * path は parseEnqueteFiles が抽出した値（questions の files）のみ許可する。
+ */
+export async function fetchEnqueteFile(
+  cookies: LcamCookies,
+  index: number,
+  path: string,
+): Promise<Response> {
+  const { detailBody, answerBody } = await openEnquete(cookies, index);
+  const files = parseEnqueteAnswerForm(answerBody, detailBody).files;
+  if (!Object.values(files).includes(path)) {
+    throw new NotFoundError('[fetchEnqueteFile]指定された添付ファイルが見つかりません');
+  }
+  return fetchFile(cookies, path);
 }
 
 interface PreparedEnqueteAnswer {
