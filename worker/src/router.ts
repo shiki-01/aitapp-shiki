@@ -13,6 +13,7 @@ import {
   clearSessionCookie,
   readSessionCookie,
 } from './session/cookie';
+import type { AssignmentState } from '../../shared/contract';
 import { readState, writeState, deleteState } from './store/kv';
 import { configureLcamRelay } from './upstream/lcam/access';
 import { parseLcamCookies } from './upstream/lcam/cookies';
@@ -764,7 +765,7 @@ app.get('/api/assignments', async (c) => {
 });
 
 // ---- GET /api/moodle/assignment/status（課題一覧＋提出状況・参照のみ） ----
-// クエリ: assignmentId / courseId / nameFilter / dueWithinDays / includePastDue。
+// クエリ: assignmentId / courseId / nameFilter / dueWithinDays / includePastDue / state。
 // 提出状況は課題1件1 subrequestのため、絞り込み後の件数が上限以下のときだけ取得する
 // （quiz/info の受験可否と同じパターン。超えたら絞り込んで再取得させる）。
 app.get('/api/moodle/assignment/status', async (c) => {
@@ -782,6 +783,17 @@ app.get('/api/moodle/assignment/status', async (c) => {
   if (dueWithinDays === 'invalid') return c.json({ error: 'invalid dueWithinDays' }, 400);
   const nameFilter = c.req.query('nameFilter') || undefined;
   const includePastDue = ['1', 'true'].includes(c.req.query('includePastDue') ?? '');
+  // state=open,closed（submitted / upcoming / open / closed のカンマ区切り）。
+  let states: AssignmentState[] | undefined;
+  const stateRaw = c.req.query('state');
+  if (stateRaw !== undefined) {
+    const valid: AssignmentState[] = ['submitted', 'upcoming', 'open', 'closed'];
+    const parts = stateRaw.split(',').map((v) => v.trim());
+    if (parts.length === 0 || parts.some((v) => !valid.includes(v as AssignmentState))) {
+      return c.json({ error: 'invalid state' }, 400);
+    }
+    states = parts as AssignmentState[];
+  }
   // assignmentIds=1,2,3（Web 画面が表示中の課題の提出状況をまとめて取る）。
   let assignmentIds: number[] | undefined;
   const idsRaw = c.req.query('assignmentIds');
@@ -802,6 +814,7 @@ app.get('/api/moodle/assignment/status', async (c) => {
       nameFilter,
       dueWithinDays,
       includePastDue,
+      states,
     }),
   );
   return c.json(

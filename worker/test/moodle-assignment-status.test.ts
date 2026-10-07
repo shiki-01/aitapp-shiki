@@ -64,3 +64,58 @@ describe('getAssignmentsWithStatus: assignmentIds', () => {
     expect(asked.sort()).toEqual(['1', '4']);
   });
 });
+
+describe('getAssignmentsWithStatus: state（分類）', () => {
+  // 5: 受付開始前 / 6: 受付中（cutoff 延長で due 超過でも open）/ 7: cutoff 超過
+  const extra = {
+    courses: [
+      {
+        id: 10,
+        fullname: 'サンプルコース',
+        assignments: [
+          ...courses.courses[0].assignments,
+          { id: 5, name: '課題5', intro: '', duedate: sec(Date.now() + 9 * DAY), cutoffdate: 0, allowsubmissionsfromdate: sec(Date.now() + 3 * DAY) },
+          { id: 6, name: '課題6', intro: '', duedate: sec(Date.now() - DAY), cutoffdate: sec(Date.now() + DAY) },
+          { id: 7, name: '課題7', intro: '', duedate: sec(Date.now() - 5 * DAY), cutoffdate: sec(Date.now() - 4 * DAY) },
+        ],
+      },
+    ],
+  };
+  const st: Record<string, string> = { ...statusOf, '5': 'new', '6': 'new', '7': 'new' };
+
+  function stub2() {
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      const p = new URLSearchParams(String(init.body));
+      const fn = p.get('wsfunction');
+      if (fn === 'mod_assign_get_assignments') return Response.json(extra);
+      return Response.json({
+        lastattempt: { submission: { status: st[p.get('assignid')!], timemodified: 1 }, gradingstatus: 'notgraded' },
+      });
+    });
+  }
+
+  it('state 指定なしでも各課題に分類が付く（既定は締切超過を除く）', async () => {
+    stub2();
+    const r = await getAssignmentsWithStatus('cms.aitech.ac.jp', 'tok');
+    expect(r.assignments.map((a) => [a.id, a.state])).toEqual([
+      [6, 'open'],
+      [1, 'submitted'],
+      [2, 'open'],
+      [5, 'upcoming'],
+    ]);
+  });
+
+  it('state=closed は締切超過の未提出のみ（提出済みは除く）', async () => {
+    stub2();
+    const r = await getAssignmentsWithStatus('cms.aitech.ac.jp', 'tok', { states: ['closed'] });
+    expect(r.assignments.map((a) => a.id).sort()).toEqual([3, 4, 7]);
+  });
+
+  it('state=upcoming / submitted', async () => {
+    stub2();
+    const up = await getAssignmentsWithStatus('cms.aitech.ac.jp', 'tok', { states: ['upcoming'] });
+    expect(up.assignments.map((a) => a.id)).toEqual([5]);
+    const sub = await getAssignmentsWithStatus('cms.aitech.ac.jp', 'tok', { states: ['submitted'] });
+    expect(sub.assignments.map((a) => a.id)).toEqual([1]);
+  });
+});

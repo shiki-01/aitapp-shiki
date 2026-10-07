@@ -55,6 +55,8 @@ export const AssignmentsResponseSchema = z.object({
           intro: z.string().default(''),
           duedate: z.number(),
           cutoffdate: z.number().optional(),
+          // 提出受付開始日時（0 = 制限なし）。未来なら「まだ提出できない（未公開）」課題。
+          allowsubmissionsfromdate: z.number().optional(),
         }),
       ),
     }),
