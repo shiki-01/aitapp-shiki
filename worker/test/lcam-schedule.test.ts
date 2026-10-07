@@ -34,6 +34,7 @@ describe('parseSchedule', () => {
             period: 1,
             teacher: '山田 太郎',
             location: '八草 １－６０２',
+            roomId: '１－６０２',
           },
           {
             title: '夜間科目(X1)',
@@ -42,6 +43,7 @@ describe('parseSchedule', () => {
             period: 6,
             teacher: '鈴木 花子',
             location: '八草 Ｇ２４０７',
+            roomId: 'Ｇ２４０７',
           },
         ],
       },

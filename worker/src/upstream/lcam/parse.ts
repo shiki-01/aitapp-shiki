@@ -754,7 +754,7 @@ export function parseClassTimeTable(html: string): TimetableEntry[] {
     let c = 0;
     let subject = '';
     let teacher = '';
-    let classRoom = '';
+    let location = '';
     for (const text of texts) {
       switch (c) {
         case 0:
@@ -764,13 +764,13 @@ export function parseClassTimeTable(html: string): TimetableEntry[] {
           teacher = text.replace(/　他$/, '');
           break;
         case 2:
-          classRoom = text.replace(/八草/g, '').trim();
+          location = text.replace(/八草/g, '').trim();
           break;
       }
       c++;
     }
     if (subject !== '') {
-      result.push({ day: currentDay, period, title: subject, classRoom, teacher });
+      result.push({ day: currentDay, period, title: subject, location, teacher });
     }
   }
   return result;

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, it as test } from 'vitest';
 import { parseEnqueteFiles } from '../src/upstream/lcam/parse';
 
 describe('parseEnqueteFiles', () => {
