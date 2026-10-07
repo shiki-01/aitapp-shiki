@@ -212,6 +212,38 @@ async function openEnquete(
 }
 
 /**
+ * 診断用: 詳細/回答画面の HTML 構造（リンク・onclick 要素・form・file/hidden input）の要約を返す。
+ * 添付リンクの実 HTML が未観測のため、パーサ調整の材料として使う。本文テキストは含めない。
+ */
+export async function fetchEnqueteStructure(cookies: LcamCookies, index: number) {
+  const { detailBody, answerBody } = await openEnquete(cookies, index);
+  const summarize = (html: string) => {
+    const root = parseHtml(html);
+    const attrs = (el: { getAttribute(n: string): string | undefined }, names: string[]) =>
+      Object.fromEntries(names.map((n) => [n, el.getAttribute(n)]).filter(([, v]) => v));
+    return {
+      anchors: root.querySelectorAll('a').map((a) => ({
+        text: a.text.trim().slice(0, 60),
+        ...attrs(a, ['href', 'onclick', 'id', 'class']),
+      })),
+      onclicks: root
+        .querySelectorAll('[onclick]')
+        .filter((e) => e.tagName !== 'A')
+        .map((e) => ({ tag: e.tagName, text: e.text.trim().slice(0, 40), ...attrs(e, ['onclick']) })),
+      forms: root.querySelectorAll('form').map((f) => attrs(f, ['name', 'action'])),
+      inputs: root
+        .querySelectorAll('input')
+        .filter((i) => i.getAttribute('type') !== 'text')
+        .map((i) => attrs(i, ['type', 'name', 'id'])),
+      fileKeywords: [...html.matchAll(/[^\s"'<>]*(?:fileDown|fileUpload|attach|添付)[^\s"'<>]*/gi)]
+        .map((m) => m[0].slice(0, 200))
+        .slice(0, 30),
+    };
+  };
+  return { detail: summarize(detailBody), answer: summarize(answerBody) };
+}
+
+/**
  * 授業アンケートの添付（問題ファイル）をダウンロードする。
  * ダウンロード URL（no=N）は「選択中のアンケート」に依存するため、
  * 同一セッションで goDetail まで辿り直したうえで、設問取得で得た path を取得する。

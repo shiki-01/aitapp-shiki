@@ -54,6 +54,19 @@ export function registerEnqueteTools(server: McpServer, client: ToolClient): voi
   );
 
   server.registerTool(
+    'lcam_debug_enquete_structure',
+    {
+      title: 'LCAM授業アンケート画面のHTML構造要約（診断用）',
+      description:
+        '授業アンケートの詳細/回答画面にあるリンク・form・input の構造要約を返す（参照のみ、本文は含まない）。' +
+        '添付ファイルのリンクが取得できないときの原因調査用。',
+      inputSchema: { index: z.number().int().min(0) },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ index }) => json(await client.request(`/api/enquetes/structure?index=${index}`)),
+  );
+
+  server.registerTool(
     'lcam_download_class_enquete_file',
     {
       title: 'LCAM授業アンケートの問題ファイルをダウンロード',
