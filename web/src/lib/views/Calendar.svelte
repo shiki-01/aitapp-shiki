@@ -12,7 +12,7 @@
   import { events, memos, classMemos } from "$lib/stores/local.svelte";
   import { calendarState } from "$lib/stores/calendar.svelte";
   import { schedule } from "$lib/stores/schedule.svelte";
-  import { onActivate, sameData } from "$lib/activate.svelte";
+  import { onActivate, onTabReselect, sameData } from "$lib/activate.svelte";
   import MonthCalendar from "$lib/components/MonthCalendar.svelte";
   import Sheet from "$lib/components/Sheet.svelte";
   import Icon from "$lib/components/Icon.svelte";
@@ -33,6 +33,10 @@
 
   // 授業メモ編集シート（その日のその時限）
   let memoSheetOpen = $state(false);
+  onTabReselect("calendar", () => {
+    sheetOpen = false;
+    memoSheetOpen = false;
+  });
   let memoTarget = $state<{ period: Period; entry?: CalendarTimeTableEntry } | null>(
     null,
   );

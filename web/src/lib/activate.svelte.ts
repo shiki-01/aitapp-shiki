@@ -2,6 +2,8 @@
 // 裏で取り直し、変化があったときだけ state を差し替える。
 
 import { untrack } from 'svelte';
+import { tabReset } from '$lib/stores/tabReset.svelte';
+import type { Tab } from '$lib/tabs';
 
 /**
  * isActive() が false → true になるたびに fn を呼ぶ（コンポーネント初期化時に呼ぶこと）。
@@ -19,4 +21,15 @@ export function onActivate(isActive: () => boolean, fn: () => void): void {
 /** 取得結果が現在の値と同じか（JSON で比較）。同じなら state を差し替えず、再描画を避ける。 */
 export function sameData(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** 自分のタブのボタンが再度押されたとき fn を呼ぶ（コンポーネント初期化時に呼ぶこと）。 */
+export function onTabReselect(tab: Tab, fn: () => void): void {
+  let seen = tabReset.n;
+  $effect(() => {
+    const n = tabReset.n;
+    if (n === seen) return;
+    seen = n;
+    if (tabReset.tab === tab) untrack(fn);
+  });
 }

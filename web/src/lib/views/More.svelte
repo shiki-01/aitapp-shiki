@@ -6,12 +6,13 @@
   import SlideView from '$lib/components/SlideView.svelte';
   import { api, ApiError, type LcamSessionStatus } from '$lib/api';
   import { isDesktop, isTauri } from '$lib/platform';
-  import { onActivate, sameData } from '$lib/activate.svelte';
+  import { onActivate, onTabReselect, sameData } from '$lib/activate.svelte';
 
   let { userId = '', onLogout, active = true }: { userId?: string; onLogout?: () => void; active?: boolean } = $props();
 
   // 「学内サービス」を開いている間は More の本体の代わりに Campus を出す（下タブは増やさない）。
   let campusOpen = $state(false);
+  onTabReselect('more', () => (campusOpen = false));
 
   // ---- 確認ダイアログ ----
   // window.confirm() は Tauri の WebView（macOS の WKWebView）では常に false を返す

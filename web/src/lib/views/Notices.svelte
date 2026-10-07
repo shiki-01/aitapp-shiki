@@ -2,7 +2,7 @@
   import { api, ApiError, type Notice, type NoticeDetail } from '$lib/api';
   import { toEnqueteView, isPending, type EnqueteView } from '$lib/enquete';
   import { isTauri } from '$lib/platform';
-  import { onActivate, sameData } from '$lib/activate.svelte';
+  import { onActivate, onTabReselect, sameData } from '$lib/activate.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import {
@@ -150,6 +150,12 @@
       loadingMore = false;
     }
   }
+
+  onTabReselect('notices', () => {
+    detailOpen = false;
+    enqueteOpen = false;
+    switchType('common');
+  });
 
   function switchType(t: 'common' | 'class' | 'enquete') {
     if (type === t) return;

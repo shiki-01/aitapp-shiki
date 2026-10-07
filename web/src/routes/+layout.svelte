@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { onNavigate } from '$app/navigation';
+  import { goto, onNavigate } from '$app/navigation';
+  import { page } from '$app/state';
   import { isDesktop, isTauri } from '$lib/platform';
   import { setupPwa } from '$lib/pwa';
   import "@master/normal.css";
@@ -32,6 +33,12 @@
       });
       void vt.finished.finally(() => delete document.documentElement.dataset.nav);
     });
+  });
+
+  // Tauri は初期 URL が /index.html など、どのルートにも当たらないパスになることがある。
+  // その場合は空白(404)のままにせず、ホームへ移す。
+  $effect(() => {
+    if (isTauri && page.status === 404) void goto('/', { replaceState: true });
   });
 
   onMount(() => {

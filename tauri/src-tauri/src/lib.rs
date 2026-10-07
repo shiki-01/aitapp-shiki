@@ -32,6 +32,7 @@ pub fn run() {
             commands::download_file,
             commands::open_in_browser,
             commands::lcam_connect,
+            commands::lcam_connect_auto,
             commands::lcam_auto_get,
             commands::lcam_auto_set,
         ])

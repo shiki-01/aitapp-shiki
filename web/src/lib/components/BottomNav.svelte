@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import Icon, { type IconName } from './Icon.svelte';
   import { TAB_PATH, type Tab } from '$lib/tabs';
+  import { resetTab } from '$lib/stores/tabReset.svelte';
 
   let { tab }: { tab: Tab | undefined } = $props();
 
@@ -66,6 +67,11 @@
         aria-label={it.label}
         aria-current={tab === it.key ? 'page' : undefined}
         href={TAB_PATH[it.key]}
+        onclick={(e) => {
+          if (tab !== it.key) return;
+          e.preventDefault();
+          resetTab(it.key);
+        }}
       >
         <span class="ico"><Icon name={it.icon} size={26} color="#fff" /></span>
       </a>

@@ -25,11 +25,46 @@ function toApiError(err: unknown): ApiError {
   return new ApiError(500, String(err));
 }
 
-async function call<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: unknown): Promise<T> {
+async function invokeApi<T>(path: string, method: 'GET' | 'POST', body?: unknown): Promise<T> {
   try {
     return await invoke<T>('api_request', { path, method, body: body ?? null });
   } catch (err) {
     throw toApiError(err);
+  }
+}
+
+// LCAM が要再登録(424)になったとき、「LCAM 自動再接続」がオンなら、次の画面操作を待たずに
+// 裏で WebView の SSO を通し直し、失敗した呼び出しを 1 回だけ再実行する。
+// 同時に失敗した呼び出しは 1 回の再接続を共有し、失敗したら一定時間は試さない(対話が要る場合など)。
+const RECONNECT_COOLDOWN_MS = 30 * 60 * 1000;
+let reconnecting: Promise<boolean> | null = null;
+let reconnectBlockedUntil = 0;
+
+function autoReconnect(): Promise<boolean> {
+  if (Date.now() < reconnectBlockedUntil) return Promise.resolve(false);
+  reconnecting ??= (async () => {
+    try {
+      if (!(await invoke<boolean>('lcam_auto_get'))) return false;
+      await invoke('lcam_connect_auto');
+      return true;
+    } catch {
+      reconnectBlockedUntil = Date.now() + RECONNECT_COOLDOWN_MS;
+      return false;
+    } finally {
+      reconnecting = null;
+    }
+  })();
+  return reconnecting;
+}
+
+async function call<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: unknown): Promise<T> {
+  try {
+    return await invokeApi<T>(path, method, body);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 424 && !path.startsWith('/api/lcam/session')) {
+      if (await autoReconnect()) return invokeApi<T>(path, method, body);
+    }
+    throw err;
   }
 }
 

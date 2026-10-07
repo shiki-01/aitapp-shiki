@@ -306,6 +306,12 @@ pub async fn lcam_connect(app: AppHandle) -> Result<Value, String> {
     crate::lcam_login::connect(&app, true, true).await
 }
 
+// 自動再接続用。ウィンドウは表示せず、対話が要るときは interaction_required で失敗する。
+#[tauri::command]
+pub async fn lcam_connect_auto(app: AppHandle) -> Result<Value, String> {
+    crate::lcam_login::connect(&app, false, false).await
+}
+
 #[tauri::command]
 pub fn lcam_auto_get(app: AppHandle) -> bool {
     crate::lcam_auto::enabled(&app)

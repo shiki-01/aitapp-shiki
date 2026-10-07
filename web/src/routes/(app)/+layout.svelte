@@ -5,6 +5,7 @@
   import { api } from '$lib/api';
   import { isDesktop } from '$lib/platform';
   import { session } from '$lib/stores/session.svelte';
+  import { tabReset } from '$lib/stores/tabReset.svelte';
   import { DESKTOP_TAB_ORDER, MOBILE_TAB_ORDER, TAB_PATH, pathToTab, type Tab } from '$lib/tabs';
   import BottomNav from '$lib/components/BottomNav.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
@@ -86,6 +87,15 @@
     const cur = tab;
     if (!cur) return;
     untrack(() => window.scrollTo({ top: scrolls[cur] ?? 0, behavior: 'instant' }));
+  });
+
+  // 表示中のタブのボタンを再度押したら、先頭までスクロールして戻す(各ビューは onTabReselect で状態を戻す)。
+  let resetSeen = tabReset.n;
+  $effect(() => {
+    const n = tabReset.n;
+    if (n === resetSeen) return;
+    resetSeen = n;
+    untrack(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
   });
 </script>
 
