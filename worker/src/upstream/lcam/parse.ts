@@ -550,6 +550,23 @@ export function parseEnqueteFiles(...htmls: string[]): Record<string, string> {
         /&amp;/g,
         '&',
       );
+      // 実機観測: onclick="fileDownLoad('classEnqFile', '1', '微...pdf');"（名前は \uXXXX エスケープ）。
+      // 画面の fileDownLoad() と同じ組み立て（拡張子あり: fileDownLoad2/{拡張子除き・ドット除去}、なし: fileDownLoad）。
+      const fm = /fileDownLoad\(\s*'([^']*)'\s*,\s*'(\d+)'\s*,\s*'((?:[^'\\]|\\.)*)'\s*\)/.exec(src);
+      if (fm) {
+        n++;
+        const name = fm[3].replace(/\\u([0-9a-fA-F]{4})/g, (_, h) =>
+          String.fromCharCode(parseInt(h, 16)),
+        );
+        const query = `?EXCLUDE_SET=&prefix=${fm[1]}&no=${fm[2]}`;
+        const dot = name.lastIndexOf('.');
+        const path =
+          dot > 0
+            ? `/portalv2/common/fileUploadDownload/fileDownLoad2/${encodeURI(name.substring(0, dot).replace(/\./g, ''))}/${query}`
+            : `/portalv2/common/fileUploadDownload/fileDownLoad/${query}`;
+        files[a.text.trim() || name || `ファイル${n}`] = path;
+        continue;
+      }
       const m = /(?:\/portalv2)?(\/common\/fileUploadDownload\/[^'"\s)]+)/.exec(src);
       if (!m) continue;
       n++;
