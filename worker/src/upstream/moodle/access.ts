@@ -5,7 +5,7 @@
 // 透過再ログインのラップ対象外。token 失効時のみ password で再取得する。
 
 import type { Credential } from '../../types';
-import type { Assignment } from '../../../../shared/contract';
+import type { Assignment, AssignmentState } from '../../../../shared/contract';
 import { UpstreamError, MoodleTokenError } from '../errors';
 // token 失効時に投げる MoodleTokenError はエラー taxonomy(errors.ts)へ集約した。
 // 既存の `import { MoodleTokenError } from './access'`（token.ts）を維持するため再エクスポートする。
@@ -194,6 +194,7 @@ interface MoodleAssignmentRaw {
   intro: string;
   duedate: number;
   cutoffdate?: number;
+  allowsubmissionsfromdate?: number;
 }
 interface MoodleCourseRaw {
   id: number;
@@ -240,6 +241,8 @@ export async function getMoodleAssignments(
       // new Date(NaN).toISOString() は RangeError を投げ、0 は 1970/1/1 になるため Date 生成前に弾く。
       const epochMs = Number.isFinite(a.duedate) && a.duedate > 0 ? a.duedate * 1000 : 0;
       const cutoffEpochMs = (a.cutoffdate ?? 0) * 1000;
+      const fromSec = a.allowsubmissionsfromdate ?? 0;
+      const openEpochMs = Number.isFinite(fromSec) && fromSec > 0 ? fromSec * 1000 : 0;
       out.push({
         id: a.id,
         name: a.name,
@@ -248,6 +251,8 @@ export async function getMoodleAssignments(
         dueEpochMs: epochMs,
         cutoffDate: cutoffEpochMs ? new Date(cutoffEpochMs).toISOString() : null,
         cutoffEpochMs,
+        openDate: openEpochMs ? new Date(openEpochMs).toISOString() : null,
+        openEpochMs,
         courseId: course.id,
         courseName: course.fullname,
       });
@@ -326,9 +331,12 @@ export interface AssignmentStatusFilter {
   dueWithinDays?: number;
   /** true で締切超過済みの課題も含める（assignmentId 指定時は常に含める）。 */
   includePastDue?: boolean;
+  /** 分類で絞り込む（複数指定可）。指定時は締切超過済みも対象にする。 */
+  states?: AssignmentState[];
 }
 
-export type AssignmentWithStatus = MoodleAssignment & AssignSubmissionStatus;
+export type AssignmentWithStatus = MoodleAssignment &
+  AssignSubmissionStatus & { state: AssignmentState };
 
 export interface AssignmentStatusResult {
   assignments: AssignmentWithStatus[];
@@ -339,6 +347,22 @@ export interface AssignmentStatusResult {
 /** 提出の実質的な締切（cutoffdate があればそちらが受付終了）。0 = 締切なし。 */
 function effectiveDeadlineMs(a: MoodleAssignment): number {
   return Math.max(a.dueEpochMs, a.cutoffEpochMs);
+}
+
+/**
+ * 課題の分類。提出済み > 受付開始前 > 締切超過 > 受付中 の優先順。
+ * submitted が null（提出状況未取得）のときは日時のみで判定する。
+ */
+export function classifyAssignment(
+  a: MoodleAssignment,
+  submitted: boolean | null,
+  now: number = Date.now(),
+): AssignmentState {
+  if (submitted === true) return 'submitted';
+  if (a.openEpochMs > now) return 'upcoming';
+  const deadline = effectiveDeadlineMs(a);
+  if (deadline !== 0 && deadline < now) return 'closed';
+  return 'open';
 }
 
 /**
@@ -370,8 +394,17 @@ export async function getAssignmentsWithStatus(
     list = list.filter((a) => a.name.toLowerCase().includes(needle));
   }
   const now = Date.now();
+  // 分類を指定したときは、締切超過済み（closed）や提出済みも対象にするため既定の除外を外す。
+  const wantStates = filter?.states?.length ? new Set(filter.states) : undefined;
+  if (wantStates) {
+    // 提出済みかどうかは状況取得後にしか分からないため、日時だけで確定する分類のみ事前に絞る。
+    if (!wantStates.has('submitted')) {
+      list = list.filter((a) => wantStates.has(classifyAssignment(a, false, now)));
+    }
+  }
   if (
     !filter?.includePastDue &&
+    !wantStates &&
     filter?.assignmentId === undefined &&
     filter?.assignmentIds === undefined
   ) {
@@ -396,7 +429,9 @@ export async function getAssignmentsWithStatus(
   const out: AssignmentWithStatus[] = [];
   for (const a of list) {
     const status = statusIncluded ? await getAssignSubmissionStatus(origin, token, a.id) : empty;
-    out.push({ ...a, ...status });
+    const state = classifyAssignment(a, status.submitted, now);
+    if (wantStates && !wantStates.has(state)) continue;
+    out.push({ ...a, ...status, state });
   }
   return { assignments: out, statusIncluded };
 }

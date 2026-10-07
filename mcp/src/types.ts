@@ -70,6 +70,8 @@ export interface EnqueteAnswerForm {
 
 /** 課題＋提出状況（GET /api/moodle/assignment/status）。 */
 export interface AssignmentWithStatus extends Assignment {
+  /** submitted(提出済) / upcoming(受付開始前=未公開) / open(受付中) / closed(締切超過の未提出) */
+  state: 'submitted' | 'upcoming' | 'open' | 'closed';
   /** 'submitted' | 'new'(未提出) | 'draft' | 'reopened'。null = 未取得 */
   submissionStatus: string | null;
   /** null = 未取得（statusIncluded: false のとき） */

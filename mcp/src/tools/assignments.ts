@@ -47,7 +47,10 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
         '（未提出物の総点検では両方呼ぶ）。' +
         'submissionStatusは submitted(提出済) / new(未提出) / draft(下書きのみ・本提出はまだ) / ' +
         'reopened(再提出要求)。締切は dueDate、cutoffDate(提出受付終了)があればそちらが最終期限。' +
-        'デフォルトでは締切超過済みの課題は含まれない（includePastDue=trueで含める）。' +
+        'stateは課題の分類: submitted(提出済) / upcoming(提出受付開始前＝まだ提出できない、openDateが開始日時) / ' +
+        'open(受付中の未提出) / closed(締切超過の未提出)。stateパラメータで絞り込める（指定時は締切超過済みも対象）。' +
+        'Moodleの仕様上、教員が非表示にした課題は学生には返らず、upcomingは受付開始日が未来のものを指す。' +
+        'デフォルトでは締切超過済みの課題は含まれない（includePastDue=trueまたはstate指定で含める）。' +
         '対象課題が多いと statusIncluded=false で提出状況がnullのまま返るので、その場合は ' +
         'courseId / nameFilter / dueWithinDays / assignmentId で絞り込んで再取得する。',
       inputSchema: {
@@ -66,6 +69,10 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
           .int()
           .optional()
           .describe('締切(dueDate)が今からN日以内の課題のみ（締切なしの課題は除外される）'),
+        state: z
+          .array(z.enum(['submitted', 'upcoming', 'open', 'closed']))
+          .optional()
+          .describe('分類で絞り込む（複数指定可）。例: ["open","upcoming"]、["closed"]'),
         includePastDue: z
           .boolean()
           .optional()
@@ -73,13 +80,14 @@ export function registerAssignmentTools(server: McpServer, client: ToolClient): 
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
-    async ({ assignmentId, courseId, nameFilter, dueWithinDays, includePastDue }) => {
+    async ({ assignmentId, courseId, nameFilter, dueWithinDays, includePastDue, state }) => {
       const params = new URLSearchParams();
       if (assignmentId !== undefined) params.set('assignmentId', String(assignmentId));
       if (courseId !== undefined) params.set('courseId', String(courseId));
       if (nameFilter !== undefined) params.set('nameFilter', nameFilter);
       if (dueWithinDays !== undefined) params.set('dueWithinDays', String(dueWithinDays));
       if (includePastDue) params.set('includePastDue', '1');
+      if (state?.length) params.set('state', state.join(','));
       const qs = params.toString();
       const res = await client.request<AssignmentStatusResponse>(
         `/api/moodle/assignment/status${qs ? `?${qs}` : ''}`,

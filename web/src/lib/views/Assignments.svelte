@@ -6,13 +6,13 @@
 
   let { active = true }: { active?: boolean } = $props();
 
-  type Filter = 'upcoming' | 'overdue' | 'done' | 'all';
+  type Filter = 'open' | 'upcoming' | 'overdue' | 'done' | 'all';
   const DONE_KEY = 'aitapp.assignments.done.v1';
 
   let items = $state<Assignment[]>([]);
   let loading = $state(false);
   let error = $state('');
-  let filter = $state<Filter>('upcoming');
+  let filter = $state<Filter>('open');
   let done = $state<Set<number>>(loadDone());
 
   function loadDone(): Set<number> {
@@ -33,11 +33,19 @@
     return done.has(id) || submissions.submitted(id) === true;
   }
 
+  // 受付開始前（まだ提出できない＝未公開）か。受付開始日時が未来の課題。
+  function isNotYetOpen(a: Assignment): boolean {
+    return a.openEpochMs > Date.now();
+  }
+
   // 提出状況のバッジ（Moodle の mod_assign_get_submission_status の値）。
   function badge(a: Assignment): { text: string; kind: 'ok' | 'warn' | 'bad' | 'plain' } | null {
     const s = submissions.get(a.id);
     if (!s) return submissions.failed ? null : { text: '確認中…', kind: 'plain' };
     const overdue = a.dueEpochMs !== 0 && a.dueEpochMs < Date.now();
+    if (!s.submitted && isNotYetOpen(a)) {
+      return { text: `受付開始前（${fmt(a.openDate)}〜）`, kind: 'plain' };
+    }
     if (s.submitted) {
       return s.gradingStatus === 'graded'
         ? { text: '提出済み・採点済み', kind: 'ok' }
@@ -119,7 +127,8 @@
   }
 
   const FILTERS: { key: Filter; label: string }[] = [
-    { key: 'upcoming', label: 'これから' },
+    { key: 'open', label: '受付中' },
+    { key: 'upcoming', label: '受付前' },
     { key: 'overdue', label: '期限切れ' },
     { key: 'done', label: '完了' },
     { key: 'all', label: 'すべて' },
@@ -130,9 +139,11 @@
     return items.filter((a) => {
       const isDone = isDoneItem(a.id);
       switch (filter) {
+        case 'open':
+          // 締切なし（dueEpochMs=0）は期限切れではないため受付中に含める。受付開始前は除く。
+          return !isDone && !isNotYetOpen(a) && (a.dueEpochMs === 0 || a.dueEpochMs >= now);
         case 'upcoming':
-          // 締切なし（dueEpochMs=0）は期限切れではないため「これから」に含める。
-          return !isDone && (a.dueEpochMs === 0 || a.dueEpochMs >= now);
+          return !isDone && isNotYetOpen(a);
         case 'overdue':
           return !isDone && a.dueEpochMs !== 0 && a.dueEpochMs < now;
         case 'done':

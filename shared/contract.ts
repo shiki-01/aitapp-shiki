@@ -135,9 +135,22 @@ export interface Assignment {
   /** 提出受付終了日時（cutoffdate）。未設定なら null。 */
   cutoffDate: string | null;
   cutoffEpochMs: number; // 0 = 未設定
+  /** 提出受付開始日時（allowsubmissionsfromdate）。制限なしなら null。 */
+  openDate: string | null;
+  openEpochMs: number; // 0 = 制限なし（最初から受付中）
   courseId: number;
   courseName: string;
 }
+
+/**
+ * 課題の分類（提出状況と日時から導出）。
+ * - submitted: 提出済み（提出状況が取得できた場合のみ）
+ * - upcoming: 提出受付開始前（まだ提出できない＝未公開）
+ * - open: 受付中（未提出で、受付開始済み・締切前）
+ * - closed: 締切（cutoffdate があればそちら）を過ぎた未提出の課題
+ * 下書きのみ・再提出待ちは submissionStatus（draft/reopened）で区別する。
+ */
+export type AssignmentState = 'submitted' | 'upcoming' | 'open' | 'closed';
 
 /** 課題1件の提出状況（Moodle mod_assign_get_submission_status）。参照のみ。 */
 export interface AssignmentSubmission {
