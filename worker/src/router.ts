@@ -31,7 +31,6 @@ import {
   MAX_SCHEDULE_MONTH_OFFSET,
   fetchEnqueteQuestions,
   fetchEnqueteFile,
-  fetchEnqueteStructure,
   submitEnqueteAnswer,
   finalizeEnqueteAnswer,
 } from './upstream/lcam/client';
@@ -664,18 +663,6 @@ app.get('/api/enquetes/questions', async (c) => {
     fetchEnqueteQuestions(cookies, index),
   );
   return c.json(form);
-});
-
-// ---- GET /api/enquetes/structure?index=（診断用: 画面の HTML 構造要約。参照のみ） ----
-app.get('/api/enquetes/structure', async (c) => {
-  const index = parseInt(c.req.query('index') ?? '', 10);
-  if (Number.isNaN(index)) return c.json({ error: 'index required' }, 400);
-  const userId = c.get('userId');
-  const state = c.get('state');
-  const s = await withLcamSession(c.env, userId, state, (cookies) =>
-    fetchEnqueteStructure(cookies, index),
-  );
-  return c.json(s);
 });
 
 // ---- GET /api/enquetes/file?index=&path=（授業アンケートの問題ファイル。stream proxy） ----
