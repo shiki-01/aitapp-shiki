@@ -20,18 +20,17 @@
   let checking = $state(!session.userId);
 
   // スマホ版(Tauri)は、デスクトップ版のようなバックグラウンドの自動再接続ができない。
-  // 代わりにアプリが前面に出たとき、「自動で再接続」がオンで LCAM が未登録/失効なら
-  // 自動で接続処理(lcamConnect)を始め、毎回「LCAM に接続」を押さなくて済むようにする。
+  // 代わりにアプリが前面に出たとき、LCAM が未登録/失効なら自動で接続処理(lcamConnect)を
+  // 始め、毎回「LCAM に接続」を押さなくて済むようにする(設定スイッチは不要。スマホ版は常に有効)。
   const LCAM_AUTO_COOLDOWN_MS = 30 * 60 * 1000;
   let lcamAutoAt = 0;
   let lcamAutoBusy = false;
 
   async function autoReconnectLcam() {
-    if (!isTauri || isDesktop || !api.lcamConnect || !api.lcamAutoGet) return;
+    if (!isTauri || isDesktop || !api.lcamConnect) return;
     if (lcamAutoBusy || Date.now() - lcamAutoAt < LCAM_AUTO_COOLDOWN_MS) return;
     lcamAutoBusy = true;
     try {
-      if (!(await api.lcamAutoGet())) return;
       if ((await api.lcamSession()).registered) return;
       lcamAutoAt = Date.now();
       await api.lcamConnect();
