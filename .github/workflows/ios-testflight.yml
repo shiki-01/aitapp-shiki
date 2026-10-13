@@ -31,6 +31,47 @@ jobs:
         with:
           workspaces: tauri/src-tauri
 
+      - name: Write and verify App Store Connect API key
+        env:
+          P8: ${{ secrets.APPSTORE_API_KEY_P8 }}
+          KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: |
+          set -eu
+          mkdir -p ~/.appstoreconnect/private_keys
+          KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
+          printf '%s\n' "$P8" > "$KEY_FILE"
+          echo "APPLE_API_KEY_PATH=$KEY_FILE" >> "$GITHUB_ENV"
+          # 値そのものは出さず、形式だけ確認する
+          echo "p8 行数: $(wc -l < "$KEY_FILE") / 先頭: $(head -1 "$KEY_FILE") / 末尾: $(tail -1 "$KEY_FILE")"
+          echo "Key ID 桁数: ${#KEY_ID} / Issuer ID 桁数: ${#ISSUER_ID}"
+          pip3 install --quiet pyjwt cryptography
+          python3 - "$KEY_FILE" "$KEY_ID" "$ISSUER_ID" <<'PY'
+          import sys, time, json, urllib.request, urllib.error, jwt
+          key_file, key_id, issuer = sys.argv[1:4]
+          token = jwt.encode(
+              {"iss": issuer, "iat": int(time.time()), "exp": int(time.time()) + 600, "aud": "appstoreconnect-v1"},
+              open(key_file).read(), algorithm="ES256", headers={"kid": key_id, "typ": "JWT"})
+          def get(path):
+              req = urllib.request.Request("https://api.appstoreconnect.apple.com" + path, headers={"Authorization": "Bearer " + token})
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      return r.status, json.load(r)
+              except urllib.error.HTTPError as e:
+                  return e.code, e.read().decode()[:300]
+          st, body = get("/v1/apps?limit=200")
+          print("GET /v1/apps ->", st)
+          if st != 200:
+              print(body)
+              sys.exit("API キー認証に失敗: Key ID / Issuer ID / .p8 の組み合わせ、またはキーの種類（個人キーは Issuer ID なし）を確認")
+          ids = [a["attributes"]["bundleId"] for a in body["data"]]
+          print("登録済みアプリ:", ids)
+          if "com.shiki01.aitapp" not in ids:
+              sys.exit("App Store Connect に com.shiki01.aitapp のアプリがありません")
+          st, body = get("/v1/certificates?limit=200")
+          print("GET /v1/certificates ->", st)
+          PY
+
       - name: Install web dependencies
         working-directory: web
         run: bun install --frozen-lockfile
@@ -62,12 +103,6 @@ jobs:
         run: |
           bun run tauri icon src-tauri/icons/icon.png
           bun run tauri ios init --ci
-
-      - name: Write App Store Connect API key
-        run: |
-          mkdir -p ~/.appstoreconnect/private_keys
-          printf '%s' "${{ secrets.APPSTORE_API_KEY_P8 }}" > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8
-          echo "APPLE_API_KEY_PATH=$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8" >> "$GITHUB_ENV"
 
       # ビルド番号(CFBundleVersion)は TestFlight へのアップロードごとに増やす必要がある。
       - name: Build signed IPA
