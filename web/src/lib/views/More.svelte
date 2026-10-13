@@ -380,7 +380,6 @@
         デスクトップ版です。開いたウィンドウで Microsoft のログイン（番号入力など）を通すと、自動でアプリ方式で登録されます。
         下の URL 貼り付けは不要です。
       </p>
-      {#if isDesktop}
       <label class="mcp-writes">
         <input
           type="checkbox"
@@ -390,10 +389,15 @@
         />
         <span>
           切れたとき自動で再接続する
-          <small>アプリを開いている間だけ。番号入力などが要るときは自動では進めず、6 時間止まります。</small>
+          <small>
+            {#if isDesktop}
+              アプリを開いている間だけ。番号入力などが要るときは自動では進めず、6 時間止まります。
+            {:else}
+              アプリを開いたときに LCAM が切れていれば、ログイン画面を自動で開いて接続します（30 分に 1 回まで）。
+            {/if}
+          </small>
         </span>
       </label>
-      {/if}
       <p class="mcp-note">または、lamyapp:// URL を貼り付けて登録（手動方式）:</p>
     {/if}
     <textarea
