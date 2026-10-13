@@ -449,3 +449,17 @@ cd web && bun run build                                   # 本番ビルド
 
 移植元・本実装とも大学ポータルの非公式スクレイピングであり、上流の利用規約・負荷に
 配慮して個人〜知人範囲（数人〜最大10人程度）で利用する前提。
+
+## iOS / TestFlight（署名付きビルド）
+
+`.github/workflows/ios-testflight.yml`（手動実行）が署名付き IPA をビルドして TestFlight にアップロードする。
+Bundle ID は `com.shiki01.aitapp`。GitHub の Secrets に以下を登録する。
+
+| Secret | 内容 |
+|---|---|
+| `APPLE_TEAM_ID` | Apple Developer の Team ID（10 文字） |
+| `APPSTORE_ISSUER_ID` / `APPSTORE_KEY_ID` | App Store Connect API キーの Issuer ID / Key ID |
+| `APPSTORE_API_KEY_P8` | API キー（.p8）の中身（全文） |
+| `IOS_CERTIFICATE_P12_BASE64` | Apple Distribution 証明書（.p12）の base64（`base64 -i cert.p12 \| pbcopy`） |
+| `IOS_CERTIFICATE_PASSWORD` | .p12 を書き出す際のパスワード |
+| `IOS_PROVISION_PROFILE_BASE64` | App Store 用プロビジョニングプロファイル（.mobileprovision）の base64 |
