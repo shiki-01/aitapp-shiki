@@ -1,7 +1,7 @@
 name: iOS TestFlight (signed)
 
 # 署名付きの .ipa をビルドして TestFlight にアップロードする（手動実行）。
-# 必要な Secrets は README の「iOS / TestFlight」参照。macOS ランナーは private だと無料枠を 10 倍で消費するため手動実行のみ。
+# 自動署名（App Store Connect API キー）方式。Mac・手動の証明書は不要。必要な Secrets は README の「iOS / TestFlight」参照。macOS ランナーは private だと無料枠を 10 倍で消費するため手動実行のみ。
 on:
   workflow_dispatch:
 
@@ -13,9 +13,6 @@ jobs:
       APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPSTORE_ISSUER_ID }}
       APPLE_API_KEY: ${{ secrets.APPSTORE_KEY_ID }}
-      IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
-      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-      IOS_MOBILE_PROVISION: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
       # アプリが接続する Worker（ビルド時に埋め込む。tauri/src-tauri/src/config.rs）
       AITAPP_WORKER_BASE_URL: https://aitapp.shiki-01.com
       AITAPP_APP_ORIGIN: https://aitapp.shiki-01.com
