@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "aitapp-desktop",
   "version": "1.0.0",
-  "identifier": "com.aitapp.desktop",
+  "identifier": "com.shiki01.aitapp",
   "build": {
     "beforeDevCommand": {
       "script": "bun run dev:desktop",

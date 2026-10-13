@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api } from '$lib/api';
-  import { isDesktop } from '$lib/platform';
+  import { isDesktop, isTauri } from '$lib/platform';
   import { session } from '$lib/stores/session.svelte';
   import { DESKTOP_TAB_ORDER, MOBILE_TAB_ORDER, TAB_PATH, pathToTab, type Tab } from '$lib/tabs';
   import BottomNav from '$lib/components/BottomNav.svelte';
@@ -19,11 +19,43 @@
   // 認証済みで戻ってきたとき(シラバス詳細から戻る等)は読み込み表示を挟まず、確認は裏で行う。
   let checking = $state(!session.userId);
 
+  // スマホ版(Tauri)は、デスクトップ版のようなバックグラウンドの自動再接続ができない。
+  // 代わりにアプリが前面に出たとき、LCAM が未登録/失効なら自動で接続処理(lcamConnect)を
+  // 始め、毎回「LCAM に接続」を押さなくて済むようにする(設定スイッチは不要。スマホ版は常に有効)。
+  const LCAM_AUTO_COOLDOWN_MS = 30 * 60 * 1000;
+  let lcamAutoAt = 0;
+  let lcamAutoBusy = false;
+
+  async function autoReconnectLcam() {
+    if (!isTauri || isDesktop || !api.lcamConnect) return;
+    if (lcamAutoBusy || Date.now() - lcamAutoAt < LCAM_AUTO_COOLDOWN_MS) return;
+    lcamAutoBusy = true;
+    try {
+      if ((await api.lcamSession()).registered) return;
+      lcamAutoAt = Date.now();
+      await api.lcamConnect();
+    } catch {
+      // 失敗・対話が必要な場合は手動の「LCAM に接続」に任せる(クールダウン中は再試行しない)
+    } finally {
+      lcamAutoBusy = false;
+    }
+  }
+
+  function onVisible() {
+    if (document.visibilityState === 'visible') void autoReconnectLcam();
+  }
+
+  onMount(() => {
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  });
+
   onMount(async () => {
     try {
       const me = await api.me();
       session.userId = me.userId;
       checking = false;
+      void autoReconnectLcam();
     } catch (err) {
       // 401 でも通信不能でもログイン画面へ。
       void err;

@@ -1,0 +1,96 @@
+name: iOS TestFlight (signed)
+
+# 署名付きの .ipa をビルドして TestFlight にアップロードする（手動実行）。
+# 必要な Secrets は README の「iOS / TestFlight」参照。macOS ランナーは private だと無料枠を 10 倍で消費するため手動実行のみ。
+on:
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPSTORE_ISSUER_ID }}
+      APPLE_API_KEY: ${{ secrets.APPSTORE_KEY_ID }}
+      IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      IOS_MOBILE_PROVISION: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+      # アプリが接続する Worker（ビルド時に埋め込む。tauri/src-tauri/src/config.rs）
+      AITAPP_WORKER_BASE_URL: https://aitapp.shiki-01.com
+      AITAPP_APP_ORIGIN: https://aitapp.shiki-01.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/src-tauri
+
+      - name: Install web dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Install iOS tooling
+        run: brew install xcodegen
+
+      - name: Install Tauri CLI
+        working-directory: tauri
+        run: bun install --frozen-lockfile
+
+      # Xcode の Run Script ビルドフェーズ（cargo build を呼ぶ）は、このジョブの `env:`
+      # （AITAPP_WORKER_BASE_URL 等）を引き継がない。プロジェクト直下の .cargo/config.toml も
+      # 効かなかった（Xcode が cwd を DerivedData 配下にして cargo を呼んでおり、そこから親を
+      # 辿ってもプロジェクトの .cargo/ に届かないため、生成物に localhost の値が埋め込まれたままだった。
+      # run 36522038572 で確認）。cwd に依存しない $CARGO_HOME/config.toml に書く。
+      - name: Configure build-time env for Xcode's cargo build
+        run: |
+          mkdir -p "$CARGO_HOME"
+          cat >> "$CARGO_HOME/config.toml" <<EOF
+          [env]
+          AITAPP_WORKER_BASE_URL = { value = "${AITAPP_WORKER_BASE_URL}", force = true }
+          AITAPP_APP_ORIGIN = { value = "${AITAPP_APP_ORIGIN}", force = true }
+          EOF
+          cat "$CARGO_HOME/config.toml"
+
+      - name: Generate iOS icons and project
+        working-directory: tauri
+        run: |
+          bun run tauri icon src-tauri/icons/icon.png
+          bun run tauri ios init --ci
+
+      - name: Write App Store Connect API key
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          printf '%s' "${{ secrets.APPSTORE_API_KEY_P8 }}" > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8
+          echo "APPLE_API_KEY_PATH=$HOME/.appstoreconnect/private_keys/AuthKey_${{ secrets.APPSTORE_KEY_ID }}.p8" >> "$GITHUB_ENV"
+
+      # ビルド番号(CFBundleVersion)は TestFlight へのアップロードごとに増やす必要がある。
+      - name: Build signed IPA
+        working-directory: tauri
+        run: bun run tauri ios build --export-method app-store-connect --build-number "${{ github.run_number }}" --ci
+
+      - name: Locate IPA
+        run: |
+          set -eux
+          IPA=$(find tauri/src-tauri/gen/apple/build -name '*.ipa' | head -1)
+          test -n "$IPA"
+          echo "IPA_PATH=$IPA" >> "$GITHUB_ENV"
+
+      - name: Upload to TestFlight
+        run: |
+          xcrun altool --upload-app --type ios --file "$IPA_PATH" \
+            --apiKey "${{ secrets.APPSTORE_KEY_ID }}" --apiIssuer "${{ secrets.APPSTORE_ISSUER_ID }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aitapp-signed-ipa
+          path: ${{ env.IPA_PATH }}
+          retention-days: 7
