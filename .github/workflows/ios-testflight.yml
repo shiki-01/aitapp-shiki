@@ -45,8 +45,9 @@ jobs:
           # 値そのものは出さず、形式だけ確認する
           echo "p8 行数: $(wc -l < "$KEY_FILE") / 先頭: $(head -1 "$KEY_FILE") / 末尾: $(tail -1 "$KEY_FILE")"
           echo "Key ID 桁数: ${#KEY_ID} / Issuer ID 桁数: ${#ISSUER_ID}"
-          pip3 install --quiet pyjwt cryptography
-          python3 - "$KEY_FILE" "$KEY_ID" "$ISSUER_ID" <<'PY'
+          python3 -m venv /tmp/ascvenv
+          /tmp/ascvenv/bin/pip install --quiet pyjwt cryptography
+          /tmp/ascvenv/bin/python - "$KEY_FILE" "$KEY_ID" "$ISSUER_ID" <<'PY'
           import sys, time, json, urllib.request, urllib.error, jwt
           key_file, key_id, issuer = sys.argv[1:4]
           token = jwt.encode(
