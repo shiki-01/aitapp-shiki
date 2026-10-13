@@ -105,15 +105,45 @@ jobs:
           bun run tauri icon src-tauri/icons/icon.png
           bun run tauri ios init --ci
 
+      # アーカイブまでは Tauri に任せる。Tauri が呼ぶ exportArchive には API キーの認証情報が渡らず
+      # （run 38359123008: "No Account for Team" / "No profiles for ... were found"）、プロファイルを
+      # 自動作成できないため、エクスポートは次のステップで API キー付きの xcodebuild で行う。
       # ビルド番号(CFBundleVersion)は TestFlight へのアップロードごとに増やす必要がある。
-      - name: Build signed IPA
+      - name: Build archive
         working-directory: tauri
-        run: bun run tauri ios build --export-method app-store-connect --build-number "${{ github.run_number }}" --ci
+        run: bun run tauri ios build --export-method app-store-connect --build-number "${{ github.run_number }}" --ci || true
 
-      - name: Locate IPA
+      - name: Export signed IPA (automatic signing with API key)
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
         run: |
           set -eux
-          IPA=$(find tauri/src-tauri/gen/apple/build -name '*.ipa' | head -1)
+          ARCHIVE=$(find tauri/src-tauri/gen/apple -name '*.xcarchive' -maxdepth 4 | head -1)
+          test -n "$ARCHIVE"
+          cat > ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          EOF
+          rm -rf export
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE" \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath export \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$APPLE_API_KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID"
+          IPA=$(find export -name '*.ipa' | head -1)
           test -n "$IPA"
           echo "IPA_PATH=$IPA" >> "$GITHUB_ENV"
 
