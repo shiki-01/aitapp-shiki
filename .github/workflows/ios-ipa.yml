@@ -56,11 +56,16 @@ jobs:
           EOF
           cat "$CARGO_HOME/config.toml"
 
-      - name: Generate iOS icons and project
+      - name: Generate iOS project and icons
         working-directory: tauri
         run: |
-          bun run tauri icon src-tauri/icons/icon.png
+          # アイコンは init の後に生成する。先に生成すると init が Tauri 既定のアイコンで
+          # AppIcon.appiconset を上書きし、ビルドが既定アイコンのままになる（TestFlight ビルド 7〜9 で確認）。
           bun run tauri ios init --ci
+          bun run tauri icon src-tauri/icons/icon.png
+          APPICONSET=src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset
+          cp src-tauri/icons/ios/*.png "$APPICONSET"/
+          cmp src-tauri/icons/ios/AppIcon-512@2x.png "$APPICONSET/AppIcon-512@2x.png"
 
       - name: Disable code signing in the generated project
         working-directory: tauri/src-tauri/gen/apple

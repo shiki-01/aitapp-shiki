@@ -130,11 +130,16 @@ jobs:
           EOF
           cat "$CARGO_HOME/config.toml"
 
-      - name: Generate iOS icons and project
+      - name: Generate iOS project and icons
         working-directory: tauri
         run: |
-          bun run tauri icon src-tauri/icons/icon.png
+          # アイコンは init の後に生成する。先に生成すると init が Tauri 既定のアイコンで
+          # AppIcon.appiconset を上書きし、ビルドが既定アイコンのままになる（TestFlight ビルド 7〜9 で確認）。
           bun run tauri ios init --ci
+          bun run tauri icon src-tauri/icons/icon.png
+          APPICONSET=src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset
+          cp src-tauri/icons/ios/*.png "$APPICONSET"/
+          cmp src-tauri/icons/ios/AppIcon-512@2x.png "$APPICONSET/AppIcon-512@2x.png"
 
       # アーカイブまでは Tauri に任せる。Tauri が呼ぶ exportArchive には API キーの認証情報が渡らず
       # （run 38359123008: "No Account for Team" / "No profiles for ... were found"）、プロファイルを
