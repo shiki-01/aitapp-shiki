@@ -36,6 +36,7 @@ jobs:
           P8: ${{ secrets.APPSTORE_API_KEY_P8 }}
           KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          SECRET_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -eu
           mkdir -p ~/.appstoreconnect/private_keys
@@ -47,9 +48,9 @@ jobs:
           echo "Key ID 桁数: ${#KEY_ID} / Issuer ID 桁数: ${#ISSUER_ID}"
           python3 -m venv /tmp/ascvenv
           /tmp/ascvenv/bin/pip install --quiet pyjwt cryptography
-          /tmp/ascvenv/bin/python - "$KEY_FILE" "$KEY_ID" "$ISSUER_ID" <<'PY'
-          import sys, time, json, urllib.request, urllib.error, jwt
-          key_file, key_id, issuer = sys.argv[1:4]
+          /tmp/ascvenv/bin/python - "$KEY_FILE" "$KEY_ID" "$ISSUER_ID" "$GITHUB_ENV" "$SECRET_TEAM_ID" <<'PY'
+          import sys, os, time, json, urllib.request, urllib.error, jwt
+          key_file, key_id, issuer, github_env, secret_team = sys.argv[1:6]
           token = jwt.encode(
               {"iss": issuer, "iat": int(time.time()), "exp": int(time.time()) + 600, "aud": "appstoreconnect-v1"},
               open(key_file).read(), algorithm="ES256", headers={"kid": key_id, "typ": "JWT"})
@@ -69,6 +70,17 @@ jobs:
           print("登録済みアプリ:", ids)
           if "com.shiki01.aitapp" not in ids:
               sys.exit("App Store Connect に com.shiki01.aitapp のアプリがありません")
+          # Team ID は Bundle ID の seedId から取得し、Secret の値と照合する（不一致なら API の値を使う）
+          st, body = get("/v1/bundleIds?filter[identifier]=com.shiki01.aitapp&limit=5")
+          print("GET /v1/bundleIds ->", st)
+          if st != 200 or not body["data"]:
+              print(body)
+              sys.exit("Bundle ID com.shiki01.aitapp が Apple Developer に登録されていません")
+          seed = body["data"][0]["attributes"]["seedId"]
+          print("Team ID 一致:", seed == secret_team.strip(), "/ Secret の長さ:", len(secret_team), "/ API の seedId:", " ".join(seed))
+          with open(github_env, "a") as f:
+              f.write("DETECTED_TEAM_ID=" + seed + "\n")
+              f.write("APPLE_DEVELOPMENT_TEAM=" + seed + "\n")
           st, body = get("/v1/certificates?limit=200")
           print("GET /v1/certificates ->", st)
           PY
@@ -115,11 +127,11 @@ jobs:
 
       - name: Export signed IPA (automatic signing with API key)
         env:
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
         run: |
           set -eux
+          TEAM_ID="$DETECTED_TEAM_ID"
           ARCHIVE=$(find tauri/src-tauri/gen/apple -name '*.xcarchive' -maxdepth 4 | head -1)
           test -n "$ARCHIVE"
           cat > ExportOptions.plist <<EOF
