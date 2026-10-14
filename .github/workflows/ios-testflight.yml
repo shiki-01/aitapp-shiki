@@ -1,9 +1,13 @@
 name: iOS TestFlight (signed)
 
-# 署名付きの .ipa をビルドして TestFlight にアップロードする（手動実行）。
-# 自動署名（App Store Connect API キー）方式。Mac・手動の証明書は不要。必要な Secrets は README の「iOS / TestFlight」参照。macOS ランナーは private だと無料枠を 10 倍で消費するため手動実行のみ。
+# 署名付きの .ipa をビルドして TestFlight にアップロードする（手動実行・2 か月ごとの定期実行）。
+# 自動署名（App Store Connect API キー）方式。Mac・手動の証明書は不要。必要な Secrets は README の「iOS / TestFlight」参照。macOS ランナーは private だと無料枠を 10 倍で消費するため、実行は手動と 2 か月ごとの定期実行のみ。
 on:
   workflow_dispatch:
+  # TestFlight のビルドは 90 日で期限切れになるため、2 か月ごと（間隔 59〜62 日）に再ビルドして再アップロードする。
+  # ビルド番号は github.run_number で毎回増える。
+  schedule:
+    - cron: '0 3 1 */2 *'
 
 jobs:
   ipa:
