@@ -19,6 +19,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # App Store Connect へのアップロードは iOS 26 SDK（Xcode 26 以降）でのビルドが必須
+      # （run 38487969084: "SDK version issue. This app was built with the iOS 18.5 SDK"）。
+      - name: Select Xcode 26
+        run: |
+          set -eu
+          ls -d /Applications/Xcode*.app
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            echo "Xcode 26 がランナーに見つかりません。runs-on を macos-26 に変更してください"
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
