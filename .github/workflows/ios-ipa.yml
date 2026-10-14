@@ -62,10 +62,13 @@ jobs:
           # アイコンは init の後に生成する。先に生成すると init が Tauri 既定のアイコンで
           # AppIcon.appiconset を上書きし、ビルドが既定アイコンのままになる（TestFlight ビルド 7〜9 で確認）。
           bun run tauri ios init --ci
-          bun run tauri icon src-tauri/icons/icon.png
+          # gen/apple がある状態の tauri icon は、AppIcon.appiconset へ直接書き込む。書き換わったことを検証する。
           APPICONSET=src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset
-          cp src-tauri/icons/ios/*.png "$APPICONSET"/
-          cmp src-tauri/icons/ios/AppIcon-512@2x.png "$APPICONSET/AppIcon-512@2x.png"
+          touch "$RUNNER_TEMP/icon-marker"
+          sleep 1
+          bun run tauri icon src-tauri/icons/icon.png
+          ls -l "$APPICONSET"
+          find "$APPICONSET" -name 'AppIcon-512@2x.png' -newer "$RUNNER_TEMP/icon-marker" | grep -q .
 
       - name: Disable code signing in the generated project
         working-directory: tauri/src-tauri/gen/apple
