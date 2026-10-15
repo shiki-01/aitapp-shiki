@@ -450,6 +450,22 @@ cd web && bun run build                                   # 本番ビルド
 移植元・本実装とも大学ポータルの非公式スクレイピングであり、上流の利用規約・負荷に
 配慮して個人〜知人範囲（数人〜最大10人程度）で利用する前提。
 
+## デプロイ（GitHub Actions）
+
+Worker と TestFlight は GitHub Actions の手動実行（`workflow_dispatch`）でデプロイできる。Claude からも同じ workflow を起動できる。
+
+| 対象 | workflow | 内容 |
+|---|---|---|
+| Worker + web | `.github/workflows/deploy-worker.yml` | typecheck・test → web ビルド → `wrangler deploy`。web は Worker が静的配信するため Pages は使わず、別デプロイは不要 |
+| iOS（TestFlight） | `.github/workflows/ios-testflight.yml` | 署名付き IPA をビルドして TestFlight にアップロード（2 か月ごとの定期実行もあり） |
+
+`deploy-worker.yml` には Repository secrets に次を登録する（`CRED_KEY` など Worker 側の secret は `wrangler secret put` で設定済みのものを使う）。
+
+| Secret | 内容 |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare の API トークン（テンプレート「Edit Cloudflare Workers」。Custom Domain と KV を使うため Zone の DNS 編集・Workers KV Storage 編集も付与する） |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare のアカウント ID |
+
 ## iOS / TestFlight（署名付きビルド・Mac 不要）
 
 `.github/workflows/ios-testflight.yml`（手動実行）が、App Store Connect API キーによる自動署名で IPA をビルドし、

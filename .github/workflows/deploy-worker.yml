@@ -1,0 +1,43 @@
+name: Deploy Worker (+ web)
+
+# web をビルドして Worker にデプロイする（手動実行）。
+# フロントは Worker が Static Assets で同一オリジン配信するため、Pages は使わず、このワークフローで web も一緒に出る。
+# 必要な Secrets は README の「デプロイ（GitHub Actions）」参照。
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Worker typecheck + test
+        working-directory: worker
+        run: |
+          bun install --frozen-lockfile
+          bun run typecheck
+          bun run test:run
+
+      - name: Build web
+        working-directory: web
+        env:
+          VITE_API_BASE: https://aitapp.shiki-01.com
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Deploy
+        working-directory: worker
+        run: bunx wrangler deploy
