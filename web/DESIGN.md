@@ -196,6 +196,7 @@ Tauri 版は `(--desktop)` / `(--mobile)` がビルド種別で固定される�
 - `NoticeRow` リスト。ClassNotice は科目名 + 補講日（`makeupClassAt`）をメタ表示。
 - 行タップ → `Sheet` で `NoticeDetail`: 差出人・日時・本文・URL リンク列・添付 `files`（`/api/file/:id` 経由、`fileUrl()`）。
 - 状態: Skeleton(row×8) / EmptyState / ErrorState。詳細取得中は Sheet 内 Spinner。
+- キャッシュ: 一覧（common / class）・アンケート・開いた詳細は `stores/notices.svelte.ts` の localStorage（`aitapp.notices.v1`）から即表示し、裏で取り直す（stale-while-revalidate）。Skeleton はキャッシュが無いときだけ。Home と共有。userId に紐づけ、ログアウトで削除。
 
 ### 3.4 カレンダータブ（`Calendar.svelte`）
 
