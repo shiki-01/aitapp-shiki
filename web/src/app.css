@@ -100,6 +100,13 @@ html, body {
     overscroll-behavior-y: none;
 }
 
+/* モバイルのシェル表示中は文書をスクロールさせない（スクロールは <main> の内側。lib/scroll.ts 参照）。 */
+html.scroll-locked,
+html.scroll-locked body {
+    overflow: hidden;
+    height: 100%;
+}
+
 body {
     font-family:
         'Noto Sans JP',

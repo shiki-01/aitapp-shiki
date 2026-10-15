@@ -2,6 +2,7 @@
   import type { Snippet } from 'svelte';
   import { cubicOut } from 'svelte/easing';
   import type { TransitionConfig } from 'svelte/transition';
+  import { scrollRoot } from '$lib/scroll';
 
   // 画面の切替を「右から入り、戻ると右へ出ていく」スライドで見せる。
   // 切替の間は新旧 2 枚が同じ枠に重なり、終わると旧い方が消える。
@@ -41,7 +42,7 @@
       first = false;
       return;
     }
-    if (forward) window.scrollTo({ top: 0, behavior: 'instant' });
+    if (forward) scrollRoot().scrollTo({ top: 0, behavior: 'instant' });
   });
 </script>
 
