@@ -82,7 +82,7 @@
     width: 100%;
     max-width: var(--app-max);
     margin: 0 auto;
-    padding: 0 16px calc(14px + env(safe-area-inset-bottom));
+    padding: 0 16px var(--nav-bottom);
     z-index: 50;
     pointer-events: none;
   }

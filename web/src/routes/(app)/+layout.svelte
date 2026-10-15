@@ -200,7 +200,8 @@
   }
   .panel {
     display: none;
-    padding: 18px 16px calc(var(--nav-h) + 12px);
+    /* 上はステータスバーの下から（viewport-fit=cover で画面の上端まで描画するため）。 */
+    padding: calc(18px + env(safe-area-inset-top)) 16px calc(var(--nav-h) + 12px);
     min-height: 100dvh;
   }
   .shell.desktop .panel {
@@ -212,7 +213,7 @@
   }
   /* カレンダー: 画面を縦に使い切り、内部でスクロールさせる。 */
   .panel.full {
-    padding: 0;
+    padding: env(safe-area-inset-top) 0 0;
     height: 100dvh;
     flex-direction: column;
     overflow: hidden;
