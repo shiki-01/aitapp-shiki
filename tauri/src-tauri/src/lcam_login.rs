@@ -34,7 +34,8 @@ pub const LABEL: &str = "lcam-login";
 /// iOS の tao（0.35.3 / 0.37.1 で確認）は、ウィンドウを破棄しても `WindowEvent::Destroyed` を出さない。
 /// Tauri はこのイベントを受けて初めてラベルの登録を外すため、iOS では同じラベルで 2 回目を作ると
 /// 「a webview with label `lcam-login` already exists」で失敗する。モバイルだけ回ごとに別のラベルにして回避する
-/// （tao 側で Destroyed が出るようになったら、この回避は消して固定ラベルに戻す）。
+/// （tao 側で Destroyed が出るようになったら、この回避は消して固定ラベルに戻す。
+/// 上流: https://github.com/tauri-apps/tao/issues/1385）。
 #[cfg(mobile)]
 static ATTEMPT: AtomicU32 = AtomicU32::new(0);
 
