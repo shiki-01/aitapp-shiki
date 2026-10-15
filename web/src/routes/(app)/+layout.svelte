@@ -5,6 +5,7 @@
   import { api } from '$lib/api';
   import { isDesktop, isTauri } from '$lib/platform';
   import { session } from '$lib/stores/session.svelte';
+  import { notices } from '$lib/stores/notices.svelte';
   import { DESKTOP_TAB_ORDER, MOBILE_TAB_ORDER, TAB_PATH, pathToTab, type Tab } from '$lib/tabs';
   import BottomNav from '$lib/components/BottomNav.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
@@ -64,6 +65,7 @@
   });
 
   async function logout() {
+    notices.clear();
     try {
       await api.logout();
     } finally {

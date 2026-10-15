@@ -1,12 +1,12 @@
 <script lang="ts">
   import { api, ApiError, type Notice, type NoticeDetail } from '$lib/api';
-  import { toEnqueteView, isPending, type EnqueteView } from '$lib/enquete';
+  import { isPending, type EnqueteView } from '$lib/enquete';
+  import { notices } from '$lib/stores/notices.svelte';
   import { isTauri } from '$lib/platform';
-  import { onActivate, sameData } from '$lib/activate.svelte';
+  import { onActivate } from '$lib/activate.svelte';
   import Sheet from '$lib/components/Sheet.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import {
-    FULL_NOTICE_INDEX,
     fullUnivNotice,
     fullClassNotice,
     fullNoticeDetail,
@@ -25,29 +25,24 @@
     void api.openFile(path);
   }
 
-  const STEP = 10;
-
   // アンケートは別 API のため、連絡系の API に渡す種別は common / class のどちらかに絞る。
   const noticeType = (): 'common' | 'class' => (type === 'class' ? 'class' : 'common');
 
+  // 一覧・アンケートは notices ストア（localStorage キャッシュ）から表示し、表示のたびに裏で取り直す。
   let type = $state<'common' | 'class' | 'enquete'>('common');
-  let loaded = $state<Notice[]>([]);
-  // 累積表示件数（上流 listPageNo）。上流は先頭から count 件を返すため、
-  // append ではなく毎回全件を取り直して置き換える。
-  let count = $state(STEP);
   let query = $state('');
-  let loading = $state(false);
-  let loadingMore = $state(false);
-  let noMore = $state(false);
-  let error = $state('');
+  const loaded = $derived(notices.list(noticeType()));
+  const noMore = $derived(notices.noMore(noticeType()));
+  const loading = $derived(notices.loading[type]);
+  let detailError = $state('');
+  const error = $derived(detailError || notices.error[type]);
 
   let detail = $state<NoticeDetail | null>(null);
   let detailOpen = $state(false);
   let detailLoading = $state(false);
 
   // 授業アンケート（LCAM の一覧は先頭のまとまりだけで、件数は少ない。ページングなし）。
-  let enquetes = $state<EnqueteView[]>([]);
-  let enqueteLoaded = $state(false);
+  const enquetes = $derived(notices.enquetes);
   let enqueteOpen = $state(false);
   let enqueteSel = $state<EnqueteView | null>(null);
   const pendingCount = $derived(enquetes.filter(isPending).length);
@@ -57,21 +52,6 @@
       return !q || [e.title, e.subject].join(' ').toLowerCase().includes(q);
     }),
   );
-
-  async function loadEnquetes() {
-    loading = true;
-    error = '';
-    try {
-      const res = await api.enquetes();
-      enquetes = res.items.map(toEnqueteView);
-      enqueteLoaded = true;
-    } catch (err) {
-      enquetes = [];
-      error = err instanceof ApiError ? err.message : 'アンケートの取得に失敗しました';
-    } finally {
-      loading = false;
-    }
-  }
 
   function openEnquete(e: EnqueteView) {
     enqueteSel = e;
@@ -92,113 +72,51 @@
   );
   const shown = $derived(withForced.filter(matchQuery));
 
-  async function load() {
-    if (type === 'enquete') return loadEnquetes();
-    loading = true;
-    error = '';
-    count = STEP;
-    noMore = false;
-    try {
-      const res = await api.notices(noticeType(), count);
-      loaded = res.notices;
-      // 要求件数に満たなければ末尾に到達している。
-      noMore = res.notices.length < count;
-    } catch (err) {
-      loaded = [];
-      error = err instanceof ApiError ? err.message : '取得に失敗しました';
-    } finally {
-      loading = false;
-    }
+  function revalidate(t: 'common' | 'class' | 'enquete'): Promise<void> {
+    return t === 'enquete' ? notices.revalidateEnquetes() : notices.revalidate(t);
   }
 
-  async function syncSilently() {
-    // 保持したまま再表示されたときの裏での取り直し。await の間にユーザーが種別や件数を変えたら結果は捨てる。
-    const savedType = type;
-    const savedCount = count;
-    try {
-      if (savedType !== 'enquete') {
-        const res = await api.notices(noticeType(), savedCount);
-        if (type !== savedType || count !== savedCount) return;
-        if (!sameData(res.notices, loaded)) {
-          loaded = res.notices;
-          noMore = res.notices.length < savedCount;
-        }
-      }
-      // アンケートは一覧（種別が enquete のとき）とタブのバッジの両方に使う。
-      const items = (await api.enquetes()).items.map(toEnqueteView);
-      if (!sameData(items, enquetes)) enquetes = items;
-    } catch {
-      // 既存の表示を維持
-    }
-  }
-
-  async function more() {
-    // 累積件数を増やして全件を取り直す。件数が伸びなければ末尾。
-    if (loadingMore || noMore) return;
-    loadingMore = true;
-    const next = count + STEP;
-    try {
-      const res = await api.notices(noticeType(), next);
-      if (res.notices.length <= loaded.length || res.notices.length < next) {
-        noMore = true;
-      }
-      loaded = res.notices;
-      count = next;
-    } catch {
-      noMore = true;
-    } finally {
-      loadingMore = false;
-    }
+  function more() {
+    void notices.more(noticeType());
   }
 
   function switchType(t: 'common' | 'class' | 'enquete') {
     if (type === t) return;
     type = t;
-    load();
+    detailError = '';
+    // キャッシュを即表示し、裏で取り直す（キャッシュが無いときだけ読み込み中を出す）。
+    void revalidate(t);
   }
 
-  async function openDetail(index: number) {
+  async function openDetail(n: Notice) {
     detailOpen = true;
-    detail = null;
-    detailLoading = true;
-    if (DEBUG_FORCE_FULL_NOTICE && index === FULL_NOTICE_INDEX) {
+    detailError = '';
+    if (DEBUG_FORCE_FULL_NOTICE && (n === fullUnivNotice || n === fullClassNotice)) {
       detail =
         type === 'class'
           ? { ...fullNoticeDetail, sender: fullClassNotice.sender, title: fullClassNotice.title }
           : { ...fullNoticeDetail, subject: undefined };
-      detailLoading = false;
       return;
     }
+    // 一度開いた詳細はキャッシュから即表示する。
+    detail = notices.cachedDetail(n);
+    if (detail) return;
+    detailLoading = true;
     try {
-      const res = await api.noticeDetail(noticeType(), index);
-      detail = res.detail;
+      detail = await notices.detail(n);
     } catch (err) {
-      error = err instanceof ApiError ? err.message : '詳細の取得に失敗しました';
+      detailError = err instanceof ApiError ? err.message : '詳細の取得に失敗しました';
       detailOpen = false;
     } finally {
       detailLoading = false;
     }
   }
 
-  let first = true;
   onActivate(() => active, () => {
-    if (first) {
-      first = false;
-      load();
-      // アンケートの未回答数をタブのバッジに出すため、最初に一度だけ取っておく。
-      if (type !== 'enquete' && !enqueteLoaded) {
-        api
-          .enquetes()
-          .then((res) => {
-            enquetes = res.items.map(toEnqueteView);
-            enqueteLoaded = true;
-          })
-          .catch(() => {});
-      }
-    } else {
-      // 再取得（静かに実行）
-      void syncSilently();
-    }
+    // 表示中の種別を先に取り、残りの種別も裏で取っておく（タブ切替を即表示にするため）。
+    // LCAM は呼び出しが重なると失敗し得るため直列に取る。直前に取ったばかりの種別は取り直さない。
+    const order = [type, ...(['common', 'class', 'enquete'] as const).filter((t) => t !== type)];
+    void order.reduce((p, t) => p.then(() => revalidate(t)), Promise.resolve());
   });
 </script>
 
@@ -256,7 +174,7 @@
   <ul class="list">
     {#each shown as n (n.type + n.index)}
       <li>
-        <button class="item" onclick={() => openDetail(n.index)}>
+        <button class="item" onclick={() => openDetail(n)}>
           <div class="title-row">
             {#if n.isImportant}<span class="badge">重要</span>{/if}
             <span class="title">{n.title}</span>
@@ -270,8 +188,8 @@
   </ul>
 
   {#if !noMore}
-    <button class="more" onclick={more} disabled={loadingMore}>
-      {loadingMore ? '読み込み中…' : 'もっと見る'}
+    <button class="more" onclick={more} disabled={notices.loadingMore}>
+      {notices.loadingMore ? '読み込み中…' : 'もっと見る'}
     </button>
   {:else if !query}
     <p class="end">これ以上はありません</p>

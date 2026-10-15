@@ -3,7 +3,6 @@
     api,
     type Assignment,
     type LcamSessionStatus,
-    type Notice,
     type TimetableEntry,
   } from '$lib/api';
   import {
@@ -12,7 +11,8 @@
     WEEKDAY_LABELS,
   } from '$lib/date';
   import { memos } from '$lib/stores/local.svelte';
-  import { toEnqueteView, isPending, type EnqueteView } from '$lib/enquete';
+  import { isPending } from '$lib/enquete';
+  import { notices } from '$lib/stores/notices.svelte';
   import { submissions } from '$lib/stores/submission.svelte';
   import { onActivate, sameData } from '$lib/activate.svelte';
   import Icon from '$lib/components/Icon.svelte';
@@ -21,9 +21,7 @@
   let { userId = '', onNavigate, active = true }: { userId?: string; onNavigate?: (t: Tab) => void; active?: boolean } = $props();
 
   let assignments = $state<Assignment[]>([]);
-  let notices = $state<Notice[]>([]);
   let timetable = $state<TimetableEntry[]>([]);
-  let enquetes = $state<EnqueteView[]>([]);
   // LCAM は MFA のため、初回に lamyapp:// の key（または Cookie）を登録する。登録済みなら Worker が自動で
   // 再ログインするので、未登録（資格情報が拒否されて破棄された場合を含む）のときだけ登録を促す
   // （登録状況の取得は KV 読み取りのみで LCAM へはアクセスしない）。取得に失敗したら何も出さない。
@@ -52,12 +50,9 @@
       now = new Date();
       void sync(() => api.lcamSession(), () => lcam, (v) => (lcam = v));
       void sync(async () => (await api.assignments()).assignments, () => assignments, (v) => (assignments = v));
-      void sync(async () => (await api.notices('common')).notices, () => notices, (v) => (notices = v));
-      void sync(
-        async () => (await api.enquetes()).items.map(toEnqueteView),
-        () => enquetes,
-        (v) => (enquetes = v),
-      );
+      // お知らせ・アンケートはお知らせタブとキャッシュを共有する。授業連絡も裏で取っておき、タブを開いたら即表示する。
+      void notices.revalidate('common').then(() => notices.revalidate('class'));
+      void notices.revalidateEnquetes();
       void sync(async () => (await api.timetable()).timetable, () => timetable, (v) => (timetable = v));
       void submissions.ensure(upcomingIds());
     },
@@ -93,14 +88,14 @@
       .sort((a, b) => (a.dueEpochMs || Number.MAX_SAFE_INTEGER) - (b.dueEpochMs || Number.MAX_SAFE_INTEGER)),
   );
 
-  const pendingEnquetes = $derived(enquetes.filter(isPending));
+  const pendingEnquetes = $derived(notices.enquetes.filter(isPending));
   // これからの課題のうち、先頭 15 件の提出状況を取る（提出済みを一覧から外すため）。
   $effect(() => {
     const ids = upcomingIds();
     if (ids.length > 0) void submissions.ensure(ids);
   });
 
-  const latestNotices = $derived(notices.slice(0, 3));
+  const latestNotices = $derived(notices.list('common').slice(0, 3));
   const recentMemos = $derived(memos.sorted.slice(0, 2));
 
   function fmtDue(epoch: number): string {
