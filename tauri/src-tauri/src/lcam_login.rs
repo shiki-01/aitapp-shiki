@@ -17,6 +17,8 @@
 // 注意: LCAM は単一セッションのため、ここでログインすると他の端末・ブラウザ・公式アプリの
 // LCAM セッションは切れる。
 
+#[cfg(mobile)]
+use std::sync::atomic::AtomicU32;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -28,6 +30,20 @@ use crate::commands;
 use crate::state::SessionState;
 
 pub const LABEL: &str = "lcam-login";
+
+/// iOS の tao（0.35.3 / 0.37.1 で確認）は、ウィンドウを破棄しても `WindowEvent::Destroyed` を出さない。
+/// Tauri はこのイベントを受けて初めてラベルの登録を外すため、iOS では同じラベルで 2 回目を作ると
+/// 「a webview with label `lcam-login` already exists」で失敗する。モバイルだけ回ごとに別のラベルにして回避する
+/// （tao 側で Destroyed が出るようになったら、この回避は消して固定ラベルに戻す）。
+#[cfg(mobile)]
+static ATTEMPT: AtomicU32 = AtomicU32::new(0);
+
+fn window_label() -> String {
+    #[cfg(mobile)]
+    return format!("{LABEL}-{}", ATTEMPT.fetch_add(1, Ordering::Relaxed));
+    #[cfg(not(mobile))]
+    return LABEL.to_string();
+}
 const LOGIN_URL: &str = "https://lcam.aitech.ac.jp/portalv2/sp";
 const LCAM_HOST: &str = "lcam.aitech.ac.jp";
 
@@ -153,7 +169,7 @@ pub async fn connect(app: &AppHandle, start_visible: bool, allow_show: bool) -> 
     }
     let _busy = BusyGuard(app.clone());
 
-    // 前回の残りがあれば閉じる。
+    // 前回の残りがあれば閉じる（モバイルは回ごとに別ラベルのため、ここでは見つからない）。
     if let Some(old) = app.get_webview_window(LABEL) {
         let _ = old.destroy();
     }
@@ -189,7 +205,7 @@ pub async fn connect(app: &AppHandle, start_visible: bool, allow_show: bool) -> 
         }
     };
 
-    let builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External("about:blank".parse().unwrap()))
+    let builder = WebviewWindowBuilder::new(app, window_label(), WebviewUrl::External("about:blank".parse().unwrap()))
         .title("LCAM ログイン")
         .on_page_load(on_page_load)
         .on_navigation(on_navigation)
