@@ -29,7 +29,11 @@
 
     /* ---- レイアウト ---- */
     --app-max: 480px;
-    --nav-h: 84px;
+    /* 下部ナビの下の余白。画面の下端まで描画する（app.html の viewport-fit=cover）ため、
+       ホームインジケータのある端末ではその高さ、無い端末では 14px。 */
+    --nav-bottom: max(14px, env(safe-area-inset-bottom));
+    /* 下部ナビが画面下から占める高さ（中身の下余白に使う）。 */
+    --nav-h: calc(70px + var(--nav-bottom));
     --radius: 14px;
     --radius-sm: 8px;
     --shadow: 0 6px 24px rgba(16, 64, 140, 0.08);
@@ -98,6 +102,13 @@ html, body {
     /* iOS(WKWebView)はページ全体にデフォルトでラバーバンド(バウンス)スクロールが効き、
        端まで着くと慣性で少しオーバースクロールしてから戻るため、一瞬下に隙間が見える。 */
     overscroll-behavior-y: none;
+}
+
+/* モバイルのシェル表示中は文書をスクロールさせない（スクロールは <main> の内側。lib/scroll.ts 参照）。 */
+html.scroll-locked,
+html.scroll-locked body {
+    overflow: hidden;
+    height: 100%;
 }
 
 body {

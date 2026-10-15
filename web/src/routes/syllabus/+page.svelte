@@ -43,7 +43,7 @@
 
 <style>
   main {
-    padding: 18px 16px 32px;
+    padding: calc(18px + env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom));
     min-height: 100dvh;
   }
   .head {

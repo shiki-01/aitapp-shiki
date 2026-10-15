@@ -5,6 +5,7 @@
   import { api } from '$lib/api';
   import { isDesktop, isTauri } from '$lib/platform';
   import { session } from '$lib/stores/session.svelte';
+  import { scrollRoot } from '$lib/scroll';
   import { DESKTOP_TAB_ORDER, MOBILE_TAB_ORDER, TAB_PATH, pathToTab, type Tab } from '$lib/tabs';
   import BottomNav from '$lib/components/BottomNav.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
@@ -96,7 +97,7 @@
     if (!cur) return;
     visited[cur] = true;
     if (prev && prev !== cur) {
-      const y = window.scrollY;
+      const y = scrollRoot().scrollTop;
       scrolls[prev] = y;
       if (!reduceMotion) {
         dir = order.indexOf(cur) > order.indexOf(prev) ? 1 : -1;
@@ -113,11 +114,20 @@
     prev = cur;
   });
 
+  // モバイルは文書をスクロールさせず、<main> の内側だけをスクロールさせる（scroll.ts 参照）。
+  // シェルの外（ログイン・シラバス）では通常どおり文書をスクロールさせるため、表示中だけ付ける。
+  $effect(() => {
+    if (isDesktop || checking) return;
+    const root = document.documentElement;
+    root.classList.add('scroll-locked');
+    return () => root.classList.remove('scroll-locked');
+  });
+
   // 切替後、そのタブで最後に見ていたスクロール位置へ戻す。
   $effect(() => {
     const cur = tab;
     if (!cur) return;
-    untrack(() => window.scrollTo({ top: scrolls[cur] ?? 0, behavior: 'instant' }));
+    untrack(() => scrollRoot().scrollTo({ top: scrolls[cur] ?? 0, behavior: 'instant' }));
   });
 </script>
 
@@ -128,7 +138,7 @@
     {#if isDesktop}
       <SideNav {tab} />
     {/if}
-    <main style:--dir={dir} style:--slide-ms="{SLIDE_MS}ms">
+    <main data-scroll-root={isDesktop ? undefined : ''} style:--dir={dir} style:--slide-ms="{SLIDE_MS}ms">
       {#each order as t (t)}
         {#if visited[t]}
           <!-- カレンダーはビュー内で縦スクロール領域を持つため、フル高にする。 -->
@@ -177,13 +187,21 @@
     overflow-x: clip;
     min-height: 100dvh;
   }
+  /* モバイル: <main> を画面高に固定し、その内側だけをスクロールさせる。 */
+  .shell:not(.desktop) main {
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
   .shell.desktop main {
     margin-left: 220px;
     width: 100%;
   }
   .panel {
     display: none;
-    padding: 18px 16px calc(var(--nav-h) + 12px);
+    /* 上はステータスバーの下から（viewport-fit=cover で画面の上端まで描画するため）。 */
+    padding: calc(18px + env(safe-area-inset-top)) 16px calc(var(--nav-h) + 12px);
     min-height: 100dvh;
   }
   .shell.desktop .panel {
@@ -195,7 +213,7 @@
   }
   /* カレンダー: 画面を縦に使い切り、内部でスクロールさせる。 */
   .panel.full {
-    padding: 0;
+    padding: env(safe-area-inset-top) 0 0;
     height: 100dvh;
     flex-direction: column;
     overflow: hidden;
