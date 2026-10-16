@@ -1483,3 +1483,15 @@ POST を再現して確認した**（Worker からの実行は未検証。§17.5
   Worker 側（`POST /api/auth/mcp-writes`、`state.mcpAllowWrites`）は変更していない。ブラウザ版は元々 `/api/auth/me` を直接叩いており対象外。
 - **確認**: `web/` で `bun run check`（`svelte-kit sync && svelte-check`）が 0 エラー・0 警告で通過。Tauri 実機での動作は未確認
   （`tauri dev` でチェックボックスが操作可能になることの確認が要る。`docs/BACKLOG.md` から本項目は削除）。
+
+---
+
+## 19. ホームのシャトルバス時刻・リンク一覧のバス時刻表（2026-10-16）
+
+- 表示元: 愛工大バス時刻案内 <https://bus.kajilab.net/>（ソース: kajiLabTeam/ait-bus-v2, MIT）。
+- 取得: web から `GET {VITE_BUS_API_BASE}/api/v2/afterbus` を直接 fetch（大学の認証情報は不要。API は `hono/cors` で全オリジン許可）。Worker は経由しない。
+  - 応答: `{ busTimes: { toAIT: [時, 分][], toYakusa: [時, 分][] } }`。その日（JST）の全便。運行のない日は両方空配列。
+  - 「次の便／その次」はクライアントで現在時刻から算出（参考実装 `front/.../BusInfo` と同じ）。
+- 時刻表データはこちらで持たない。参考リポジトリの運行日カレンダー（`db.repository.ts`）は 2025-04-01〜2026-03-31 までで、年度ごとに API 側で更新されるため。
+- **要確認**: API の実ホスト。参考リポジトリの front は `NEXT_PUBLIC_API_URL` で API を別指定しており値が公開されていない。既定値は `https://bus.kajilab.net`（同一オリジンに `/api` がある前提）とし、違えば `VITE_BUS_API_BASE` で差し替える。実装時点でこの開発環境からは bus.kajilab.net に到達できず未検証。取得失敗時はホームに「取得できませんでした」と出し、カード見出しからサイトへ遷移できる。
+- その他タブのリンク一覧に「バス時刻表」(<https://bus.kajilab.net/>) を追加。

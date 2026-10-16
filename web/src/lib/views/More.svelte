@@ -7,6 +7,7 @@
   import { api, ApiError, type LcamSessionStatus } from '$lib/api';
   import { isDesktop, isTauri } from '$lib/platform';
   import { onActivate, sameData } from '$lib/activate.svelte';
+  import { BUS_SITE_URL } from '$lib/bus';
 
   let { userId = '', onLogout, active = true }: { userId?: string; onLogout?: () => void; active?: boolean } = $props();
 
@@ -270,6 +271,7 @@
   const LINKS: { label: string; href: string }[] = [
     { label: '大学ポータル (AIT Portal)', href: 'https://portal.aitech.ac.jp/' },
     { label: 'Moodle', href: 'https://cms.aitech.ac.jp/' },
+    { label: 'バス時刻表 (八草駅 ⇄ 大学)', href: BUS_SITE_URL },
   ];
 </script>
 

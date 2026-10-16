@@ -17,6 +17,7 @@
   import { onActivate, sameData } from '$lib/activate.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import type { Tab } from '$lib/tabs';
+  import { BUS_SITE_URL, fetchBusTimes, nextBuses, type BusTimes } from '$lib/bus';
 
   let { userId = '', onNavigate, active = true }: { userId?: string; onNavigate?: (t: Tab) => void; active?: boolean } = $props();
 
@@ -26,6 +27,9 @@
   // 再ログインするので、未登録（資格情報が拒否されて破棄された場合を含む）のときだけ登録を促す
   // （登録状況の取得は KV 読み取りのみで LCAM へはアクセスしない）。取得に失敗したら何も出さない。
   let lcam = $state<LcamSessionStatus | undefined>(undefined);
+  // バス時刻は外部 API。未取得 = undefined、取得失敗（未取得のまま）= busError。
+  let bus = $state<BusTimes | undefined>(undefined);
+  let busError = $state(false);
 
   let now = $state(new Date());
   const greeting = $derived(
@@ -55,6 +59,13 @@
       void notices.revalidateEnquetes();
       void sync(async () => (await api.timetable()).timetable, () => timetable, (v) => (timetable = v));
       void submissions.ensure(upcomingIds());
+      fetchBusTimes().then(
+        (v) => {
+          busError = false;
+          if (!sameData(v, bus)) bus = v;
+        },
+        () => (busError = bus === undefined),
+      );
     },
   );
 
@@ -104,7 +115,13 @@
     return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   }
 
-  const TOOLS: { label: string; tab?: Tab; href?: string }[] = [
+  const BUS_ROUTES = [
+    { key: 'toAIT', label: '八草駅 → 大学' },
+    { key: 'toYakusa', label: '大学 → 八草駅' },
+  ] as const;
+  const noBusToday = $derived(!!bus && bus.toAIT.length === 0 && bus.toYakusa.length === 0);
+
+  const TOOLS:{ label: string; tab?: Tab; href?: string }[] = [
     { label: '時間割', tab: 'calendar' },
     { label: '課題', tab: 'assignments' },
     { label: 'お知らせ', tab: 'notices' },
@@ -141,6 +158,36 @@
     </div>
   {:else}
     <p class="empty">本日の残りの授業はありません。</p>
+  {/if}
+</section>
+
+<!-- バス -->
+<section class="card">
+  <a class="card-h link" href={BUS_SITE_URL} target="_blank" rel="noreferrer noopener">
+    <Icon name="clock" size={18} color="var(--primary)" /><span>シャトルバス</span>
+    <Icon name="external" size={16} color="var(--muted)" />
+  </a>
+  {#if busError}
+    <p class="empty">バス時刻を取得できませんでした。</p>
+  {:else if !bus}
+    <p class="empty">取得中…</p>
+  {:else if noBusToday}
+    <p class="empty">本日のバスの運行はありません。</p>
+  {:else}
+    <div class="bus">
+      {#each BUS_ROUTES as r (r.key)}
+        {@const times = nextBuses(bus[r.key], now)}
+        <div class="bus-route">
+          <span class="bus-label">{r.label}</span>
+          {#if times.length === 0}
+            <span class="bus-end">本日の運行は終了しました</span>
+          {:else}
+            <span class="bus-next">{times[0]}</span>
+            {#if times[1]}<span class="bus-after">次 {times[1]}</span>{/if}
+          {/if}
+        </div>
+      {/each}
+    </div>
   {/if}
 </section>
 
@@ -283,6 +330,35 @@
     background: none;
     padding: 0;
     text-align: left;
+    text-decoration: none;
+  }
+  .bus {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .bus-route {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .bus-label {
+    font-size: 0.76rem;
+    color: var(--muted);
+  }
+  .bus-next {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--primary);
+  }
+  .bus-after {
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .bus-end {
+    font-size: 0.82rem;
+    color: var(--muted);
   }
   .card-h .count {
     margin-left: auto;
